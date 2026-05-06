@@ -1,4 +1,4 @@
-# Claude Config Tool — Design Spec
+# claudesync — Design Spec
 
 **Дата:** 2026-05-06
 **Статус:** Approved (pending user review of this document)
@@ -6,7 +6,7 @@
 
 ## Цель
 
-Десктопное приложение для синхронизации конфигов Claude Code между несколькими машинами (Mac/Windows/Linux). Запускает `git pull` в указанном «ai-репозитории» (где лежат `global/`, `projects/`, `install.sh`, `install.ps1`) и затем — соответствующий ОС install-скрипт. Показывает прогресс и ошибки в окне.
+**claudesync** — десктопное приложение для синхронизации конфигов Claude Code между несколькими машинами (Mac/Windows/Linux). Запускает `git pull` в указанном «ai-репозитории» (где лежат `global/`, `projects/`, `install.sh`, `install.ps1`) и затем — соответствующий ОС install-скрипт. Показывает прогресс и ошибки в окне.
 
 В будущем — расширяется до утилиты для онбординга коллег (создание подобного репо по шаблону) и автономного сборщика ai-конфига.
 
@@ -214,7 +214,7 @@ CI запускает `vitest` на `ubuntu-latest` (юнит-тесты не з
 ## Структура репозитория
 
 ```
-claude-config-tool/
+claudesync/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml          # vitest на каждом push в main
@@ -249,8 +249,8 @@ claude-config-tool/
 
 Архитектура (раздельный main с runner.ts + IPC, расширяемый renderer) рассчитана на эти расширения без переделки.
 
-## Открытые вопросы
+## Решённые параметры
 
-- Имя репозитория: `claude-config-tool` — рабочее. Альтернативы: `ccsync`, `claude-cockpit`, `claudesync`. Решим перед `git remote add origin`.
-- LICENSE: MIT по умолчанию для публичного репо. Подтвердим перед коммитом.
-- Иконка приложения: пока заглушка из electron-builder, дизайн позже.
+- **Имя приложения и репо:** `claudesync` (publish: `github.com/DuchitskyDA/claudesync`)
+- **LICENSE:** MIT (публичный репо)
+- **Иконка:** заглушка из electron-builder на MVP, кастом позже
