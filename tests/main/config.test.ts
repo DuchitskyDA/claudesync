@@ -133,4 +133,14 @@ describe('validateRulesTarget', () => {
   it('accepts absolute path that does not exist yet', () => {
     expect(validateRulesTarget('/nonexistent/path/that/will/be/created')).toEqual({ ok: true })
   })
+
+  it('accepts ~/.claude (tilde expansion)', () => {
+    expect(validateRulesTarget('~/.claude')).toEqual({ ok: true })
+  })
+})
+
+describe('validateLocalRepo tilde expansion', () => {
+  it('accepts ~/some-non-existent-folder-12345 (tilde expansion, non-existent ok)', () => {
+    expect(validateLocalRepo('~/some-non-existent-folder-12345')).toEqual({ ok: true })
+  })
 })

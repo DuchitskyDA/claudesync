@@ -1,6 +1,13 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, statSync, readdirSync } from 'node:fs'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
+import { homedir } from 'node:os'
 import type { AppConfig } from '@shared/api'
+
+export function expandTilde(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/') || p.startsWith('~\\')) return join(homedir(), p.slice(2))
+  return p
+}
 
 export function readConfig(filePath: string): AppConfig {
   if (!existsSync(filePath)) return { repoPath: null, repoUrl: null, rulesTarget: null }
@@ -27,13 +34,14 @@ export type ValidationResult = { ok: true } | { ok: false; error: string }
 
 export function validateLocalRepo(p: string): ValidationResult {
   if (!p) return { ok: false, error: 'Local repo path is required' }
-  if (!isAbsolute(p)) return { ok: false, error: 'Local repo path must be absolute' }
-  if (!existsSync(p)) return { ok: true } // will be created by clone
+  const expanded = expandTilde(p)
+  if (!isAbsolute(expanded)) return { ok: false, error: 'Local repo path must be absolute' }
+  if (!existsSync(expanded)) return { ok: true } // will be created by clone
   let st
-  try { st = statSync(p) } catch (e) { return { ok: false, error: `Cannot stat: ${(e as Error).message}` } }
+  try { st = statSync(expanded) } catch (e) { return { ok: false, error: `Cannot stat: ${(e as Error).message}` } }
   if (!st.isDirectory()) return { ok: false, error: 'Local repo path must be a directory' }
   // Existing dir: must be empty OR be a git repo (have .git inside)
-  const entries = readdirSync(p)
+  const entries = readdirSync(expanded)
   if (entries.length === 0) return { ok: true }
   if (entries.includes('.git')) return { ok: true }
   return { ok: false, error: 'Folder is not empty and not a git repo — pick a fresh path or an existing clone' }
@@ -49,6 +57,7 @@ export function validateRepoUrl(u: string): ValidationResult {
 
 export function validateRulesTarget(p: string): ValidationResult {
   if (!p) return { ok: false, error: 'Rules target folder is required' }
-  if (!isAbsolute(p)) return { ok: false, error: 'Rules target folder must be absolute' }
+  const expanded = expandTilde(p)
+  if (!isAbsolute(expanded)) return { ok: false, error: 'Rules target folder must be absolute' }
   return { ok: true }
 }
