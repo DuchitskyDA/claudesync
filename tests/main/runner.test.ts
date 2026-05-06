@@ -31,3 +31,35 @@ describe('runCommand', () => {
     expect(lines[0]!.time).toMatch(/^\d{2}:\d{2}:\d{2}$/)
   })
 })
+
+describe('runCommand stderr and exit codes', () => {
+  it('streams stderr as error level', async () => {
+    spawnMock.mockReturnValue(fakeProc([], ['oops\n'], 0))
+    const lines: LogLine[] = []
+    await runCommand('false', [], { cwd: '/tmp', onLine: (l) => lines.push(l) })
+    expect(lines).toEqual([expect.objectContaining({ text: 'oops', level: 'error' })])
+  })
+
+  it('resolves with non-zero exit code', async () => {
+    spawnMock.mockReturnValue(fakeProc([], ['bad\n'], 2))
+    const lines: LogLine[] = []
+    const r = await runCommand('false', [], { cwd: '/tmp', onLine: (l) => lines.push(l) })
+    expect(r.exitCode).toBe(2)
+  })
+
+  it('rejects when spawn emits error (ENOENT)', async () => {
+    const proc = new EventEmitter() as EventEmitter & { stdout: Readable; stderr: Readable }
+    proc.stdout = Readable.from([])
+    proc.stderr = Readable.from([])
+    setTimeout(() => proc.emit('error', Object.assign(new Error('ENOENT'), { code: 'ENOENT' })), 0)
+    spawnMock.mockReturnValue(proc)
+    await expect(runCommand('nope', [], { cwd: '/tmp', onLine: () => {} })).rejects.toThrow('ENOENT')
+  })
+
+  it('flushes trailing partial line without newline', async () => {
+    spawnMock.mockReturnValue(fakeProc(['no-trailing-newline'], [], 0))
+    const lines: LogLine[] = []
+    await runCommand('x', [], { cwd: '/tmp', onLine: (l) => lines.push(l) })
+    expect(lines.map((l) => l.text)).toEqual(['no-trailing-newline'])
+  })
+})
