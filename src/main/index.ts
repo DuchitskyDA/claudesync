@@ -17,8 +17,26 @@ function createWindow() {
     },
   })
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (rendererUrl) {
+    // In dev, the Vite renderer may not be up yet when Electron starts.
+    // Retry loading until it succeeds (max 30 attempts × 500ms = 15s).
+    let attempts = 0
+    const maxAttempts = 30
+    const tryLoad = () => {
+      win.loadURL(rendererUrl).catch(() => {
+        if (attempts++ < maxAttempts && !win.isDestroyed()) {
+          setTimeout(tryLoad, 500)
+        }
+      })
+    }
+    win.webContents.on('did-fail-load', (_e, errorCode) => {
+      // -102 = ERR_CONNECTION_REFUSED — renderer not ready yet
+      if (errorCode === -102 && attempts++ < maxAttempts && !win.isDestroyed()) {
+        setTimeout(tryLoad, 500)
+      }
+    })
+    tryLoad()
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
