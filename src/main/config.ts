@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, statSync, readdirSync } from 'node:fs'
-import { join, isAbsolute } from 'node:path'
+import { isAbsolute } from 'node:path'
 import type { AppConfig } from '@shared/api'
 
 export function readConfig(filePath: string): AppConfig {
