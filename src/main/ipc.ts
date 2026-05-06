@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app } from 'electron'
 import type { LogLine, Platform, RunResult, AppConfig, SetConfigResult } from '@shared/api'
@@ -64,10 +64,24 @@ export async function runUpdateHandler(target: Platform, deps: RunUpdateDeps): P
   }).catch((e: Error) => ({ ok: false, exitCode: -1, error: e.message }))
 }
 
+const LOG_LIMIT = 200
+
 export function registerIpc(window: BrowserWindow): void {
   const configPath = join(app.getPath('userData'), 'config.json')
+  const logFile = join(app.getPath('userData'), 'last-run.log')
+  const logBuffer: LogLine[] = []
   const emit = (line: LogLine) => {
     if (!window.isDestroyed()) window.webContents.send('log', line)
+    logBuffer.push(line)
+    if (logBuffer.length > LOG_LIMIT) logBuffer.shift()
+    try {
+      writeFileSync(
+        logFile,
+        logBuffer.map((l) => `[${l.time}] ${l.level.toUpperCase()} ${l.text}`).join('\n') + '\n',
+      )
+    } catch {
+      // ignore disk errors — logging is best-effort
+    }
   }
 
   ipcMain.handle('run-update', (_e, platform: Platform) =>
