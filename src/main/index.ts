@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { registerIpc } from './ipc'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -21,6 +22,9 @@ function createWindow() {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  registerIpc(win)
+  return win
 }
 
 app.whenReady().then(() => {
