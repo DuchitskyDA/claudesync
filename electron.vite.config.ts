@@ -25,6 +25,10 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
+    server: {
+      // Force IPv4: on Windows Vite defaults to IPv6 (::1) which Electron can't reach via localhost
+      host: '127.0.0.1',
+    },
     build: {
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),
