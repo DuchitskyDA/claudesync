@@ -62,6 +62,18 @@ describe('runCommand stderr and exit codes', () => {
     await runCommand('x', [], { cwd: '/tmp', onLine: (l) => lines.push(l) })
     expect(lines.map((l) => l.text)).toEqual(['no-trailing-newline'])
   })
+
+  it('forwards merged env vars to spawn', async () => {
+    spawnMock.mockReturnValue(fakeProc(['ok\n'], [], 0))
+    await runCommand('printenv', ['FOO'], {
+      cwd: '/tmp',
+      env: { FOO: 'bar' },
+      onLine: () => {},
+    })
+    expect(spawnMock).toHaveBeenCalledWith('printenv', ['FOO'], expect.objectContaining({
+      env: expect.objectContaining({ FOO: 'bar' }),
+    }))
+  })
 })
 
 describe('withRunLock', () => {

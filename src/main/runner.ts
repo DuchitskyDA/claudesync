@@ -4,6 +4,7 @@ import type { LogLine } from '@shared/api'
 
 export type RunOptions = {
   cwd: string
+  env?: Record<string, string>
   onLine: (line: LogLine) => void
 }
 
@@ -44,7 +45,11 @@ export function runCommand(
   opts: RunOptions,
 ): Promise<RunCommandResult> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd: opts.cwd, shell: false })
+    const proc = spawn(cmd, args, {
+      cwd: opts.cwd,
+      shell: false,
+      env: opts.env ? { ...process.env, ...opts.env } as NodeJS.ProcessEnv : process.env,
+    })
     const outDone = streamToLines(proc.stdout, 'info', opts.onLine)
     const errDone = streamToLines(proc.stderr, 'error', opts.onLine)
     proc.on('error', (err) => reject(err))
