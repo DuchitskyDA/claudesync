@@ -1,0 +1,21 @@
+export type LogLevel = 'info' | 'error' | 'success'
+export type LogLine = { time: string; text: string; level: LogLevel }
+export type Platform = 'macos' | 'windows'
+export type RunResult = { ok: boolean; exitCode: number; error?: string }
+export type AppConfig = { repoPath: string | null }
+export type SetConfigResult = { ok: boolean; error?: string }
+
+export interface AppApi {
+  runUpdate(platform: Platform): Promise<RunResult>
+  getConfig(): Promise<AppConfig>
+  setConfig(c: AppConfig): Promise<SetConfigResult>
+  pickRepoPath(): Promise<string | null>
+  onLog(callback: (line: LogLine) => void): () => void
+  getPlatform(): Promise<NodeJS.Platform>
+}
+
+declare global {
+  interface Window {
+    api: AppApi
+  }
+}
