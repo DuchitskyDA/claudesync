@@ -30,6 +30,9 @@ export default [
       ...js.configs.recommended.rules,
       ...tsPlugin.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // TypeScript handles undefined symbols via its own checker; ESLint's no-undef
+      // duplicates that and trips on TS-only namespaces like NodeJS.Platform.
+      'no-undef': 'off',
     },
   },
 ];
