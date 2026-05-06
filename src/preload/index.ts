@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppApi, LogLine, AppConfig, Platform, RunResult, SetConfigResult } from '@shared/api'
+import type { AppApi, LogLine, AppConfig, RunResult, SetConfigResult } from '@shared/api'
 
 const api: AppApi = {
-  runUpdate: (platform: Platform): Promise<RunResult> =>
-    ipcRenderer.invoke('run-update', platform),
+  runSync: (): Promise<RunResult> =>
+    ipcRenderer.invoke('run-sync'),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   setConfig: (c: AppConfig): Promise<SetConfigResult> => ipcRenderer.invoke('set-config', c),
   pickRepoPath: (): Promise<string | null> => ipcRenderer.invoke('pick-repo-path'),

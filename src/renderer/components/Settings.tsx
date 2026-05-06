@@ -26,7 +26,7 @@ export function Settings({ open, initialRepoPath, onClose, onSaved }: Props) {
     setError(null)
     setBusy(true)
     try {
-      const r = await window.api.setConfig({ repoPath: path })
+      const r = await window.api.setConfig({ repoPath: path, repoUrl: null, rulesTarget: null })
       if (!r.ok) {
         setError(r.error ?? 'Unknown error')
         return

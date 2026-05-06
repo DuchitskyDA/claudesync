@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react'
-import type { LogLine, RunResult, Platform } from '@shared/api'
+import type { LogLine } from '@shared/api'
 
 export type AppState = {
   repoPath: string | null
@@ -48,12 +48,6 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
-function now(): string {
-  const d = new Date()
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
 export function useAppState() {
   const [state, dispatch] = useReducer(reducer, initial)
 
@@ -67,22 +61,8 @@ export function useAppState() {
     return () => unsub()
   }, [])
 
-  const runUpdate = async (platform: Platform): Promise<RunResult> => {
-    dispatch({ type: 'run-start' })
-    try {
-      const r = await window.api.runUpdate(platform)
-      if (!r.ok && r.error) {
-        dispatch({ type: 'append-log', line: { time: now(), text: r.error, level: 'error' } })
-      }
-      return r
-    } finally {
-      dispatch({ type: 'run-end' })
-    }
-  }
-
   return {
     state,
-    runUpdate,
     clearLog: () => dispatch({ type: 'clear-log' }),
     openSettings: () => dispatch({ type: 'open-settings' }),
     closeSettings: () => dispatch({ type: 'close-settings' }),
