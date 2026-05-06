@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app } from 'electron'
-import type { LogLine, RunResult, AppConfig, SetConfigResult } from '@shared/api'
+import type { LogLine, RunResult, AppConfig, SetConfigResult, StepEvent } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import {
   readConfig,
@@ -9,6 +9,7 @@ import {
   validateLocalRepo,
   validateRepoUrl,
   validateRulesTarget,
+  expandTilde,
 } from './config'
 
 const LOG_LIMIT = 200
@@ -17,6 +18,7 @@ export type RunSyncDeps = {
   currentPlatform: NodeJS.Platform
   configPath: string
   emit: (line: LogLine) => void
+  emitStep: (e: StepEvent) => void
 }
 
 function nowHHMMSS(): string {
@@ -54,6 +56,7 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
 
   return withRunLock(async () => {
     const isExistingRepo = existsSync(join(repoPath, '.git'))
+    deps.emitStep({ step: 'fetch', status: 'running' })
     if (!isExistingRepo) {
       deps.emit({ time: nowHHMMSS(), text: `$ git clone ${repoUrl} ${repoPath}`, level: 'info' })
       mkdirSync(dirname(repoPath), { recursive: true })
@@ -61,12 +64,19 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
         cwd: dirname(repoPath),
         onLine: deps.emit,
       })
-      if (clone.exitCode !== 0) return failWithExit('git clone failed', clone.exitCode, deps.emit)
+      if (clone.exitCode !== 0) {
+        deps.emitStep({ step: 'fetch', status: 'failed', message: `git clone failed (exit ${clone.exitCode})` })
+        return failWithExit('git clone failed', clone.exitCode, deps.emit)
+      }
     } else {
       deps.emit({ time: nowHHMMSS(), text: '$ git pull', level: 'info' })
       const pull = await runCommand('git', ['pull'], { cwd: repoPath, onLine: deps.emit })
-      if (pull.exitCode !== 0) return failWithExit('git pull failed', pull.exitCode, deps.emit)
+      if (pull.exitCode !== 0) {
+        deps.emitStep({ step: 'fetch', status: 'failed', message: `git pull failed (exit ${pull.exitCode})` })
+        return failWithExit('git pull failed', pull.exitCode, deps.emit)
+      }
     }
+    deps.emitStep({ step: 'fetch', status: 'done' })
 
     const scriptName = isWin ? 'install.ps1' : 'install.sh'
     const scriptPath = join(repoPath, scriptName)
@@ -80,6 +90,7 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
       level: 'info',
     })
 
+    deps.emitStep({ step: 'install', status: 'running' })
     const env = { RULES_TARGET: rulesTarget }
     const inst = isWin
       ? await runCommand(
@@ -89,7 +100,11 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
         )
       : await runCommand('bash', [scriptPath], { cwd: repoPath, env, onLine: deps.emit })
 
-    if (inst.exitCode !== 0) return failWithExit('install failed', inst.exitCode, deps.emit)
+    if (inst.exitCode !== 0) {
+      deps.emitStep({ step: 'install', status: 'failed', message: `install failed (exit ${inst.exitCode})` })
+      return failWithExit('install failed', inst.exitCode, deps.emit)
+    }
+    deps.emitStep({ step: 'install', status: 'done' })
     deps.emit({ time: nowHHMMSS(), text: '✓ DONE (exit 0)', level: 'success' })
     return { ok: true, exitCode: 0 }
   }).catch((e: Error) => ({ ok: false, exitCode: -1, error: e.message }))
@@ -112,27 +127,35 @@ export function registerIpc(window: BrowserWindow): void {
       // ignore disk errors
     }
   }
+  const emitStep = (e: StepEvent) => {
+    if (!window.isDestroyed()) window.webContents.send('step', e)
+  }
 
   ipcMain.handle('run-sync', () =>
-    runSyncHandler({ currentPlatform: process.platform, configPath, emit }),
+    runSyncHandler({ currentPlatform: process.platform, configPath, emit, emitStep }),
   )
 
   ipcMain.handle('get-config', (): AppConfig => readConfig(configPath))
 
   ipcMain.handle('set-config', (_e, cfg: AppConfig): SetConfigResult => {
-    if (cfg.repoUrl) {
-      const u = validateRepoUrl(cfg.repoUrl)
+    const normalized: AppConfig = {
+      repoUrl: cfg.repoUrl,
+      repoPath: cfg.repoPath ? expandTilde(cfg.repoPath) : null,
+      rulesTarget: cfg.rulesTarget ? expandTilde(cfg.rulesTarget) : null,
+    }
+    if (normalized.repoUrl) {
+      const u = validateRepoUrl(normalized.repoUrl)
       if (!u.ok) return { ok: false, error: u.error }
     }
-    if (cfg.repoPath) {
-      const p = validateLocalRepo(cfg.repoPath)
+    if (normalized.repoPath) {
+      const p = validateLocalRepo(normalized.repoPath)
       if (!p.ok) return { ok: false, error: p.error }
     }
-    if (cfg.rulesTarget) {
-      const t = validateRulesTarget(cfg.rulesTarget)
+    if (normalized.rulesTarget) {
+      const t = validateRulesTarget(normalized.rulesTarget)
       if (!t.ok) return { ok: false, error: t.error }
     }
-    writeConfig(configPath, cfg)
+    writeConfig(configPath, normalized)
     return { ok: true }
   })
 

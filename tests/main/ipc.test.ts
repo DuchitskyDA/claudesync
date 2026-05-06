@@ -55,21 +55,21 @@ beforeEach(() => {
 describe('runSyncHandler', () => {
   it('fails when repoUrl is missing', async () => {
     readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: null, rulesTarget: '/target' })
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/repo url/i)
   })
 
   it('fails when repoPath is missing', async () => {
     readConfigMock.mockReturnValue({ repoPath: null, repoUrl: 'https://github.com/org/repo', rulesTarget: '/target' })
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/local repo path/i)
   })
 
   it('fails when rulesTarget is missing', async () => {
     readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: 'https://github.com/org/repo', rulesTarget: null })
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/rules target/i)
   })
@@ -77,7 +77,7 @@ describe('runSyncHandler', () => {
   it('fails when URL validation fails', async () => {
     readConfigMock.mockReturnValue(fullConfig)
     validateRepoUrlMock.mockReturnValue({ ok: false, error: 'Invalid URL format' })
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error).toBe('Invalid URL format')
   })
@@ -92,7 +92,7 @@ describe('runSyncHandler', () => {
       .mockResolvedValueOnce({ exitCode: 0 }) // git clone
       .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
 
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r).toEqual({ ok: true, exitCode: 0 })
     expect(runCommandMock).toHaveBeenCalledTimes(2)
     expect(runCommandMock.mock.calls[0]![0]).toBe('git')
@@ -111,7 +111,7 @@ describe('runSyncHandler', () => {
       .mockResolvedValueOnce({ exitCode: 0 }) // git pull
       .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
 
-    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r).toEqual({ ok: true, exitCode: 0 })
     expect(runCommandMock).toHaveBeenCalledTimes(2)
     expect(runCommandMock.mock.calls[0]![0]).toBe('git')
@@ -127,7 +127,7 @@ describe('runSyncHandler', () => {
       .mockReturnValueOnce(false) // install.sh missing
     runCommandMock.mockResolvedValueOnce({ exitCode: 0 }) // git pull
 
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/install\.sh not found/i)
   })
@@ -141,7 +141,7 @@ describe('runSyncHandler', () => {
       .mockResolvedValueOnce({ exitCode: 0 }) // git pull
       .mockResolvedValueOnce({ exitCode: 0 }) // install.ps1
 
-    await runSyncHandler({ currentPlatform: 'win32', configPath: '/x', emit: noop })
+    await runSyncHandler({ currentPlatform: 'win32', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(runCommandMock.mock.calls[1]![0]).toBe('powershell')
     expect(runCommandMock.mock.calls[1]![1]).toEqual([
       '-ExecutionPolicy', 'Bypass', '-File', expect.stringContaining('install.ps1'),
@@ -154,9 +154,28 @@ describe('runSyncHandler', () => {
     existsSyncMock.mockReturnValueOnce(true) // .git exists
     runCommandMock.mockResolvedValueOnce({ exitCode: 1 }) // git pull fails
 
-    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop })
+    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.exitCode).toBe(1)
     expect(runCommandMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('success path emits step events: fetch:running → fetch:done → install:running → install:done', async () => {
+    readConfigMock.mockReturnValue(fullConfig)
+    existsSyncMock
+      .mockReturnValueOnce(true)  // .git exists (pull path)
+      .mockReturnValueOnce(true)  // install.sh exists
+    runCommandMock
+      .mockResolvedValueOnce({ exitCode: 0 }) // git pull
+      .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
+
+    const emitStep = vi.fn()
+    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep })
+    expect(r).toEqual({ ok: true, exitCode: 0 })
+    expect(emitStep).toHaveBeenCalledTimes(4)
+    expect(emitStep).toHaveBeenNthCalledWith(1, { step: 'fetch', status: 'running' })
+    expect(emitStep).toHaveBeenNthCalledWith(2, { step: 'fetch', status: 'done' })
+    expect(emitStep).toHaveBeenNthCalledWith(3, { step: 'install', status: 'running' })
+    expect(emitStep).toHaveBeenNthCalledWith(4, { step: 'install', status: 'done' })
   })
 })

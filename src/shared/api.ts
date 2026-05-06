@@ -9,6 +9,10 @@ export type AppConfig = {
 }
 export type SetConfigResult = { ok: boolean; error?: string }
 
+export type StepName = 'fetch' | 'install'
+export type StepStatus = 'idle' | 'running' | 'done' | 'failed'
+export type StepEvent = { step: StepName; status: StepStatus; message?: string }
+
 export interface AppApi {
   runSync(): Promise<RunResult>
   getConfig(): Promise<AppConfig>
@@ -16,6 +20,7 @@ export interface AppApi {
   pickRepoPath(): Promise<string | null>
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
+  onStep(callback: (e: StepEvent) => void): () => void
 }
 
 declare global {

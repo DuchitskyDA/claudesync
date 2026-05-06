@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppApi, LogLine, AppConfig, RunResult, SetConfigResult } from '@shared/api'
+import type { AppApi, LogLine, AppConfig, RunResult, SetConfigResult, StepEvent } from '@shared/api'
 
 const api: AppApi = {
   runSync: (): Promise<RunResult> =>
@@ -13,6 +13,11 @@ const api: AppApi = {
     return () => ipcRenderer.off('log', listener)
   },
   getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('get-platform'),
+  onStep: (callback: (e: StepEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: StepEvent) => callback(e)
+    ipcRenderer.on('step', listener)
+    return () => ipcRenderer.off('step', listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

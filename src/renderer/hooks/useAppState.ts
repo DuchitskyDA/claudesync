@@ -1,5 +1,7 @@
 import { useEffect, useReducer } from 'react'
-import type { LogLine, RunResult } from '@shared/api'
+import type { LogLine, RunResult, StepName, StepStatus } from '@shared/api'
+
+type Steps = Record<StepName, { status: StepStatus; message?: string }>
 
 export type AppState = {
   repoPath: string | null
@@ -9,6 +11,7 @@ export type AppState = {
   isRunning: boolean
   log: LogLine[]
   settingsOpen: boolean
+  steps: Steps
 }
 
 type Action =
@@ -20,6 +23,9 @@ type Action =
   | { type: 'clear-log' }
   | { type: 'open-settings' }
   | { type: 'close-settings' }
+  | { type: 'set-step'; step: StepName; status: StepStatus; message?: string }
+
+const initialSteps: Steps = { fetch: { status: 'idle' }, install: { status: 'idle' } }
 
 const initial: AppState = {
   repoPath: null,
@@ -29,6 +35,7 @@ const initial: AppState = {
   isRunning: false,
   log: [],
   settingsOpen: false,
+  steps: initialSteps,
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -38,7 +45,7 @@ function reducer(s: AppState, a: Action): AppState {
     case 'set-platform':
       return { ...s, platform: a.platform }
     case 'run-start':
-      return { ...s, isRunning: true, log: [] }
+      return { ...s, isRunning: true, log: [], steps: initialSteps }
     case 'run-end':
       return { ...s, isRunning: false }
     case 'append-log':
@@ -49,6 +56,8 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, settingsOpen: true }
     case 'close-settings':
       return { ...s, settingsOpen: false }
+    case 'set-step':
+      return { ...s, steps: { ...s.steps, [a.step]: { status: a.status, message: a.message } } }
   }
 }
 
@@ -74,7 +83,13 @@ export function useAppState() {
       if (incomplete) dispatch({ type: 'open-settings' })
     })
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
-    return () => unsub()
+    const unsubStep = window.api.onStep((e) =>
+      dispatch({ type: 'set-step', step: e.step, status: e.status, message: e.message }),
+    )
+    return () => {
+      unsub()
+      unsubStep()
+    }
   }, [])
 
   const syncNow = async (): Promise<RunResult> => {
