@@ -1,8 +1,10 @@
 import { useEffect, useReducer } from 'react'
-import type { LogLine } from '@shared/api'
+import type { LogLine, RunResult } from '@shared/api'
 
 export type AppState = {
   repoPath: string | null
+  repoUrl: string | null
+  rulesTarget: string | null
   platform: NodeJS.Platform | null
   isRunning: boolean
   log: LogLine[]
@@ -10,7 +12,7 @@ export type AppState = {
 }
 
 type Action =
-  | { type: 'set-config'; repoPath: string | null }
+  | { type: 'set-config'; repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }
   | { type: 'set-platform'; platform: NodeJS.Platform }
   | { type: 'run-start' }
   | { type: 'run-end' }
@@ -21,6 +23,8 @@ type Action =
 
 const initial: AppState = {
   repoPath: null,
+  repoUrl: null,
+  rulesTarget: null,
   platform: null,
   isRunning: false,
   log: [],
@@ -30,7 +34,7 @@ const initial: AppState = {
 function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     case 'set-config':
-      return { ...s, repoPath: a.repoPath }
+      return { ...s, repoPath: a.repoPath, repoUrl: a.repoUrl, rulesTarget: a.rulesTarget }
     case 'set-platform':
       return { ...s, platform: a.platform }
     case 'run-start':
@@ -48,24 +52,54 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
+function now(): string {
+  const d = new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 export function useAppState() {
   const [state, dispatch] = useReducer(reducer, initial)
 
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
     void window.api.getConfig().then((c) => {
-      dispatch({ type: 'set-config', repoPath: c.repoPath })
-      if (!c.repoPath) dispatch({ type: 'open-settings' })
+      dispatch({
+        type: 'set-config',
+        repoPath: c.repoPath,
+        repoUrl: c.repoUrl,
+        rulesTarget: c.rulesTarget,
+      })
+      const incomplete = !c.repoUrl || !c.repoPath || !c.rulesTarget
+      if (incomplete) dispatch({ type: 'open-settings' })
     })
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
     return () => unsub()
   }, [])
 
+  const syncNow = async (): Promise<RunResult> => {
+    dispatch({ type: 'run-start' })
+    try {
+      const r = await window.api.runSync()
+      if (!r.ok && r.error) {
+        dispatch({
+          type: 'append-log',
+          line: { time: now(), text: r.error, level: 'error' },
+        })
+      }
+      return r
+    } finally {
+      dispatch({ type: 'run-end' })
+    }
+  }
+
   return {
     state,
+    syncNow,
     clearLog: () => dispatch({ type: 'clear-log' }),
     openSettings: () => dispatch({ type: 'open-settings' }),
     closeSettings: () => dispatch({ type: 'close-settings' }),
-    setRepoPath: (p: string | null) => dispatch({ type: 'set-config', repoPath: p }),
+    setConfigState: (c: { repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }) =>
+      dispatch({ type: 'set-config', ...c }),
   }
 }

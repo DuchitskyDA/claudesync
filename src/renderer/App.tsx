@@ -1,25 +1,35 @@
 import React from 'react'
 import { useAppState } from './hooks/useAppState'
+import { SyncButton } from './components/SyncButton'
 import { LogConsole } from './components/LogConsole'
 import { Settings } from './components/Settings'
 import { Header } from './components/Header'
 
 export function App() {
-  const { state, clearLog, openSettings, closeSettings, setRepoPath } = useAppState()
+  const { state, syncNow, clearLog, openSettings, closeSettings, setConfigState } = useAppState()
+  const configComplete =
+    state.repoUrl !== null && state.repoPath !== null && state.rulesTarget !== null
+
   return (
     <div className="flex h-screen flex-col">
       <Header repoPath={state.repoPath} onOpenSettings={openSettings} />
       <div className="flex items-center gap-3 px-4 py-3">
-        {/* SyncButton will be added in Task 5 */}
+        <SyncButton
+          configComplete={configComplete}
+          isRunning={state.isRunning}
+          onClick={() => void syncNow()}
+        />
       </div>
       <div className="flex-1 overflow-hidden border-t border-neutral-200 dark:border-neutral-700">
         <LogConsole lines={state.log} onClear={clearLog} />
       </div>
       <Settings
         open={state.settingsOpen}
-        initialRepoPath={state.repoPath}
+        initial={{ repoUrl: state.repoUrl, repoPath: state.repoPath, rulesTarget: state.rulesTarget }}
         onClose={closeSettings}
-        onSaved={setRepoPath}
+        onSaved={(c) =>
+          setConfigState({ repoUrl: c.repoUrl, repoPath: c.repoPath, rulesTarget: c.rulesTarget })
+        }
       />
     </div>
   )
