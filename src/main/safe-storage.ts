@@ -1,28 +1,43 @@
 import { safeStorage } from 'electron'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
 const FILE_NAME = 'github-credentials.bin'
 const PLAINTEXT_PREFIX = 'plaintext:'
 
 /**
- * In-memory cache of decrypted tokens, keyed by userDataDir.
+ * In-memory cache of tokens, keyed by userDataDir. Avoids re-reading the
+ * file on every IPC call from the renderer (mount-effect fires several
+ * `loadToken` paths in parallel).
  *
- * Why this exists: on macOS, `safeStorage` is backed by Keychain Services.
- * For ad-hoc-signed apps (which we are — the cask postflight runs
- * `codesign --force --deep --sign -`, producing a fresh anonymous identity
- * after every brew upgrade), the keychain item's ACL no longer matches the
- * running app's signature, so each `decryptString` call surfaces the system
- * "allow access?" password prompt. The renderer mounts and immediately
- * fires both `getAuthState` and `getSyncStatus`, each of which calls
- * `loadToken` independently → two prompts on every launch.
- *
- * Decrypting once per process and reusing the value cuts that down to a
- * single prompt. The cache is invalidated by `saveToken` / `deleteToken`,
- * and (for safety) decrypt failures are NOT cached — a transient keychain
- * hiccup shouldn't permanently brick the session.
+ * Decrypt failures are NOT cached so a transient I/O hiccup doesn't brick
+ * the session — the next call retries.
  */
 const cache = new Map<string, string>()
+
+/**
+ * On macOS we deliberately do NOT use `safeStorage` (Keychain Services).
+ *
+ * The cask postflight ad-hoc-signs the .app with `codesign --force --deep
+ * --sign -` after every brew upgrade. The Keychain item's ACL is bound to
+ * the requesting binary's code signature; a fresh anonymous signature on
+ * each upgrade means the ACL never matches and macOS surfaces the system
+ * "allow access?" password prompt on every launch — even when the user
+ * clicks "Always Allow", because the next signature differs again.
+ *
+ * Storing the OAuth token as plaintext with `chmod 0600` in the per-user
+ * app-data dir trades opaque storage for prompt-free updates. Threat tier
+ * matches `gh` CLI's `~/.config/gh/hosts.yml`, `git credential store`'s
+ * `~/.git-credentials`, and any `.env` file: only readable by the owning
+ * user account, scoped to `repo read:user`, no escalation path.
+ *
+ * Win/Linux still use `safeStorage` (DPAPI / libsecret) — those don't have
+ * the prompt-on-resign problem, so encryption-at-rest is free there.
+ */
+function shouldUseKeychain(): boolean {
+  if (process.platform === 'darwin') return false
+  return encryptionAvailable()
+}
 
 function tokenPath(userDataDir: string): string {
   return join(userDataDir, FILE_NAME)
@@ -36,14 +51,23 @@ function encryptionAvailable(): boolean {
   }
 }
 
+function writePlaintext(path: string, token: string): void {
+  writeFileSync(path, PLAINTEXT_PREFIX + token, 'utf8')
+  try {
+    chmodSync(path, 0o600)
+  } catch {
+    // Non-POSIX filesystem (rare on darwin/linux). The userData dir is
+    // already user-private; this chmod is a defence-in-depth pass.
+  }
+}
+
 export function saveToken(userDataDir: string, token: string): void {
-  if (!encryptionAvailable()) {
-    // Fallback: plaintext with marker. Less secure on Linux without keyring,
-    // but better than throwing — user can still use the app.
-    writeFileSync(tokenPath(userDataDir), PLAINTEXT_PREFIX + token, 'utf8')
-  } else {
+  const path = tokenPath(userDataDir)
+  if (shouldUseKeychain()) {
     const encrypted = safeStorage.encryptString(token)
-    writeFileSync(tokenPath(userDataDir), encrypted)
+    writeFileSync(path, encrypted)
+  } else {
+    writePlaintext(path, token)
   }
   cache.set(userDataDir, token)
 }
@@ -55,7 +79,8 @@ export function loadToken(userDataDir: string): string | null {
   const path = tokenPath(userDataDir)
   if (!existsSync(path)) return null
 
-  // Check for plaintext fallback marker first (works regardless of encryption availability)
+  // Plaintext path: works regardless of platform / keychain availability,
+  // and is the only path that ever runs on darwin for fresh installs.
   try {
     const raw = readFileSync(path, 'utf8')
     if (raw.startsWith(PLAINTEXT_PREFIX)) {
@@ -64,17 +89,29 @@ export function loadToken(userDataDir: string): string | null {
       return tok
     }
   } catch {
-    // fall through to binary read
+    // Binary file — fall through to encrypted read below.
   }
 
   if (!encryptionAvailable()) return null
 
+  // Encrypted path: still here for Win/Linux fresh writes and for one-shot
+  // migration of darwin users who upgraded from <0.8.9 (where we used to
+  // encrypt). On darwin this is the LAST keychain prompt: we immediately
+  // rewrite the file as plaintext so subsequent launches skip the keychain.
   try {
     const tok = safeStorage.decryptString(readFileSync(path))
     cache.set(userDataDir, tok)
+    if (process.platform === 'darwin') {
+      try {
+        writePlaintext(path, tok)
+      } catch {
+        // Migration is best-effort; the in-memory cache still suppresses
+        // further prompts for the rest of this process.
+      }
+    }
     return tok
   } catch {
-    // Don't cache failures — let the next call retry the keychain.
+    // Don't cache failures — let the next call retry.
     return null
   }
 }
