@@ -5,11 +5,12 @@ import {
   writeFileSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   cpSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 import type { LogLine, RunResult, StepStatus, PushStep, RepoStatus } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import { readConfig } from './config'
@@ -29,8 +30,24 @@ export function detectInstallMode(rulesTarget: string, _repoPath: string): Insta
   return 'copy'
 }
 
+/**
+ * Returns true if src and dst resolve to the same filesystem entry.
+ * Handles symlinks/junctions (common on Windows when install.ps1 uses Junction
+ * for directories and falls back to copy for files — mixed mode).
+ */
+function isSamePath(src: string, dst: string): boolean {
+  try {
+    const realSrc = realpathSync(src)
+    const realDst = existsSync(dst) ? realpathSync(dst) : resolvePath(dst)
+    return realSrc === realDst
+  } catch {
+    return false
+  }
+}
+
 function syncFile(src: string, dst: string): void {
   if (!existsSync(src)) return
+  if (isSamePath(src, dst)) return // already pointing at same file (junction/symlink)
   mkdirSync(join(dst, '..'), { recursive: true })
   cpSync(src, dst)
 }
@@ -40,6 +57,9 @@ function syncDirMirror(src: string, dst: string): void {
     if (existsSync(dst)) rmSync(dst, { recursive: true, force: true })
     return
   }
+  // If src and dst resolve to the same dir (junction case) — content is already there, skip.
+  if (isSamePath(src, dst)) return
+
   // Remove dst entries that don't exist in src (mirror semantics)
   if (existsSync(dst)) {
     for (const entry of readdirSync(dst)) {
@@ -52,6 +72,7 @@ function syncDirMirror(src: string, dst: string): void {
   for (const entry of readdirSync(src)) {
     const s = join(src, entry)
     const d = join(dst, entry)
+    if (isSamePath(s, d)) continue
     const stat = statSync(s)
     if (stat.isDirectory()) {
       syncDirMirror(s, d)
