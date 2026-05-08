@@ -64,14 +64,18 @@ export function PushModal({ open, onClose, onConfirm }: Props) {
             {t('push.info.nothingToPush')}
           </div>
         ) : (
-          <div className="space-y-4">
-            <div>
+          // `min-w-0` lets this grid item shrink below its min-content; without
+          // it, a long unbreakable file path in the changed-files list pushes
+          // the body wider than the dialog's max-width, making the textarea
+          // and footer buttons overflow the modal box visually.
+          <div className="min-w-0 space-y-4">
+            <div className="min-w-0">
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {t('push.modal.changedFiles', { count: status.changedFiles.length })}
               </h3>
-              <div className="max-h-32 overflow-auto rounded-md border p-2 font-mono text-xs">
+              <div className="max-h-32 min-w-0 overflow-y-auto rounded-md border p-2 font-mono text-xs">
                 {status.changedFiles.map((f) => (
-                  <div key={f} className="truncate">{f}</div>
+                  <div key={f} className="truncate" title={f}>{f}</div>
                 ))}
               </div>
             </div>
