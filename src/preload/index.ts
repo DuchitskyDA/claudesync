@@ -28,6 +28,7 @@ import type {
   ConflictResolveResult,
   SyncStatus,
   UpdateInfo,
+  UpdateProgressEvent,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -119,6 +120,17 @@ const api: AppApi = {
     ipcRenderer.invoke('dismiss-update', version),
   runBrewUpgrade: (): Promise<void> =>
     ipcRenderer.invoke('run-brew-upgrade'),
+  updaterSupported: (): Promise<'auto' | 'brew' | 'none'> =>
+    ipcRenderer.invoke('updater-supported'),
+  updaterStart: (): Promise<void> =>
+    ipcRenderer.invoke('updater-start'),
+  updaterQuitAndInstall: (): Promise<void> =>
+    ipcRenderer.invoke('updater-quit-and-install'),
+  onUpdateProgress: (callback: (e: UpdateProgressEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: UpdateProgressEvent) => callback(e)
+    ipcRenderer.on('update-progress', listener)
+    return () => ipcRenderer.off('update-progress', listener)
+  },
 
   // v0.5 — Conflict resolver
   conflictGetState: (): Promise<ConflictState> =>

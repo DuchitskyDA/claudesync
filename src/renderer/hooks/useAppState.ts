@@ -8,7 +8,16 @@ import type {
   StepStatus,
   SyncStatus,
   UpdateInfo,
+  UpdateProgressEvent,
 } from '@shared/api'
+
+export type UpdaterKind = 'auto' | 'brew' | 'none' | 'unknown'
+export type UpdaterFlowState =
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'downloading'; percent: number }
+  | { phase: 'ready' } // win/linux: installer downloaded, awaiting quitAndInstall
+  | { phase: 'error'; message: string }
 
 type Steps = Record<StepName, { status: StepStatus; message?: LocalizedMessage }>
 
@@ -40,6 +49,8 @@ export type AppState = {
   updateInfo: UpdateInfo | null
   /** Latest version the user explicitly dismissed; persisted in AppConfig. */
   lastDismissedUpdate: string | null
+  updaterKind: UpdaterKind
+  updaterFlow: UpdaterFlowState
 }
 
 type Action =
@@ -59,6 +70,8 @@ type Action =
   | { type: 'set-sync-checking'; checking: boolean }
   | { type: 'set-update-info'; info: UpdateInfo }
   | { type: 'set-dismissed-update'; version: string | null }
+  | { type: 'set-updater-kind'; kind: UpdaterKind }
+  | { type: 'set-updater-flow'; flow: UpdaterFlowState }
 
 const initialSteps: Steps = {
   fetch: { status: 'idle' },
@@ -85,6 +98,8 @@ const initial: AppState = {
   syncStatusChecking: false,
   updateInfo: null,
   lastDismissedUpdate: null,
+  updaterKind: 'unknown',
+  updaterFlow: { phase: 'idle' },
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -121,6 +136,10 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, updateInfo: a.info }
     case 'set-dismissed-update':
       return { ...s, lastDismissedUpdate: a.version }
+    case 'set-updater-kind':
+      return { ...s, updaterKind: a.kind }
+    case 'set-updater-flow':
+      return { ...s, updaterFlow: a.flow }
   }
 }
 
@@ -161,6 +180,19 @@ export function useAppState() {
     dispatch({ type: 'set-dismissed-update', version })
   }
 
+  const startUpdater = async (): Promise<void> => {
+    dispatch({ type: 'set-updater-flow', flow: { phase: 'checking' } })
+    await window.api.updaterStart()
+  }
+
+  const quitAndInstallUpdate = async (): Promise<void> => {
+    await window.api.updaterQuitAndInstall()
+  }
+
+  const closeUpdater = (): void => {
+    dispatch({ type: 'set-updater-flow', flow: { phase: 'idle' } })
+  }
+
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
     void window.api.getArch().then((a) => dispatch({ type: 'set-arch', arch: a }))
@@ -186,6 +218,38 @@ export function useAppState() {
     // Update check: cached on mount, network shortly after.
     void checkForUpdates(false).then(() => {
       void checkForUpdates(true)
+    })
+
+    // Detect available updater backend.
+    void window.api.updaterSupported().then((kind) =>
+      dispatch({ type: 'set-updater-kind', kind }),
+    )
+
+    const unsubUpdate = window.api.onUpdateProgress((e: UpdateProgressEvent) => {
+      switch (e.phase) {
+        case 'checking':
+          dispatch({ type: 'set-updater-flow', flow: { phase: 'checking' } })
+          return
+        case 'available':
+        case 'downloading':
+          dispatch({
+            type: 'set-updater-flow',
+            flow: {
+              phase: 'downloading',
+              percent: e.phase === 'downloading' ? e.percent : 0,
+            },
+          })
+          return
+        case 'downloaded':
+          dispatch({ type: 'set-updater-flow', flow: { phase: 'ready' } })
+          return
+        case 'not-available':
+          dispatch({ type: 'set-updater-flow', flow: { phase: 'idle' } })
+          return
+        case 'error':
+          dispatch({ type: 'set-updater-flow', flow: { phase: 'error', message: e.message } })
+          return
+      }
     })
 
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
@@ -224,6 +288,7 @@ export function useAppState() {
       unsubStep()
       unsubInitStep()
       unsubPushStep()
+      unsubUpdate()
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onFocus)
       window.clearInterval(interval)
@@ -300,5 +365,8 @@ export function useAppState() {
     refreshSyncStatus: () => refreshSyncStatus(true),
     checkForUpdates: () => checkForUpdates(true),
     dismissUpdate,
+    startUpdater,
+    quitAndInstallUpdate,
+    closeUpdater,
   }
 }

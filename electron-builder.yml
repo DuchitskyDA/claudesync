@@ -2,6 +2,10 @@ appId: com.duchitskyda.claudesync
 productName: claudesync
 directories:
   output: release
+publish:
+  provider: github
+  owner: DuchitskyDA
+  repo: claudesync
 files:
   - 'out/**/*'
   - 'package.json'

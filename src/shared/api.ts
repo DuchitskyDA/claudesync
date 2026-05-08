@@ -82,8 +82,24 @@ export interface AppApi {
   checkForUpdates(): Promise<UpdateInfo>
   dismissUpdate(version: string): Promise<void>
   /** macOS only: opens Terminal.app and runs `brew upgrade --cask claudesync`.
-   *  No-op on other platforms. */
+   *  No-op on other platforms. Use `updaterStart` for the silent in-app flow. */
   runBrewUpgrade(): Promise<void>
+
+  /** Returns the kind of in-app updater available on this platform:
+   *  - 'auto' on win32/linux (electron-updater)
+   *  - 'brew' on darwin if /opt/homebrew/bin/brew or /usr/local/bin/brew exists
+   *  - 'none' otherwise (user falls back to manual download / Terminal-brew). */
+  updaterSupported(): Promise<'auto' | 'brew' | 'none'>
+  /** Trigger the 1-click update flow. On win/linux: download installer in
+   *  background, then `update-progress` events stream to UI; once `phase: 'downloaded'`
+   *  arrives, call `updaterQuitAndInstall()`. On darwin: spawns brew, restarts
+   *  app on success. */
+  updaterStart(): Promise<void>
+  /** Win/Linux: quit current process, run downloaded installer, relaunch new.
+   *  No-op on darwin (brew handles relaunch itself). */
+  updaterQuitAndInstall(): Promise<void>
+  /** Subscribe to streaming update events emitted by either updater backend. */
+  onUpdateProgress(cb: (e: UpdateProgressEvent) => void): () => void
 
   // v0.5 — Conflict resolver
   conflictGetState(): Promise<ConflictState>
@@ -228,6 +244,14 @@ export type SyncStatus = {
   /** error key when state === 'offline' or fetch failed; for diagnostics only */
   errorKey?: string
 }
+
+export type UpdateProgressEvent =
+  | { phase: 'checking' }
+  | { phase: 'available'; version: string }
+  | { phase: 'not-available'; version: string }
+  | { phase: 'downloading'; percent: number; transferred: number; total: number }
+  | { phase: 'downloaded'; version: string }
+  | { phase: 'error'; message: string }
 
 export type UpdateInfo = {
   /** running app version, e.g. "0.6.2" */

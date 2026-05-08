@@ -49,10 +49,31 @@ vi.mock('node:fs', async () => {
 })
 vi.mock('electron', () => ({
   ipcMain: { handle: ipcMainHandleMock },
-  app: { getPath: appGetPathMock, getLocale: appGetLocaleMock },
+  app: {
+    getPath: appGetPathMock,
+    getLocale: appGetLocaleMock,
+    getVersion: vi.fn(() => '0.0.0-test'),
+  },
   dialog: { showOpenDialog: vi.fn() },
   BrowserWindow: vi.fn(),
   shell: { openExternal: vi.fn() },
+  screen: { getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } })) },
+}))
+// electron-updater is loaded transitively via auto-updater.ts; mock it so
+// the module doesn't try to talk to GitHub during test setup.
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: {
+      autoDownload: false,
+      autoInstallOnAppQuit: false,
+      allowDowngrade: false,
+      allowPrerelease: false,
+      on: vi.fn(),
+      checkForUpdates: vi.fn(async () => ({})),
+      downloadUpdate: vi.fn(async () => []),
+      quitAndInstall: vi.fn(),
+    },
+  },
 }))
 
 import { runSyncHandler, registerIpc } from '../../src/main/ipc'

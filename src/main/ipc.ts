@@ -42,6 +42,13 @@ import { runPush, getRepoStatus } from './push'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
+  setupAutoUpdater,
+  checkForUpdates as checkAutoUpdates,
+  startUpdateDownload,
+  quitAndInstall,
+} from './auto-updater'
+import { isBrewAvailable, runBrewUpgrade } from './brew-updater'
+import {
   getConflictState,
   getStageContent,
   resolveFile,
@@ -152,6 +159,9 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
 }
 
 export function registerIpc(window: BrowserWindow): void {
+  // Configure auto-updater on first registration. macOS is a no-op inside.
+  setupAutoUpdater(window)
+
   const configPath = join(app.getPath('userData'), 'config.json')
   const logFile = join(app.getPath('userData'), 'last-run.log')
   const logBuffer: LogLine[] = []
@@ -378,6 +388,30 @@ export function registerIpc(window: BrowserWindow): void {
     const cfg = readConfig(configPath)
     writeConfig(configPath, { ...cfg, lastDismissedUpdate: version })
   })
+  // 1-click in-app update: per platform.
+  // - darwin: silent brew upgrade if brew is on PATH; falls back to legacy
+  //   "open Terminal" command via run-brew-upgrade if the user clicks the
+  //   secondary path.
+  // - win32 / linux: electron-updater downloads in background, then quits
+  //   and runs the new installer. SmartScreen does NOT trigger because
+  //   the file is downloaded by Node (no Mark-of-the-Web tag).
+  ipcMain.handle('updater-supported', () => {
+    if (process.platform === 'darwin') return isBrewAvailable() ? 'brew' : 'none'
+    if (process.platform === 'win32' || process.platform === 'linux') return 'auto'
+    return 'none'
+  })
+  ipcMain.handle('updater-start', async () => {
+    if (process.platform === 'darwin') {
+      await runBrewUpgrade(window)
+      return
+    }
+    await checkAutoUpdates()
+    await startUpdateDownload()
+  })
+  ipcMain.handle('updater-quit-and-install', () => {
+    quitAndInstall()
+  })
+
   ipcMain.handle('run-brew-upgrade', () => {
     if (process.platform !== 'darwin') return
     // Open Terminal.app and run brew upgrade interactively. Detached so it

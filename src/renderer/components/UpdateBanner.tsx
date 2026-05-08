@@ -1,13 +1,16 @@
 import React from 'react'
 import type { UpdateInfo } from '@shared/api'
 import { useT } from '../i18n'
+import type { UpdaterKind } from '../hooks/useAppState'
 
 type Props = {
   info: UpdateInfo | null
   lastDismissed: string | null
   platform: NodeJS.Platform | null
   arch: NodeJS.Architecture | null
+  updaterKind: UpdaterKind
   onDismiss: (version: string) => void
+  onStartUpdater: () => void
 }
 
 const RELEASE_BASE = 'https://github.com/DuchitskyDA/claudesync/releases/download'
@@ -33,7 +36,15 @@ function downloadUrlFor(
   return null
 }
 
-export function UpdateBanner({ info, lastDismissed, platform, arch, onDismiss }: Props) {
+export function UpdateBanner({
+  info,
+  lastDismissed,
+  platform,
+  arch,
+  updaterKind,
+  onDismiss,
+  onStartUpdater,
+}: Props) {
   const t = useT()
 
   if (!info || !info.available || !info.latest) return null
@@ -47,22 +58,26 @@ export function UpdateBanner({ info, lastDismissed, platform, arch, onDismiss }:
     if (info.latest) onDismiss(info.latest)
   }
 
-  const handleBrewUpgrade = () => {
-    void window.api.runBrewUpgrade()
-  }
-
   const handleDirectDownload = () => {
     const url = downloadUrlFor(platform, arch, info.latest!)
     if (url) void window.api.openExternal(url)
   }
 
+  // 1-click flow available — render the silent in-app updater button.
+  const oneClick = updaterKind === 'auto' || updaterKind === 'brew'
+
   let primaryLabel: string
   let primaryAction: () => void
   let primaryTooltip: string | undefined
 
-  if (platform === 'darwin') {
+  if (oneClick) {
+    primaryLabel = t('update.banner.updateNow')
+    primaryAction = onStartUpdater
+    primaryTooltip = t('update.banner.updateNow.tooltip')
+  } else if (platform === 'darwin') {
+    // brew not detected — fall back to opening Terminal with the command
     primaryLabel = t('update.banner.brewUpgrade')
-    primaryAction = handleBrewUpgrade
+    primaryAction = () => void window.api.runBrewUpgrade()
     primaryTooltip = t('update.banner.brewUpgrade.tooltip')
   } else if (platform === 'win32') {
     primaryLabel = t('update.banner.downloadInstaller')
@@ -94,14 +109,12 @@ export function UpdateBanner({ info, lastDismissed, platform, arch, onDismiss }:
         >
           {primaryLabel}
         </button>
-        {platform === 'darwin' && (
-          <button
-            onClick={handleViewRelease}
-            className="rounded-md border border-blue-300 px-3 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:border-blue-700 dark:text-blue-200 dark:hover:bg-blue-900"
-          >
-            {t('update.banner.viewRelease')}
-          </button>
-        )}
+        <button
+          onClick={handleViewRelease}
+          className="rounded-md border border-blue-300 px-3 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:border-blue-700 dark:text-blue-200 dark:hover:bg-blue-900"
+        >
+          {t('update.banner.viewRelease')}
+        </button>
         <button
           onClick={handleDismiss}
           className="rounded-md px-2 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900"
