@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react'
-import type { LogLine, RunResult, StepName, StepStatus } from '@shared/api'
+import type { GitHubAuthState, LogLine, RunResult, StepName, StepStatus } from '@shared/api'
 
 type Steps = Record<StepName, { status: StepStatus; message?: string }>
 
@@ -12,6 +12,7 @@ export type AppState = {
   log: LogLine[]
   settingsOpen: boolean
   steps: Steps
+  authState: GitHubAuthState | null
 }
 
 type Action =
@@ -24,6 +25,7 @@ type Action =
   | { type: 'open-settings' }
   | { type: 'close-settings' }
   | { type: 'set-step'; step: StepName; status: StepStatus; message?: string }
+  | { type: 'set-auth'; auth: GitHubAuthState }
 
 const initialSteps: Steps = { fetch: { status: 'idle' }, install: { status: 'idle' } }
 
@@ -36,6 +38,7 @@ const initial: AppState = {
   log: [],
   settingsOpen: false,
   steps: initialSteps,
+  authState: null,
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -58,6 +61,8 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, settingsOpen: false }
     case 'set-step':
       return { ...s, steps: { ...s.steps, [a.step]: { status: a.status, message: a.message } } }
+    case 'set-auth':
+      return { ...s, authState: a.auth }
   }
 }
 
@@ -72,6 +77,7 @@ export function useAppState() {
 
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
+    void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
     void window.api.getConfig().then((c) => {
       dispatch({
         type: 'set-config',
@@ -108,6 +114,16 @@ export function useAppState() {
     }
   }
 
+  const refreshAuth = async () => {
+    const a = await window.api.getAuthState()
+    dispatch({ type: 'set-auth', auth: a })
+  }
+
+  const handleSignOut = async () => {
+    await window.api.signOut()
+    await refreshAuth()
+  }
+
   return {
     state,
     syncNow,
@@ -116,5 +132,7 @@ export function useAppState() {
     closeSettings: () => dispatch({ type: 'close-settings' }),
     setConfigState: (c: { repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }) =>
       dispatch({ type: 'set-config', ...c }),
+    refreshAuth,
+    signOut: handleSignOut,
   }
 }
