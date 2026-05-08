@@ -21,11 +21,41 @@ export function isBrewAvailable(): boolean {
   return findBrew() !== null
 }
 
+type SpawnResult = { code: number | null; out: string }
+
+function runBrew(
+  brew: string,
+  args: string[],
+  window: BrowserWindow,
+  onProgress?: () => void,
+): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    const child = spawn(brew, args, {
+      env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' },
+    })
+    let out = ''
+    const collect = (chunk: Buffer) => {
+      out += chunk.toString()
+      onProgress?.()
+    }
+    child.stdout?.on('data', collect)
+    child.stderr?.on('data', collect)
+    child.on('error', (e) => {
+      resolve({ code: -1, out: out + e.message })
+    })
+    child.on('exit', (code) => resolve({ code, out }))
+    void window // referenced to keep the param stable; events go via outer caller
+  })
+}
+
 /**
- * Run `brew upgrade --cask claudesync` silently from inside the app, streaming
- * stdout/stderr to the renderer as `update-progress` events. On success, quits
- * the app and relaunches; brew has already swapped the .app bundle, so the
- * fresh process picks up the new version.
+ * Run `brew update && brew upgrade --cask claudesync` from inside the app,
+ * streaming progress to the renderer. On success, quits and relaunches —
+ * brew has already swapped the .app bundle.
+ *
+ * Detects the "already installed" no-op so we don't silently relaunch the
+ * same version when the cask hasn't been bumped on the tap yet (which
+ * happens for ~30s after a release while CI's bump-cask job is still running).
  */
 export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
   const brew = findBrew()
@@ -37,55 +67,63 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
     return
   }
 
-  send({ phase: 'downloading', percent: 0, transferred: 0, total: 0 })
+  send({ phase: 'downloading', percent: 10, transferred: 0, total: 0 })
 
-  return new Promise<void>((resolve) => {
-    const child = spawn(brew, ['upgrade', '--cask', 'claudesync'], {
-      env: { ...process.env, HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ANALYTICS: '1' },
+  // 1. Refresh taps so the latest cask version is visible locally.
+  const update = await runBrew(brew, ['update', '--quiet'], window)
+  if (update.code !== 0) {
+    send({
+      phase: 'error',
+      message: `brew update failed (exit ${update.code ?? 'null'}):\n${update.out.trim().slice(-400)}`,
     })
-    let buffered = ''
-    let lastSent = Date.now()
-    const onLine = (chunk: Buffer) => {
-      buffered += chunk.toString()
-      const lines = buffered.split('\n')
-      buffered = lines.pop() ?? ''
+    return
+  }
+
+  send({ phase: 'downloading', percent: 40, transferred: 0, total: 0 })
+
+  // 2. Upgrade the cask. brew prints "already installed" when the local cask
+  //    points to a version that's already on disk — treat that as an error so
+  //    the UI doesn't pretend an update happened.
+  let throttle = Date.now()
+  const upgrade = await runBrew(
+    brew,
+    ['upgrade', '--cask', 'claudesync', '--no-quarantine'],
+    window,
+    () => {
       const now = Date.now()
-      // throttle events to roughly 5/s
-      if (now - lastSent > 200) {
-        const last = lines.filter(Boolean).pop()
-        if (last) {
-          send({
-            phase: 'downloading',
-            percent: 50, // brew doesn't expose progress; show indeterminate
-            transferred: 0,
-            total: 0,
-          })
-        }
-        lastSent = now
+      if (now - throttle > 250) {
+        throttle = now
+        send({ phase: 'downloading', percent: 70, transferred: 0, total: 0 })
       }
-    }
-    child.stdout?.on('data', onLine)
-    child.stderr?.on('data', onLine)
-    child.on('error', (e) => {
-      send({ phase: 'error', message: e.message })
-      resolve()
+    },
+  )
+
+  if (upgrade.code !== 0) {
+    send({
+      phase: 'error',
+      message: `brew upgrade failed (exit ${upgrade.code ?? 'null'}):\n${upgrade.out.trim().slice(-400)}`,
     })
-    child.on('exit', (code) => {
-      if (code !== 0) {
-        send({
-          phase: 'error',
-          message: `brew exited with code ${code ?? 'null'}`,
-        })
-        resolve()
-        return
-      }
-      send({ phase: 'downloaded', version: '' })
-      // Give the renderer a tick to display the success state, then relaunch.
-      setTimeout(() => {
-        app.relaunch()
-        app.exit(0)
-      }, 800)
-      resolve()
+    return
+  }
+
+  const lower = upgrade.out.toLowerCase()
+  const noop =
+    lower.includes('already installed') ||
+    lower.includes('no available upgrade') ||
+    lower.includes('no casks to upgrade')
+  if (noop) {
+    send({
+      phase: 'error',
+      message:
+        'Homebrew reports the cask is already at the latest known version. ' +
+        'The new release may still be propagating to the tap — try again in a minute.',
     })
-  })
+    return
+  }
+
+  send({ phase: 'downloaded', version: '' })
+  setTimeout(() => {
+    app.relaunch()
+    app.exit(0)
+  }, 800)
 }

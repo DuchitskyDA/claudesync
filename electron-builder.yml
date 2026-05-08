@@ -42,3 +42,7 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  # Match the URL pattern used by UpdateBanner.tsx and historical cask releases.
+  # Default would be "${productName} Setup ${version}.${ext}" — GitHub turns the
+  # spaces into dashes on upload, breaking electron-updater's latest.yml lookup.
+  artifactName: ${productName}.Setup.${version}.${ext}
