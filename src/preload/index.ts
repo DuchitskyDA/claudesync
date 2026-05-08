@@ -37,6 +37,12 @@ const api: AppApi = {
     ipcRenderer.invoke('apply-plugin-changes', c),
   validateClaudeTarget: (): Promise<ClaudeTargetCheck> =>
     ipcRenderer.invoke('validate-claude-target'),
+  detectRulesTarget: (): Promise<string | null> =>
+    ipcRenderer.invoke('detect-rules-target'),
+  suggestRulesTarget: (): Promise<string> =>
+    ipcRenderer.invoke('suggest-rules-target'),
+  suggestRepoPath: (url: string): Promise<string> =>
+    ipcRenderer.invoke('suggest-repo-path', url),
 }
 
 contextBridge.exposeInMainWorld('api', api)

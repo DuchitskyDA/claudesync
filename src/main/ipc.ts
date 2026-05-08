@@ -10,6 +10,9 @@ import {
   validateRepoUrl,
   validateRulesTarget,
   expandTilde,
+  detectClaudeTarget,
+  suggestedClaudeTargetPath,
+  defaultManagedRepoPath,
 } from './config'
 import { fetchCatalog } from './catalog'
 import { getInstalled, applyChanges, settingsPathFor, validateClaudeTarget } from './plugins'
@@ -188,4 +191,10 @@ export function registerIpc(window: BrowserWindow): void {
     const cfg = readConfig(configPath)
     return validateClaudeTarget(cfg.rulesTarget)
   })
+
+  ipcMain.handle('detect-rules-target', () => detectClaudeTarget())
+  ipcMain.handle('suggest-rules-target', () => suggestedClaudeTargetPath())
+  ipcMain.handle('suggest-repo-path', (_e, url: string) =>
+    defaultManagedRepoPath(url, app.getPath('userData')),
+  )
 }

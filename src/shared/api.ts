@@ -25,6 +25,9 @@ export interface AppApi {
   getInstalledPlugins(): Promise<InstalledPluginsState>
   applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: string }>
   validateClaudeTarget(): Promise<ClaudeTargetCheck>
+  detectRulesTarget(): Promise<string | null>
+  suggestRulesTarget(): Promise<string>
+  suggestRepoPath(url: string): Promise<string>
 }
 
 declare global {

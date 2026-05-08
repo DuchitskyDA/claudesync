@@ -1,7 +1,25 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
 import type { AppConfig } from '@shared/api'
+
+/** Default rules target (~/.claude). Returns expanded path if dir exists; null otherwise. */
+export function detectClaudeTarget(): string | null {
+  const claudeDir = join(homedir(), '.claude')
+  return existsSync(claudeDir) ? claudeDir : null
+}
+
+/** Suggested rules target path even if it doesn't exist yet — for placeholders. */
+export function suggestedClaudeTargetPath(): string {
+  return join(homedir(), '.claude')
+}
+
+/** Compute deterministic local repo path managed by app, given the URL. */
+export function defaultManagedRepoPath(url: string, userDataDir: string): string {
+  const sha = createHash('sha256').update(url).digest('hex').slice(0, 12)
+  return join(userDataDir, 'repos', sha)
+}
 
 export function expandTilde(p: string): string {
   if (p === '~') return homedir()

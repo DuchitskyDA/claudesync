@@ -13,6 +13,8 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [placeholderTarget, setPlaceholderTarget] = useState('')
 
   // Reset fields when modal re-opens with new initials
   useEffect(() => {
@@ -21,6 +23,15 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
       setPath(initial.repoPath ?? '')
       setTarget(initial.rulesTarget ?? '')
       setError(null)
+
+      // Auto-detect target if user hasn't set one
+      if (!initial.rulesTarget) {
+        void window.api.detectRulesTarget().then((detected) => {
+          if (detected) setTarget(detected)
+        })
+      }
+      // Always fetch placeholder for the input
+      void window.api.suggestRulesTarget().then(setPlaceholderTarget)
     }
   }, [open, initial.repoUrl, initial.repoPath, initial.rulesTarget])
 
@@ -34,23 +45,40 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
     }
   }
 
+  const onUrlChange = async (newUrl: string) => {
+    setUrl(newUrl)
+    setError(null)
+    if (newUrl.trim() && !path.trim()) {
+      const suggested = await window.api.suggestRepoPath(newUrl)
+      setPath(suggested)
+    }
+  }
+
   const save = async () => {
     setError(null)
     setBusy(true)
     try {
-      const r = await window.api.setConfig({ repoUrl: url, repoPath: path, rulesTarget: target })
+      let finalPath = path.trim()
+      if (!finalPath) {
+        finalPath = await window.api.suggestRepoPath(url)
+      }
+      const r = await window.api.setConfig({
+        repoUrl: url,
+        repoPath: finalPath,
+        rulesTarget: target,
+      })
       if (!r.ok) {
         setError(r.error ?? 'Unknown error')
         return
       }
-      onSaved({ repoUrl: url, repoPath: path, rulesTarget: target })
+      onSaved({ repoUrl: url, repoPath: finalPath, rulesTarget: target })
       onClose()
     } finally {
       setBusy(false)
     }
   }
 
-  const allFilled = url.trim() !== '' && path.trim() !== '' && target.trim() !== ''
+  const allFilled = url.trim() !== '' && target.trim() !== ''
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40">
@@ -61,28 +89,10 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
         <input
           type="text"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => { void onUrlChange(e.target.value) }}
           placeholder="https://github.com/user/ai-rules"
           className="mb-3 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
         />
-
-        <label className="mb-1 block text-xs text-neutral-500">Local repo path</label>
-        <div className="mb-3 flex gap-2">
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="/path/where/to/clone"
-            className="flex-1 rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-          />
-          <button
-            type="button"
-            onClick={() => browse(setPath)}
-            className="rounded border border-neutral-300 px-2 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-700"
-          >
-            Browse…
-          </button>
-        </div>
 
         <label className="mb-1 block text-xs text-neutral-500">Rules target folder</label>
         <div className="mb-3 flex gap-2">
@@ -90,7 +100,7 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
             type="text"
             value={target}
             onChange={(e) => setTarget(e.target.value)}
-            placeholder="~/.claude or ~/.cursor — where install script links files"
+            placeholder={placeholderTarget || 'Path to your AI rules folder (e.g. ~/.claude)'}
             className="flex-1 rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
           />
           <button
@@ -101,6 +111,38 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
             Browse…
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="mb-2 text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
+        >
+          {showAdvanced ? '▾ Advanced' : '▸ Advanced'}
+        </button>
+
+        {showAdvanced && (
+          <div className="mb-3 rounded border border-neutral-200 p-3 dark:border-neutral-700">
+            <label className="mb-1 block text-xs text-neutral-500">
+              Local repo path <span className="text-neutral-400">(where to clone — auto-managed if empty)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="Auto-managed by app"
+                className="flex-1 rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+              />
+              <button
+                type="button"
+                onClick={() => browse(setPath)}
+                className="rounded border border-neutral-300 px-2 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-700"
+              >
+                Browse…
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && <div className="mb-2 text-sm text-red-500">{error}</div>}
 
