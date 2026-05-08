@@ -20,6 +20,9 @@ export type AppConfig = {
   rulesTarget: string | null
   includeSecretsInPush: boolean
   locale: 'en' | 'ru' | null
+  /** Latest version the user dismissed from the update banner; banner re-appears
+   *  only when GitHub publishes a tag newer than this. */
+  lastDismissedUpdate: string | null
 }
 export type SetConfigResult = { ok: boolean; error?: LocalizedMessage }
 
@@ -68,6 +71,11 @@ export interface AppApi {
   // v0.6 — Sync status (live behind/ahead)
   getSyncStatus(): Promise<SyncStatus>
   refreshSyncStatus(): Promise<SyncStatus>
+
+  // v0.6 — Update checker
+  getUpdateInfo(): Promise<UpdateInfo>
+  checkForUpdates(): Promise<UpdateInfo>
+  dismissUpdate(version: string): Promise<void>
 
   // v0.5 — Conflict resolver
   conflictGetState(): Promise<ConflictState>
@@ -211,6 +219,18 @@ export type SyncStatus = {
   fetchedAt: number | null
   /** error key when state === 'offline' or fetch failed; for diagnostics only */
   errorKey?: string
+}
+
+export type UpdateInfo = {
+  /** running app version, e.g. "0.6.2" */
+  current: string
+  /** latest release tag without leading "v", or null if check failed */
+  latest: string | null
+  available: boolean
+  releaseUrl: string | null
+  releaseNotes: string | null
+  /** unix ms of last successful check; null if never */
+  checkedAt: number | null
 }
 
 export type ConflictFileStatus =

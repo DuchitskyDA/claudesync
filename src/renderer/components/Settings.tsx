@@ -76,12 +76,14 @@ export function Settings({ open, initial, authState, onClose, onSaved, onSignOut
         finalPath = await window.api.suggestRepoPath(trimmedUrl)
       }
       if (!trimmedUrl) finalPath = null
+      const existing = await window.api.getConfig()
       const r = await window.api.setConfig({
         repoUrl: trimmedUrl || null,
         repoPath: finalPath,
         rulesTarget: trimmedTarget || null,
         includeSecretsInPush: false,
         locale: preference,
+        lastDismissedUpdate: existing.lastDismissedUpdate,
       })
       if (!r.ok) {
         setError(r.error ?? { key: 'settings.error.unknown' })

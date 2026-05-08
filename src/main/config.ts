@@ -34,6 +34,7 @@ export function readConfig(filePath: string): AppConfig {
     rulesTarget: null,
     includeSecretsInPush: false,
     locale: null,
+    lastDismissedUpdate: null,
   }
   if (!existsSync(filePath)) return fallback
   try {
@@ -46,6 +47,8 @@ export function readConfig(filePath: string): AppConfig {
       rulesTarget: typeof parsed.rulesTarget === 'string' ? parsed.rulesTarget : null,
       includeSecretsInPush: parsed.includeSecretsInPush === true,
       locale,
+      lastDismissedUpdate:
+        typeof parsed.lastDismissedUpdate === 'string' ? parsed.lastDismissedUpdate : null,
     }
   } catch {
     return fallback

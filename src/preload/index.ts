@@ -27,6 +27,7 @@ import type {
   ConflictResolveChoice,
   ConflictResolveResult,
   SyncStatus,
+  UpdateInfo,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -106,6 +107,14 @@ const api: AppApi = {
     ipcRenderer.invoke('get-sync-status'),
   refreshSyncStatus: (): Promise<SyncStatus> =>
     ipcRenderer.invoke('refresh-sync-status'),
+
+  // v0.6 — Update checker
+  getUpdateInfo: (): Promise<UpdateInfo> =>
+    ipcRenderer.invoke('get-update-info'),
+  checkForUpdates: (): Promise<UpdateInfo> =>
+    ipcRenderer.invoke('check-for-updates'),
+  dismissUpdate: (version: string): Promise<void> =>
+    ipcRenderer.invoke('dismiss-update', version),
 
   // v0.5 — Conflict resolver
   conflictGetState: (): Promise<ConflictState> =>

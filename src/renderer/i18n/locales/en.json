@@ -36,6 +36,9 @@
     "one": "{{count}} uncommitted file",
     "other": "{{count}} uncommitted files"
   },
+  "update.banner.available": "claudesync v{{latest}} is available (you have v{{current}})",
+  "update.banner.viewRelease": "View release",
+  "update.banner.dismiss": "Dismiss",
   "settings.title": "Settings",
   "settings.repoUrl.label": "Repo URL",
   "settings.repoUrl.optionalHint": "(optional — only for Sync)",

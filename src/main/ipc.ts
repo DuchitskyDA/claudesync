@@ -39,6 +39,7 @@ import { listOwners } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
 import { getSyncStatus } from './sync-status'
+import { getUpdateInfo } from './update-checker'
 import {
   getConflictState,
   getStageContent,
@@ -183,6 +184,7 @@ export function registerIpc(window: BrowserWindow): void {
       rulesTarget: cfg.rulesTarget ? expandTilde(cfg.rulesTarget) : null,
       includeSecretsInPush: cfg.includeSecretsInPush ?? false,
       locale: cfg.locale ?? null,
+      lastDismissedUpdate: cfg.lastDismissedUpdate ?? null,
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)
@@ -340,6 +342,18 @@ export function registerIpc(window: BrowserWindow): void {
       doFetch: true,
     })
     return cachedSyncStatus
+  })
+
+  // Update checker — call GitHub Releases API and compare against running app version.
+  ipcMain.handle('get-update-info', () => {
+    return getUpdateInfo({ current: app.getVersion(), doFetch: false })
+  })
+  ipcMain.handle('check-for-updates', () => {
+    return getUpdateInfo({ current: app.getVersion(), doFetch: true })
+  })
+  ipcMain.handle('dismiss-update', (_e, version: string) => {
+    const cfg = readConfig(configPath)
+    writeConfig(configPath, { ...cfg, lastDismissedUpdate: version })
   })
 
   ipcMain.handle('run-push', (_e, opts: PushOptions) => {

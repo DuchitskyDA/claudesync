@@ -48,6 +48,9 @@
     "many": "{{count}} незакоммиченных файлов",
     "other": "{{count}} незакоммиченных файла"
   },
+  "update.banner.available": "Доступен claudesync v{{latest}} (у вас v{{current}})",
+  "update.banner.viewRelease": "Открыть релиз",
+  "update.banner.dismiss": "Скрыть",
   "settings.title": "Настройки",
   "settings.repoUrl.label": "URL репозитория",
   "settings.repoUrl.optionalHint": "(опционально — только для синхронизации)",

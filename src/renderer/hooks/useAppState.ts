@@ -7,6 +7,7 @@ import type {
   StepName,
   StepStatus,
   SyncStatus,
+  UpdateInfo,
 } from '@shared/api'
 
 type Steps = Record<StepName, { status: StepStatus; message?: LocalizedMessage }>
@@ -20,6 +21,7 @@ const INITIAL_SYNC_STATUS: SyncStatus = {
 }
 
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000 // 5 min
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 export type AppState = {
   repoPath: string | null
@@ -34,6 +36,9 @@ export type AppState = {
   conflictInProgress: boolean
   syncStatus: SyncStatus
   syncStatusChecking: boolean
+  updateInfo: UpdateInfo | null
+  /** Latest version the user explicitly dismissed; persisted in AppConfig. */
+  lastDismissedUpdate: string | null
 }
 
 type Action =
@@ -50,6 +55,8 @@ type Action =
   | { type: 'set-conflict'; inProgress: boolean }
   | { type: 'set-sync-status'; status: SyncStatus }
   | { type: 'set-sync-checking'; checking: boolean }
+  | { type: 'set-update-info'; info: UpdateInfo }
+  | { type: 'set-dismissed-update'; version: string | null }
 
 const initialSteps: Steps = {
   fetch: { status: 'idle' },
@@ -73,6 +80,8 @@ const initial: AppState = {
   conflictInProgress: false,
   syncStatus: INITIAL_SYNC_STATUS,
   syncStatusChecking: false,
+  updateInfo: null,
+  lastDismissedUpdate: null,
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -103,6 +112,10 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, syncStatus: a.status }
     case 'set-sync-checking':
       return { ...s, syncStatusChecking: a.checking }
+    case 'set-update-info':
+      return { ...s, updateInfo: a.info }
+    case 'set-dismissed-update':
+      return { ...s, lastDismissedUpdate: a.version }
   }
 }
 
@@ -131,6 +144,18 @@ export function useAppState() {
     }
   }
 
+  const checkForUpdates = async (force = false): Promise<void> => {
+    const info = force
+      ? await window.api.checkForUpdates()
+      : await window.api.getUpdateInfo()
+    dispatch({ type: 'set-update-info', info })
+  }
+
+  const dismissUpdate = async (version: string): Promise<void> => {
+    await window.api.dismissUpdate(version)
+    dispatch({ type: 'set-dismissed-update', version })
+  }
+
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
     void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
@@ -144,11 +169,17 @@ export function useAppState() {
         repoUrl: c.repoUrl,
         rulesTarget: c.rulesTarget,
       })
+      dispatch({ type: 'set-dismissed-update', version: c.lastDismissedUpdate })
       if (!c.rulesTarget) dispatch({ type: 'open-settings' })
       // Cold-start sync-status: cached count first, then network refresh.
       void refreshSyncStatus(false).then(() => {
         if (c.repoUrl && c.repoPath) void refreshSyncStatus(true)
       })
+    })
+
+    // Update check: cached on mount, network shortly after.
+    void checkForUpdates(false).then(() => {
+      void checkForUpdates(true)
     })
 
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
@@ -176,6 +207,11 @@ export function useAppState() {
         void refreshSyncStatus(true)
       }
     }, AUTO_REFRESH_INTERVAL_MS)
+    const updateInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void checkForUpdates(true)
+      }
+    }, UPDATE_CHECK_INTERVAL_MS)
 
     return () => {
       unsub()
@@ -185,6 +221,7 @@ export function useAppState() {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onFocus)
       window.clearInterval(interval)
+      window.clearInterval(updateInterval)
     }
   }, [])
 
@@ -255,5 +292,7 @@ export function useAppState() {
     signOut: handleSignOut,
     setConflictInProgress,
     refreshSyncStatus: () => refreshSyncStatus(true),
+    checkForUpdates: () => checkForUpdates(true),
+    dismissUpdate,
   }
 }

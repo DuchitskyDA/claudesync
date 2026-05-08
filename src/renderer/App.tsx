@@ -4,6 +4,7 @@ import { PullButton } from './components/PullButton'
 import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
 import { ConflictModal } from './components/ConflictModal'
+import { UpdateBanner } from './components/UpdateBanner'
 import { InitWizard } from './components/InitWizard'
 import { LogConsole } from './components/LogConsole'
 import { StepList } from './components/StepList'
@@ -28,6 +29,7 @@ export function App() {
     signOut,
     setConflictInProgress,
     refreshSyncStatus,
+    dismissUpdate,
   } = useAppState()
   const [tab, setTab] = useState<Tab>('sync')
   const [showDetails, setShowDetails] = useState(false)
@@ -57,6 +59,11 @@ export function App() {
         syncStatusChecking={state.syncStatusChecking}
         onOpenSettings={openSettings}
         onRefreshSync={refreshSyncStatus}
+      />
+      <UpdateBanner
+        info={state.updateInfo}
+        lastDismissed={state.lastDismissedUpdate}
+        onDismiss={(v) => void dismissUpdate(v)}
       />
       {state.conflictInProgress && !conflictOpen && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
