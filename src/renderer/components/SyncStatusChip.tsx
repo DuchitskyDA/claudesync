@@ -1,6 +1,9 @@
 import React from 'react'
 import type { SyncStatus } from '@shared/api'
+import { Loader2, AlertTriangle, ArrowDown, ArrowUp, Check, Circle } from 'lucide-react'
+import { Badge } from './ui/badge'
 import { useT } from '../i18n'
+import { cn } from '@/lib/utils'
 
 type Props = {
   status: SyncStatus
@@ -24,77 +27,82 @@ function formatRelative(t: (k: string, p?: Record<string, string | number>) => s
 export function SyncStatusChip({ status, checking, onRefresh }: Props) {
   const t = useT()
 
-  // No remote configured — render nothing; the empty-state UI handles that.
   if (status.state === 'no-remote') return null
 
   const tooltipBase = formatRelative(t, status.fetchedAt)
   const lastChecked = t('sync.status.lastChecked', { time: tooltipBase })
 
-  const labelFor = (): { label: React.ReactNode; tone: string; tooltip: string } => {
+  type ChipInfo = {
+    label: React.ReactNode
+    variant: 'secondary' | 'success' | 'warning' | 'info' | 'destructive' | 'outline'
+    tooltip: string
+  }
+
+  const info: ChipInfo = (() => {
     if (checking) {
       return {
         label: (
-          <span className="flex items-center gap-1.5 text-neutral-500">
-            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-300 border-t-blue-500" />
+          <span className="flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />
             {t('sync.status.checking')}
           </span>
         ),
-        tone: 'neutral',
+        variant: 'secondary',
         tooltip: t('sync.status.checking'),
       }
     }
     if (status.state === 'offline') {
       return {
         label: (
-          <span className="flex items-center gap-1 text-neutral-500">
-            <span aria-hidden>⚠</span>
+          <span className="flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
             <span>{t('sync.status.offline')}</span>
           </span>
         ),
-        tone: 'neutral',
+        variant: 'secondary',
         tooltip: `${t('sync.status.offline')} · ${lastChecked}`,
       }
     }
     if (status.state === 'unknown') {
       return {
-        label: <span className="text-neutral-400">—</span>,
-        tone: 'neutral',
+        label: <span className="text-muted-foreground">—</span>,
+        variant: 'outline',
         tooltip: t('sync.status.unknown'),
       }
     }
     if (status.state === 'in-sync') {
       return {
         label: (
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-            <span aria-hidden>✓</span>
+          <span className="flex items-center gap-1">
+            <Check className="h-3 w-3" />
             <span>{t('sync.status.inSync')}</span>
           </span>
         ),
-        tone: 'success',
+        variant: 'success',
         tooltip: lastChecked,
       }
     }
     if (status.state === 'local-changes') {
       return {
         label: (
-          <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-            <span aria-hidden>●</span>
+          <span className="flex items-center gap-1">
+            <Circle className="h-2.5 w-2.5 fill-current" />
             <span className="tabular-nums">{status.localChanges}</span>
           </span>
         ),
-        tone: 'info',
+        variant: 'info',
         tooltip: `${t('sync.status.localChanges', { count: status.localChanges })} · ${lastChecked}`,
       }
     }
     if (status.state === 'behind') {
       return {
         label: (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-            <span aria-hidden>↓</span>
+          <span className="flex items-center gap-1">
+            <ArrowDown className="h-3 w-3" />
             <span className="tabular-nums">{status.behind}</span>
           </span>
         ),
-        tone: 'warning',
+        variant: 'warning',
         tooltip: `${t('sync.status.behind', { count: status.behind })} · ${lastChecked}`,
       }
     }
@@ -102,15 +110,15 @@ export function SyncStatusChip({ status, checking, onRefresh }: Props) {
       const dirty = status.localChanges > 0 ? '*' : ''
       return {
         label: (
-          <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-            <span aria-hidden>↑</span>
+          <span className="flex items-center gap-1">
+            <ArrowUp className="h-3 w-3" />
             <span className="tabular-nums">
               {status.ahead}
               {dirty}
             </span>
           </span>
         ),
-        tone: 'info',
+        variant: 'info',
         tooltip: `${t('sync.status.ahead', { count: status.ahead })}${
           status.localChanges > 0
             ? ` + ${t('sync.status.localChanges', { count: status.localChanges })}`
@@ -122,35 +130,35 @@ export function SyncStatusChip({ status, checking, onRefresh }: Props) {
     const dirtyMark = status.localChanges > 0 ? '*' : ''
     return {
       label: (
-        <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
-          <span aria-hidden>↓</span>
+        <span className="flex items-center gap-1">
+          <ArrowDown className="h-3 w-3" />
           <span className="tabular-nums">{status.behind}</span>
           <span aria-hidden className="opacity-50">·</span>
-          <span aria-hidden>↑</span>
+          <ArrowUp className="h-3 w-3" />
           <span className="tabular-nums">
             {status.ahead}
             {dirtyMark}
           </span>
         </span>
       ),
-      tone: 'danger',
+      variant: 'destructive',
       tooltip: `${t('sync.status.divergedTooltip', { behind: status.behind, ahead: status.ahead })}${
         status.localChanges > 0
           ? ` + ${t('sync.status.localChanges', { count: status.localChanges })}`
           : ''
       } · ${lastChecked}`,
     }
-  }
-
-  const { label, tooltip } = labelFor()
+  })()
 
   return (
     <button
       onClick={onRefresh}
-      title={`${tooltip}\n${t('sync.status.refresh')}`}
-      className="rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-xs transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+      title={`${info.tooltip}\n${t('sync.status.refresh')}`}
+      className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {label}
+      <Badge variant={info.variant} className={cn('cursor-pointer hover:opacity-80')}>
+        {info.label}
+      </Badge>
     </button>
   )
 }

@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import type { GitHubAuthState } from '@shared/api'
+import { Check } from 'lucide-react'
+import { Button } from '../ui/button'
 import { useT } from '../../i18n'
 import { DeviceFlowModal } from '../DeviceFlowModal'
 
@@ -16,29 +18,18 @@ export function SignInStep({ authState, onSignedIn, onContinue }: Props) {
   if (authState?.authenticated) {
     return (
       <div className="space-y-4">
-        <div className="text-sm">
-          ✓ {t('init.signIn.signedIn', { login: authState.login ?? '' })}
+        <div className="flex items-center gap-2 text-sm">
+          <Check className="h-4 w-4 text-emerald-500" />
+          {t('init.signIn.signedIn', { login: authState.login ?? '' })}
         </div>
-        <button
-          onClick={onContinue}
-          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-        >
-          {t('init.nav.next')}
-        </button>
+        <Button onClick={onContinue}>{t('init.nav.next')}</Button>
       </div>
     )
   }
   return (
     <div className="space-y-4">
-      <p className="text-sm text-neutral-600 dark:text-neutral-300">
-        {t('init.signIn.description')}
-      </p>
-      <button
-        onClick={() => setModalOpen(true)}
-        className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-      >
-        {t('init.signIn.title')}
-      </button>
+      <p className="text-sm text-muted-foreground">{t('init.signIn.description')}</p>
+      <Button onClick={() => setModalOpen(true)}>{t('init.signIn.title')}</Button>
       <DeviceFlowModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}

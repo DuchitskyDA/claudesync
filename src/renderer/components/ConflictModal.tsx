@@ -5,6 +5,14 @@ import type {
   ConflictFileContent,
   LocalizedMessage,
 } from '@shared/api'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from './ui/dialog'
+import { Button } from './ui/button'
 import { useT, tMessage } from '../i18n'
 import { ConflictFileList } from './ConflictFileList'
 import { ThreeWayDiff } from './ThreeWayDiff'
@@ -60,7 +68,6 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
       setContent(null)
       setError(null)
     }
-    // refresh closes over localStatus; intentionally omitted from deps
   }, [open])
 
   useEffect(() => {
@@ -136,49 +143,37 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
     onClose()
   }
 
-  if (!open) return null
-
   const allResolved = files.every((f) => f.status !== 'unresolved')
   const selectedFile = files.find((f) => f.path === selectedPath) ?? null
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40">
-      <div className="flex h-[82vh] w-[min(1180px,94vw)] flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-neutral-900">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <div className="min-w-0 pr-4">
-            <h2 className="font-display text-base font-semibold tracking-tight">
-              {t('conflict.modal.title')}
-            </h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent
+        className="flex h-[82vh] w-[min(1180px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
+      >
+        <DialogHeader className="flex-row items-start justify-between border-b px-5 py-3">
+          <div className="min-w-0 flex-1 pr-4">
+            <DialogTitle>{t('conflict.modal.title')}</DialogTitle>
+            <DialogDescription className="mt-0.5">
               {t('conflict.modal.description')}
-            </p>
+            </DialogDescription>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
-            <button
-              onClick={() => void handleAbort()}
-              className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-            >
+            <Button variant="outline" onClick={() => void handleAbort()}>
               {t('conflict.modal.abort')}
-            </button>
-            <button
-              onClick={() => void handleContinue()}
-              disabled={!allResolved || continuing}
-              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none dark:disabled:bg-neutral-700"
-            >
+            </Button>
+            <Button onClick={() => void handleContinue()} disabled={!allResolved || continuing}>
               {t('conflict.modal.continue')}
-            </button>
+            </Button>
           </div>
-        </div>
+        </DialogHeader>
 
-        {/* Error banner */}
         {error && (
-          <div className="border-b border-red-200 bg-red-50 px-5 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-sm text-destructive">
             {tMessage(t, error)}
           </div>
         )}
 
-        {/* Body */}
         <div className="flex flex-1 overflow-hidden">
           <ConflictFileList
             files={files}
@@ -192,11 +187,11 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
             {selectedFile && content ? (
               <ThreeWayDiff path={selectedFile.path} fileContent={content} />
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-neutral-500" />
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground" />
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
