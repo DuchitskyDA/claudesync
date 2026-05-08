@@ -84,17 +84,28 @@ function countCommits(repoPath: string, range: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-function deriveState(behind: number, ahead: number): SyncStatusState {
-  if (behind === 0 && ahead === 0) return 'in-sync'
-  if (behind > 0 && ahead === 0) return 'behind'
-  if (behind === 0 && ahead > 0) return 'ahead'
-  return 'diverged'
+function countLocalChanges(repoPath: string): number {
+  // -uall: include all untracked files (including those inside untracked dirs).
+  // -z: null-delimited so paths with whitespace don't fool the line count.
+  const r = gitOutput(['-C', repoPath, 'status', '--porcelain=v1', '-uall', '-z'], repoPath)
+  if (!r.ok) return 0
+  if (!r.stdout) return 0
+  return r.stdout.split('\0').filter(Boolean).length
+}
+
+function deriveState(behind: number, ahead: number, localChanges: number): SyncStatusState {
+  if (behind > 0 && ahead === 0 && localChanges === 0) return 'behind'
+  if (behind > 0) return 'diverged' // any local-side work + behind = diverged
+  if (ahead > 0) return 'ahead'
+  if (localChanges > 0) return 'local-changes'
+  return 'in-sync'
 }
 
 const NO_REMOTE_STATUS: SyncStatus = {
   state: 'no-remote',
   behind: 0,
   ahead: 0,
+  localChanges: 0,
   fetchedAt: null,
 }
 
@@ -112,7 +123,7 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
   }
   const branch = currentBranch(repoPath)
   if (!branch) {
-    return { state: 'unknown', behind: 0, ahead: 0, fetchedAt: null }
+    return { state: 'unknown', behind: 0, ahead: 0, localChanges: 0, fetchedAt: null }
   }
 
   let fetchedAt: number | null = null
@@ -127,11 +138,14 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
     }
   }
 
+  const localChanges = countLocalChanges(repoPath)
+
   if (!hasUpstream(repoPath, branch)) {
     return {
       state: 'unknown',
       behind: 0,
       ahead: 0,
+      localChanges,
       fetchedAt,
       errorKey: 'sync.error.noUpstream',
     }
@@ -139,11 +153,14 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
 
   const behind = countCommits(repoPath, `${branch}..origin/${branch}`)
   const ahead = countCommits(repoPath, `origin/${branch}..${branch}`)
-  const state: SyncStatusState = offline ? 'offline' : deriveState(behind, ahead)
+  const state: SyncStatusState = offline
+    ? 'offline'
+    : deriveState(behind, ahead, localChanges)
   return {
     state,
     behind,
     ahead,
+    localChanges,
     fetchedAt,
     ...(offline ? { errorKey: 'sync.error.fetchFailed' } : {}),
   }

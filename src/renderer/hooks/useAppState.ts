@@ -15,6 +15,7 @@ const INITIAL_SYNC_STATUS: SyncStatus = {
   state: 'unknown',
   behind: 0,
   ahead: 0,
+  localChanges: 0,
   fetchedAt: null,
 }
 

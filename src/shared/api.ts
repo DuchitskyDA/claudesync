@@ -196,6 +196,7 @@ export type SyncStatusState =
   | 'behind'
   | 'ahead'
   | 'diverged'
+  | 'local-changes'
   | 'offline'
   | 'no-remote'
   | 'unknown'
@@ -204,6 +205,8 @@ export type SyncStatus = {
   state: SyncStatusState
   behind: number
   ahead: number
+  /** count of uncommitted/untracked files in the repo working tree */
+  localChanges: number
   /** unix ms of last successful fetch; null if never */
   fetchedAt: number | null
   /** error key when state === 'offline' or fetch failed; for diagnostics only */
