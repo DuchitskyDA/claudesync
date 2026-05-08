@@ -38,6 +38,10 @@ export interface AppApi {
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
   getArch(): Promise<NodeJS.Architecture>
+  /** Grow or shrink the OS window vertically by `delta` pixels (positive = down).
+   *  Used to reveal/hide the log panel without compressing the rest of the UI.
+   *  Clamped to the available work area; falls back gracefully if maximised. */
+  resizeWindowBy(delta: number): Promise<void>
   getSystemLocale(): Promise<string>
   openExternal(url: string): Promise<void>
   onStep(callback: (e: StepEvent) => void): () => void

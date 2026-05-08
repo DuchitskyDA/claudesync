@@ -1,14 +1,32 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { registerIpc } from './ipc'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+function configureAppMenu(): void {
+  // Hide the default Electron menu (File/Edit/View/Window/Help) on
+  // Windows + Linux entirely. macOS requires an app menu (otherwise Cmd-Q
+  // and friends stop working), so install a minimal one with only the
+  // standard app/edit/window roles.
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: 'appMenu' },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 720,
     height: 520,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -41,11 +59,17 @@ function createWindow() {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // Hide menu bar on Win/Linux completely (Alt key won't reveal it either).
+  if (process.platform !== 'darwin') {
+    win.setMenuBarVisibility(false)
+  }
+
   registerIpc(win)
   return win
 }
 
 app.whenReady().then(() => {
+  configureAppMenu()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

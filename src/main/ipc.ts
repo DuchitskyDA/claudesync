@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { ipcMain, dialog, BrowserWindow, app, shell } from 'electron'
+import { ipcMain, dialog, BrowserWindow, app, shell, screen } from 'electron'
 import type {
   LogLine,
   RunResult,
@@ -211,6 +211,27 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('get-platform', (): NodeJS.Platform => process.platform)
   ipcMain.handle('get-arch', (): NodeJS.Architecture => process.arch)
+  ipcMain.handle('resize-window-by', (_e, delta: number) => {
+    if (window.isDestroyed() || window.isMaximized() || window.isFullScreen()) return
+    const display = screen.getDisplayMatching(window.getBounds())
+    const work = display.workArea
+    const size = window.getSize()
+    const w = size[0] ?? 720
+    const h = size[1] ?? 520
+    const newH = Math.max(360, Math.min(work.height, h + delta))
+    if (newH === h) return
+    window.setSize(w, newH, true)
+    // If we'd otherwise extend below the screen, nudge the window up.
+    const pos = window.getPosition()
+    const x = pos[0] ?? 0
+    const y = pos[1] ?? 0
+    const bottom = y + newH
+    const screenBottom = work.y + work.height
+    if (bottom > screenBottom) {
+      const newY = Math.max(work.y, y - (bottom - screenBottom))
+      window.setPosition(x, newY, true)
+    }
+  })
   ipcMain.handle('get-system-locale', () => app.getLocale())
 
   ipcMain.handle('open-external', (_e, url: string) => {

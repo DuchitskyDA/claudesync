@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type { GitHubAuthState, LocalizedMessage } from '@shared/api'
+import type { GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
 import { DeviceFlowModal } from './DeviceFlowModal'
 import { useT, useLocale, SUPPORTED, tMessage } from '../i18n'
 
@@ -7,6 +7,8 @@ type Props = {
   open: boolean
   initial: { repoUrl: string | null; repoPath: string | null; rulesTarget: string | null }
   authState: GitHubAuthState | null
+  updateInfo: UpdateInfo | null
+  onCheckForUpdates: () => Promise<void>
   onClose: () => void
   onSaved: (cfg: { repoUrl: string | null; repoPath: string | null; rulesTarget: string }) => void
   onSignOut: () => Promise<void>
@@ -19,7 +21,7 @@ const inputCls =
 const ghostBtnCls =
   'rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
 
-export function Settings({ open, initial, authState, onClose, onSaved, onSignOut, onSignedIn }: Props) {
+export function Settings({ open, initial, authState, updateInfo, onCheckForUpdates, onClose, onSaved, onSignOut, onSignedIn }: Props) {
   const [url, setUrl] = useState(initial.repoUrl ?? '')
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
@@ -231,6 +233,13 @@ export function Settings({ open, initial, authState, onClose, onSaved, onSignOut
                 ))}
               </div>
             </Section>
+
+            <Section title={t('settings.updates.title')}>
+              <UpdatesPanel
+                info={updateInfo}
+                onCheck={onCheckForUpdates}
+              />
+            </Section>
           </div>
         </div>
 
@@ -290,4 +299,72 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </div>
   )
+}
+
+function UpdatesPanel({
+  info,
+  onCheck,
+}: {
+  info: UpdateInfo | null
+  onCheck: () => Promise<void>
+}) {
+  const t = useT()
+  const [checking, setChecking] = useState(false)
+
+  const handle = async () => {
+    setChecking(true)
+    try {
+      await onCheck()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const renderStatus = (): string => {
+    if (!info) return t('settings.updates.notChecked')
+    if (info.available && info.latest) {
+      return t('settings.updates.available', {
+        current: info.current,
+        latest: info.latest,
+      })
+    }
+    return t('settings.updates.upToDate', { current: info.current })
+  }
+
+  const renderLastChecked = (): string | null => {
+    if (!info?.checkedAt) return null
+    const ago = formatRelative(info.checkedAt)
+    return t('settings.updates.lastChecked', { time: ago })
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 text-sm">
+        <div className={info?.available ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-700 dark:text-neutral-200'}>
+          {renderStatus()}
+        </div>
+        {renderLastChecked() && (
+          <div className="mt-0.5 text-xs text-neutral-500">{renderLastChecked()}</div>
+        )}
+      </div>
+      <button
+        onClick={() => void handle()}
+        disabled={checking}
+        className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+      >
+        {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
+      </button>
+    </div>
+  )
+}
+
+function formatRelative(ms: number): string {
+  const diff = Math.max(0, Date.now() - ms)
+  const sec = Math.floor(diff / 1000)
+  if (sec < 60) return 'just now'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  return `${Math.floor(hr / 24)}d ago`
 }

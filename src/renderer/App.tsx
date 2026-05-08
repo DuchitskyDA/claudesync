@@ -16,6 +16,11 @@ import { useT } from './i18n'
 
 type Tab = 'sync' | 'plugins'
 
+/** Pixels added to / removed from the OS window when the user toggles the log
+ *  footer, so step list / buttons aren't compressed. Matches the visual height
+ *  of the rendered LogConsole inside the panel. */
+const LOG_PANEL_HEIGHT = 240
+
 export function App() {
   const {
     state,
@@ -30,6 +35,7 @@ export function App() {
     setConflictInProgress,
     refreshSyncStatus,
     dismissUpdate,
+    checkForUpdates,
   } = useAppState()
   const [tab, setTab] = useState<Tab>('sync')
   const [showDetails, setShowDetails] = useState(false)
@@ -120,22 +126,9 @@ export function App() {
                     onClick={() => setPushOpen(true)}
                   />
                 </div>
-                <div className="border-t border-neutral-200 dark:border-neutral-700">
+                <div className="flex-1 overflow-auto border-t border-neutral-200 dark:border-neutral-700">
                   <StepList steps={state.steps} />
                 </div>
-                <div className="flex items-center justify-between border-t border-neutral-200 px-4 py-1 dark:border-neutral-700">
-                  <button
-                    onClick={() => setShowDetails((v) => !v)}
-                    className="text-xs text-neutral-500 transition hover:text-neutral-700 dark:hover:text-neutral-200"
-                  >
-                    {showDetails ? `▾ ${t('sync.log.hide')}` : `▸ ${t('sync.log.show')}`}
-                  </button>
-                </div>
-                {showDetails && (
-                  <div className="flex-1 overflow-hidden border-t border-neutral-200 dark:border-neutral-700">
-                    <LogConsole lines={state.log} onClear={clearLog} />
-                  </div>
-                )}
               </>
             )}
           </>
@@ -146,6 +139,32 @@ export function App() {
         )}
       </div>
 
+      {/* Log footer — always pinned to the bottom of the window. Toggle grows
+          the OS window vertically by LOG_PANEL_HEIGHT so existing content
+          isn't squashed. */}
+      {tab === 'sync' && state.repoUrl !== null && (
+        <div className="border-t border-neutral-200 dark:border-neutral-700">
+          <button
+            onClick={() => {
+              const willOpen = !showDetails
+              setShowDetails(willOpen)
+              void window.api.resizeWindowBy(willOpen ? LOG_PANEL_HEIGHT : -LOG_PANEL_HEIGHT)
+            }}
+            className="w-full px-4 py-1 text-left text-xs text-neutral-500 transition hover:text-neutral-700 dark:hover:text-neutral-200"
+          >
+            {showDetails ? `▾ ${t('sync.log.hide')}` : `▸ ${t('sync.log.show')}`}
+          </button>
+          {showDetails && (
+            <div
+              className="overflow-hidden border-t border-neutral-200 dark:border-neutral-700"
+              style={{ height: LOG_PANEL_HEIGHT }}
+            >
+              <LogConsole lines={state.log} onClear={clearLog} />
+            </div>
+          )}
+        </div>
+      )}
+
       <Settings
         open={state.settingsOpen}
         initial={{
@@ -154,6 +173,8 @@ export function App() {
           rulesTarget: state.rulesTarget,
         }}
         authState={state.authState}
+        updateInfo={state.updateInfo}
+        onCheckForUpdates={checkForUpdates}
         onClose={closeSettings}
         onSaved={(c) =>
           setConfigState({

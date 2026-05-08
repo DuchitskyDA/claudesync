@@ -43,6 +43,7 @@ const api: AppApi = {
   },
   getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('get-platform'),
   getArch: (): Promise<NodeJS.Architecture> => ipcRenderer.invoke('get-arch'),
+  resizeWindowBy: (delta: number): Promise<void> => ipcRenderer.invoke('resize-window-by', delta),
   getSystemLocale: (): Promise<string> => ipcRenderer.invoke('get-system-locale'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   onStep: (callback: (e: StepEvent) => void): (() => void) => {
