@@ -19,15 +19,42 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # `app-builder` (the Go binary electron-builder shells out to for the
+      # Electron download step) does not retry on transient network errors.
+      # GitHub's release CDN occasionally cuts the connection mid-download,
+      # which kills the whole publish path (publish + bump-cask depend on all
+      # three OS builds succeeding). Wrap each build in a small bash retry so
+      # one flaky download doesn't trash the release.
       - name: Build mac
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder --mac --publish never
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            npx electron-builder --mac --publish never && exit 0
+            echo "::warning::electron-builder mac attempt $i failed; retrying in 30s..."
+            sleep 30
+          done
+          exit 1
       - name: Build win
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win --publish never
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            npx electron-builder --win --publish never && exit 0
+            echo "::warning::electron-builder win attempt $i failed; retrying in 30s..."
+            sleep 30
+          done
+          exit 1
       - name: Build linux
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder --linux --publish never
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            npx electron-builder --linux --publish never && exit 0
+            echo "::warning::electron-builder linux attempt $i failed; retrying in 30s..."
+            sleep 30
+          done
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: claudesync-${{ matrix.os }}
