@@ -38,6 +38,7 @@ import {
 import { listOwners } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
+import { getSyncStatus } from './sync-status'
 import {
   getConflictState,
   getStageContent,
@@ -301,6 +302,43 @@ export function registerIpc(window: BrowserWindow): void {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
     return getRepoStatus(cfg.repoPath)
+  })
+
+  // Sync status — cached; refresh re-runs `git fetch`.
+  let cachedSyncStatus: import('@shared/api').SyncStatus = {
+    state: 'unknown',
+    behind: 0,
+    ahead: 0,
+    fetchedAt: null,
+  }
+  ipcMain.handle('get-sync-status', async () => {
+    const cfg = readConfig(configPath)
+    if (cachedSyncStatus.fetchedAt !== null) {
+      // Cache hit — recount with current local commits but skip network.
+      const fresh = await getSyncStatus({
+        repoPath: cfg.repoPath,
+        userDataDir,
+        doFetch: false,
+      })
+      // Preserve fetchedAt so UI shows "last checked" relative time.
+      cachedSyncStatus = { ...fresh, fetchedAt: cachedSyncStatus.fetchedAt }
+      return cachedSyncStatus
+    }
+    cachedSyncStatus = await getSyncStatus({
+      repoPath: cfg.repoPath,
+      userDataDir,
+      doFetch: false,
+    })
+    return cachedSyncStatus
+  })
+  ipcMain.handle('refresh-sync-status', async () => {
+    const cfg = readConfig(configPath)
+    cachedSyncStatus = await getSyncStatus({
+      repoPath: cfg.repoPath,
+      userDataDir,
+      doFetch: true,
+    })
+    return cachedSyncStatus
   })
 
   ipcMain.handle('run-push', (_e, opts: PushOptions) => {

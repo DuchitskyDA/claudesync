@@ -3,6 +3,35 @@
   "common.save": "Save",
   "tabs.sync": "Sync",
   "tabs.plugins": "Plugins",
+  "sync.status.checking": "Checking…",
+  "sync.status.inSync": "In sync",
+  "sync.status.offline": "Offline",
+  "sync.status.unknown": "Unknown",
+  "sync.status.refresh": "Click to refresh",
+  "sync.status.never": "never",
+  "sync.status.justNow": "just now",
+  "sync.status.lastChecked": "checked {{time}}",
+  "sync.status.minutesAgo": {
+    "one": "{{count}} min ago",
+    "other": "{{count}} min ago"
+  },
+  "sync.status.hoursAgo": {
+    "one": "{{count}} hour ago",
+    "other": "{{count}} hours ago"
+  },
+  "sync.status.daysAgo": {
+    "one": "{{count}} day ago",
+    "other": "{{count}} days ago"
+  },
+  "sync.status.behind": {
+    "one": "{{count}} commit behind remote",
+    "other": "{{count}} commits behind remote"
+  },
+  "sync.status.ahead": {
+    "one": "{{count}} commit ahead of remote",
+    "other": "{{count}} commits ahead of remote"
+  },
+  "sync.status.divergedTooltip": "Diverged: {{behind}} behind, {{ahead}} ahead",
   "settings.title": "Settings",
   "settings.repoUrl.label": "Repo URL",
   "settings.repoUrl.optionalHint": "(optional — only for Sync)",

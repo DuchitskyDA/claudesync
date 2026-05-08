@@ -1,14 +1,25 @@
 import React from 'react'
-import type { GitHubAuthState } from '@shared/api'
+import type { GitHubAuthState, SyncStatus } from '@shared/api'
 import { useT } from '../i18n'
+import { SyncStatusChip } from './SyncStatusChip'
 
 type Props = {
   repoPath: string | null
   authState: GitHubAuthState | null
+  syncStatus: SyncStatus
+  syncStatusChecking: boolean
   onOpenSettings: () => void
+  onRefreshSync: () => void
 }
 
-export function Header({ repoPath, authState, onOpenSettings }: Props) {
+export function Header({
+  repoPath,
+  authState,
+  syncStatus,
+  syncStatusChecking,
+  onOpenSettings,
+  onRefreshSync,
+}: Props) {
   const t = useT()
   return (
     <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-700">
@@ -21,6 +32,11 @@ export function Header({ repoPath, authState, onOpenSettings }: Props) {
         >
           {repoPath ?? t('header.noRepo')}
         </button>
+        <SyncStatusChip
+          status={syncStatus}
+          checking={syncStatusChecking}
+          onRefresh={onRefreshSync}
+        />
       </div>
       <div className="flex items-center gap-2">
         {authState?.authenticated ? (

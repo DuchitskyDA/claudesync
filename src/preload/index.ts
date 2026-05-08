@@ -26,6 +26,7 @@ import type {
   ConflictFileContent,
   ConflictResolveChoice,
   ConflictResolveResult,
+  SyncStatus,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -99,6 +100,12 @@ const api: AppApi = {
     ipcRenderer.on('push-step', listener)
     return () => ipcRenderer.off('push-step', listener)
   },
+
+  // v0.6 — Sync status
+  getSyncStatus: (): Promise<SyncStatus> =>
+    ipcRenderer.invoke('get-sync-status'),
+  refreshSyncStatus: (): Promise<SyncStatus> =>
+    ipcRenderer.invoke('refresh-sync-status'),
 
   // v0.5 — Conflict resolver
   conflictGetState: (): Promise<ConflictState> =>

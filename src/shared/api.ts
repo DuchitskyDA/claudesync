@@ -65,6 +65,10 @@ export interface AppApi {
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
 
+  // v0.6 — Sync status (live behind/ahead)
+  getSyncStatus(): Promise<SyncStatus>
+  refreshSyncStatus(): Promise<SyncStatus>
+
   // v0.5 — Conflict resolver
   conflictGetState(): Promise<ConflictState>
   conflictGetFile(path: string, side: ConflictSide): Promise<ConflictFileContent>
@@ -185,6 +189,25 @@ export type ScanResult = {
 export type RepoStatus = {
   changedFiles: string[]
   clean: boolean
+}
+
+export type SyncStatusState =
+  | 'in-sync'
+  | 'behind'
+  | 'ahead'
+  | 'diverged'
+  | 'offline'
+  | 'no-remote'
+  | 'unknown'
+
+export type SyncStatus = {
+  state: SyncStatusState
+  behind: number
+  ahead: number
+  /** unix ms of last successful fetch; null if never */
+  fetchedAt: number | null
+  /** error key when state === 'offline' or fetch failed; for diagnostics only */
+  errorKey?: string
 }
 
 export type ConflictFileStatus =

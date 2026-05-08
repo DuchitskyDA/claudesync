@@ -3,6 +3,45 @@
   "common.save": "Сохранить",
   "tabs.sync": "Синхронизация",
   "tabs.plugins": "Плагины",
+  "sync.status.checking": "Проверяю…",
+  "sync.status.inSync": "Синхронизировано",
+  "sync.status.offline": "Нет сети",
+  "sync.status.unknown": "Неизвестно",
+  "sync.status.refresh": "Кликните, чтобы обновить",
+  "sync.status.never": "никогда",
+  "sync.status.justNow": "только что",
+  "sync.status.lastChecked": "проверено {{time}}",
+  "sync.status.minutesAgo": {
+    "one": "{{count}} мин назад",
+    "few": "{{count}} мин назад",
+    "many": "{{count}} мин назад",
+    "other": "{{count}} мин назад"
+  },
+  "sync.status.hoursAgo": {
+    "one": "{{count}} час назад",
+    "few": "{{count}} часа назад",
+    "many": "{{count}} часов назад",
+    "other": "{{count}} часа назад"
+  },
+  "sync.status.daysAgo": {
+    "one": "{{count}} день назад",
+    "few": "{{count}} дня назад",
+    "many": "{{count}} дней назад",
+    "other": "{{count}} дня назад"
+  },
+  "sync.status.behind": {
+    "one": "{{count}} коммит позади удалённого",
+    "few": "{{count}} коммита позади удалённого",
+    "many": "{{count}} коммитов позади удалённого",
+    "other": "{{count}} коммита позади удалённого"
+  },
+  "sync.status.ahead": {
+    "one": "{{count}} коммит впереди удалённого",
+    "few": "{{count}} коммита впереди удалённого",
+    "many": "{{count}} коммитов впереди удалённого",
+    "other": "{{count}} коммита впереди удалённого"
+  },
+  "sync.status.divergedTooltip": "Расхождение: {{behind}} позади, {{ahead}} впереди",
   "settings.title": "Настройки",
   "settings.repoUrl.label": "URL репозитория",
   "settings.repoUrl.optionalHint": "(опционально — только для синхронизации)",
