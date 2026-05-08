@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { spawn } from 'node:child_process'
 import { ipcMain, dialog, BrowserWindow, app, shell, screen } from 'electron'
 import type {
   LogLine,
@@ -389,9 +388,8 @@ export function registerIpc(window: BrowserWindow): void {
     writeConfig(configPath, { ...cfg, lastDismissedUpdate: version })
   })
   // 1-click in-app update: per platform.
-  // - darwin: silent brew upgrade if brew is on PATH; falls back to legacy
-  //   "open Terminal" command via run-brew-upgrade if the user clicks the
-  //   secondary path.
+  // - darwin: silent brew upgrade if brew is on PATH; otherwise the renderer
+  //   falls back to opening the GitHub release URL directly.
   // - win32 / linux: electron-updater downloads in background, then quits
   //   and runs the new installer. SmartScreen does NOT trigger because
   //   the file is downloaded by Node (no Mark-of-the-Web tag).
@@ -410,28 +408,6 @@ export function registerIpc(window: BrowserWindow): void {
   })
   ipcMain.handle('updater-quit-and-install', () => {
     quitAndInstall()
-  })
-
-  ipcMain.handle('run-brew-upgrade', () => {
-    if (process.platform !== 'darwin') return
-    // Open Terminal.app and run brew upgrade interactively. Detached so it
-    // survives this electron process if the user quits the app afterwards.
-    // The `read -n 1` keeps the window open after brew finishes so the user
-    // can see the result before closing.
-    const cmd =
-      'brew upgrade --cask claudesync; echo; echo "[Press any key to close]"; read -n 1'
-    const escaped = cmd.replace(/"/g, '\\"')
-    const child = spawn(
-      '/usr/bin/osascript',
-      [
-        '-e',
-        `tell application "Terminal" to do script "${escaped}"`,
-        '-e',
-        'tell application "Terminal" to activate',
-      ],
-      { detached: true, stdio: 'ignore' },
-    )
-    child.unref()
   })
 
   ipcMain.handle('run-push', (_e, opts: PushOptions) => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import type { GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import type { UpdaterKind } from '../hooks/useAppState'
 import {
   Dialog,
   DialogContent,
@@ -20,14 +21,18 @@ type Props = {
   initial: { repoUrl: string | null; repoPath: string | null; rulesTarget: string | null }
   authState: GitHubAuthState | null
   updateInfo: UpdateInfo | null
+  platform: NodeJS.Platform | null
+  arch: NodeJS.Architecture | null
+  updaterKind: UpdaterKind
   onCheckForUpdates: () => Promise<void>
+  onStartUpdater: () => void
   onClose: () => void
   onSaved: (cfg: { repoUrl: string | null; repoPath: string | null; rulesTarget: string }) => void
   onSignOut: () => Promise<void>
   onSignedIn: () => void
 }
 
-export function Settings({ open, initial, authState, updateInfo, onCheckForUpdates, onClose, onSaved, onSignOut, onSignedIn }: Props) {
+export function Settings({ open, initial, authState, updateInfo, platform, arch, updaterKind, onCheckForUpdates, onStartUpdater, onClose, onSaved, onSignOut, onSignedIn }: Props) {
   const [url, setUrl] = useState(initial.repoUrl ?? '')
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
@@ -215,7 +220,14 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
             </Section>
 
             <Section title={t('settings.updates.title')}>
-              <UpdatesPanel info={updateInfo} onCheck={onCheckForUpdates} />
+              <UpdatesPanel
+                info={updateInfo}
+                platform={platform}
+                arch={arch}
+                updaterKind={updaterKind}
+                onCheck={onCheckForUpdates}
+                onStartUpdater={onStartUpdater}
+              />
             </Section>
           </div>
 
@@ -270,17 +282,44 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+const RELEASE_BASE = 'https://github.com/DuchitskyDA/claudesync/releases/download'
+
+function downloadUrlFor(
+  platform: NodeJS.Platform | null,
+  arch: NodeJS.Architecture | null,
+  version: string,
+): string | null {
+  if (!platform) return null
+  const base = `${RELEASE_BASE}/v${version}`
+  if (platform === 'darwin') {
+    return arch === 'arm64'
+      ? `${base}/claudesync-${version}-arm64.dmg`
+      : `${base}/claudesync-${version}.dmg`
+  }
+  if (platform === 'win32') return `${base}/claudesync.Setup.${version}.exe`
+  if (platform === 'linux') return `${base}/claudesync-${version}.AppImage`
+  return null
+}
+
 function UpdatesPanel({
   info,
+  platform,
+  arch,
+  updaterKind,
   onCheck,
+  onStartUpdater,
 }: {
   info: UpdateInfo | null
+  platform: NodeJS.Platform | null
+  arch: NodeJS.Architecture | null
+  updaterKind: UpdaterKind
   onCheck: () => Promise<void>
+  onStartUpdater: () => void
 }) {
   const t = useT()
   const [checking, setChecking] = useState(false)
 
-  const handle = async () => {
+  const handleCheck = async () => {
     setChecking(true)
     try {
       await onCheck()
@@ -289,31 +328,73 @@ function UpdatesPanel({
     }
   }
 
-  const renderStatus = (): string => {
-    if (!info) return t('settings.updates.notChecked')
-    if (info.available && info.latest) {
-      return t('settings.updates.available', { current: info.current, latest: info.latest })
-    }
-    return t('settings.updates.upToDate', { current: info.current })
-  }
-
   const renderLastChecked = (): string | null => {
     if (!info?.checkedAt) return null
-    const ago = formatRelative(info.checkedAt)
-    return t('settings.updates.lastChecked', { time: ago })
+    return t('settings.updates.lastChecked', { time: formatRelative(info.checkedAt) })
   }
 
+  // 1. Update is available — render the action card.
+  if (info?.available && info.latest) {
+    const oneClick = updaterKind === 'auto' || updaterKind === 'brew'
+    const handle = () => {
+      if (oneClick) {
+        onStartUpdater()
+      } else {
+        const url = downloadUrlFor(platform, arch, info.latest!)
+        if (url) void window.api.openExternal(url)
+      }
+    }
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={handle}
+          className="group flex w-full items-center gap-3 rounded-lg border bg-primary/5 px-3 py-2.5 text-left transition hover:bg-primary/10"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <ArrowUp className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {t('settings.updates.updateTo', { latest: info.latest })}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {t('settings.updates.fromCurrent', { current: info.current })}
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </button>
+        {renderLastChecked() && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{renderLastChecked()}</span>
+            <button
+              type="button"
+              onClick={() => void handleCheck()}
+              disabled={checking}
+              className="text-xs text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+            >
+              {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 2. No update — minimal status row + Check now.
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0 text-sm">
-        <div className={info?.available ? 'text-primary' : 'text-foreground'}>
-          {renderStatus()}
+        <div className="text-foreground">
+          {info
+            ? t('settings.updates.upToDate', { current: info.current })
+            : t('settings.updates.notChecked')}
         </div>
         {renderLastChecked() && (
           <div className="mt-0.5 text-xs text-muted-foreground">{renderLastChecked()}</div>
         )}
       </div>
-      <Button variant="outline" size="sm" onClick={() => void handle()} disabled={checking}>
+      <Button variant="outline" size="sm" onClick={() => void handleCheck()} disabled={checking}>
         {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
       </Button>
     </div>

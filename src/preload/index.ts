@@ -118,8 +118,6 @@ const api: AppApi = {
     ipcRenderer.invoke('check-for-updates'),
   dismissUpdate: (version: string): Promise<void> =>
     ipcRenderer.invoke('dismiss-update', version),
-  runBrewUpgrade: (): Promise<void> =>
-    ipcRenderer.invoke('run-brew-upgrade'),
   updaterSupported: (): Promise<'auto' | 'brew' | 'none'> =>
     ipcRenderer.invoke('updater-supported'),
   updaterStart: (): Promise<void> =>

@@ -20,8 +20,8 @@ export type AppConfig = {
   rulesTarget: string | null
   includeSecretsInPush: boolean
   locale: 'en' | 'ru' | null
-  /** Latest version the user dismissed from the update banner; banner re-appears
-   *  only when GitHub publishes a tag newer than this. */
+  /** Latest version the user has dismissed; the settings-gear update dot stays
+   *  hidden until GitHub publishes a tag newer than this. */
   lastDismissedUpdate: string | null
 }
 export type SetConfigResult = { ok: boolean; error?: LocalizedMessage }
@@ -81,9 +81,6 @@ export interface AppApi {
   getUpdateInfo(): Promise<UpdateInfo>
   checkForUpdates(): Promise<UpdateInfo>
   dismissUpdate(version: string): Promise<void>
-  /** macOS only: opens Terminal.app and runs `brew upgrade --cask claudesync`.
-   *  No-op on other platforms. Use `updaterStart` for the silent in-app flow. */
-  runBrewUpgrade(): Promise<void>
 
   /** Returns the kind of in-app updater available on this platform:
    *  - 'auto' on win32/linux (electron-updater)

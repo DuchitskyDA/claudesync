@@ -4,7 +4,6 @@ import { PullButton } from './components/PullButton'
 import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
 import { ConflictModal } from './components/ConflictModal'
-import { UpdateBanner } from './components/UpdateBanner'
 import { UpdateProgressModal } from './components/UpdateProgressModal'
 import { InitWizard } from './components/InitWizard'
 import { LogConsole } from './components/LogConsole'
@@ -36,7 +35,6 @@ export function App() {
     signOut,
     setConflictInProgress,
     refreshSyncStatus,
-    dismissUpdate,
     checkForUpdates,
     startUpdater,
     quitAndInstallUpdate,
@@ -68,17 +66,13 @@ export function App() {
         authState={state.authState}
         syncStatus={state.syncStatus}
         syncStatusChecking={state.syncStatusChecking}
+        hasUpdate={
+          state.updateInfo?.available === true &&
+          state.updateInfo.latest !== null &&
+          state.updateInfo.latest !== state.lastDismissedUpdate
+        }
         onOpenSettings={openSettings}
         onRefreshSync={refreshSyncStatus}
-      />
-      <UpdateBanner
-        info={state.updateInfo}
-        lastDismissed={state.lastDismissedUpdate}
-        platform={state.platform}
-        arch={state.arch}
-        updaterKind={state.updaterKind}
-        onDismiss={(v) => void dismissUpdate(v)}
-        onStartUpdater={() => void startUpdater()}
       />
       {state.conflictInProgress && !conflictOpen && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
@@ -179,7 +173,11 @@ export function App() {
         }}
         authState={state.authState}
         updateInfo={state.updateInfo}
+        platform={state.platform}
+        arch={state.arch}
+        updaterKind={state.updaterKind}
         onCheckForUpdates={checkForUpdates}
+        onStartUpdater={() => void startUpdater()}
         onClose={closeSettings}
         onSaved={(c) =>
           setConfigState({

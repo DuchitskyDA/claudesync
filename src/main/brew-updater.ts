@@ -142,10 +142,16 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
   // 2. Upgrade the cask. brew prints "already installed" when the local cask
   //    points to a version that's already on disk — treat that as an error so
   //    the UI doesn't pretend an update happened.
+  //
+  //    Note: do NOT pass `--no-quarantine` here. Recent brew versions have
+  //    disabled the flag and exit 1 with "Calling the `--[no-]quarantine`
+  //    switch is disabled!". Quarantine is stripped by the cask's own
+  //    postflight (`xattr -cr <app>` in `Casks/claudesync.rb`), so the flag
+  //    was redundant anyway.
   let throttle = Date.now()
   const upgrade = await runBrew(
     brew,
-    ['upgrade', '--cask', 'claudesync', '--no-quarantine'],
+    ['upgrade', '--cask', 'claudesync'],
     window,
     () => {
       const now = Date.now()

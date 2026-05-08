@@ -10,6 +10,8 @@ type Props = {
   authState: GitHubAuthState | null
   syncStatus: SyncStatus
   syncStatusChecking: boolean
+  /** Show a small dot on the settings gear icon when an update is available. */
+  hasUpdate: boolean
   onOpenSettings: () => void
   onRefreshSync: () => void
 }
@@ -19,6 +21,7 @@ export function Header({
   authState,
   syncStatus,
   syncStatusChecking,
+  hasUpdate,
   onOpenSettings,
   onRefreshSync,
 }: Props) {
@@ -55,9 +58,15 @@ export function Header({
           size="icon"
           onClick={onOpenSettings}
           aria-label={t('header.openSettings')}
-          className="h-7 w-7"
+          className="relative h-7 w-7"
         >
           <SettingsIcon className="h-4 w-4" />
+          {hasUpdate && (
+            <span
+              aria-hidden
+              className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary"
+            />
+          )}
         </Button>
       </div>
     </header>
