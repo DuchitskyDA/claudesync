@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import pkg from 'electron-updater'
+import { logUpdater } from './diag-log'
 
 const { autoUpdater } = pkg
 
@@ -34,13 +35,18 @@ export function setupAutoUpdater(window: BrowserWindow): void {
     if (!window.isDestroyed()) window.webContents.send('update-progress', event)
   }
 
-  autoUpdater.on('checking-for-update', () => send({ phase: 'checking' }))
-  autoUpdater.on('update-available', (info) =>
-    send({ phase: 'available', version: info.version }),
-  )
-  autoUpdater.on('update-not-available', (info) =>
-    send({ phase: 'not-available', version: info.version }),
-  )
+  autoUpdater.on('checking-for-update', () => {
+    logUpdater('auto', 'checking-for-update')
+    send({ phase: 'checking' })
+  })
+  autoUpdater.on('update-available', (info) => {
+    logUpdater('auto', 'update-available', { version: info.version })
+    send({ phase: 'available', version: info.version })
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    logUpdater('auto', 'update-not-available', { version: info.version })
+    send({ phase: 'not-available', version: info.version })
+  })
   autoUpdater.on('download-progress', (p) =>
     send({
       phase: 'downloading',
@@ -49,12 +55,15 @@ export function setupAutoUpdater(window: BrowserWindow): void {
       total: p.total,
     }),
   )
-  autoUpdater.on('update-downloaded', (info) =>
-    send({ phase: 'downloaded', version: info.version }),
-  )
-  autoUpdater.on('error', (e) =>
-    send({ phase: 'error', message: (e as Error).message ?? String(e) }),
-  )
+  autoUpdater.on('update-downloaded', (info) => {
+    logUpdater('auto', 'update-downloaded', { version: info.version })
+    send({ phase: 'downloaded', version: info.version })
+  })
+  autoUpdater.on('error', (e) => {
+    const message = (e as Error).message ?? String(e)
+    logUpdater('auto', 'error', { message })
+    send({ phase: 'error', message })
+  })
 }
 
 export async function checkForUpdates(): Promise<void> {
@@ -83,5 +92,6 @@ export async function startUpdateDownload(): Promise<void> {
  */
 export function quitAndInstall(): void {
   if (process.platform === 'darwin') return
+  logUpdater('auto', 'quitAndInstall invoked', { execPath: process.execPath })
   autoUpdater.quitAndInstall(false /* isSilent */, true /* isForceRunAfter */)
 }

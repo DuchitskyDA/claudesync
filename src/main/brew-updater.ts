@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, dirname } from 'node:path'
 import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
 import type { UpdateProgressEvent } from './auto-updater'
+import { logUpdater } from './diag-log'
 
 const BREW_CANDIDATES = [
   '/opt/homebrew/bin/brew', // Apple Silicon default
@@ -19,6 +22,52 @@ export function findBrew(): string | null {
 
 export function isBrewAvailable(): boolean {
   return findBrew() !== null
+}
+
+/**
+ * Walk up from an executable path until we hit a `*.app` directory; return
+ * its basename. Pure (no fs), exported for tests.
+ */
+export function extractAppBundleName(execPath: string): string | null {
+  let p = execPath
+  while (p !== '/' && p !== dirname(p)) {
+    if (p.endsWith('.app')) return basename(p)
+    p = dirname(p)
+  }
+  return null
+}
+
+/**
+ * Resolve the `.app` bundle path to relaunch after a brew cask upgrade.
+ *
+ * `app.relaunch()` defaults to `process.execPath`, which on macOS Node passes
+ * through `realpath()`. For a brew cask whose `/Applications/<name>.app` is a
+ * symlink into the Caskroom (e.g. `/opt/homebrew/Caskroom/<name>/<old>/<name>.app`),
+ * that realpath points to the *old* version dir — which `brew upgrade --cask`
+ * removes before installing the new one. Relaunching that path either fails
+ * silently or makes LaunchServices resurrect the cached running bundle, so the
+ * user ends up looking at the same old version.
+ *
+ * Solution: launch the canonical `/Applications/<name>.app` (or
+ * `~/Applications/<name>.app`) symlink, which brew has just repointed at the
+ * new version, via `/usr/bin/open -n`.
+ *
+ * Exported for tests.
+ */
+export function findAppBundleForRelaunch(
+  execPath: string,
+  fileExists: (p: string) => boolean = existsSync,
+): string | null {
+  const appName = extractAppBundleName(execPath)
+  if (!appName) return null
+  const candidates = [
+    `/Applications/${appName}`,
+    `${homedir()}/Applications/${appName}`,
+  ]
+  for (const c of candidates) {
+    if (fileExists(c)) return c
+  }
+  return null
 }
 
 type SpawnResult = { code: number | null; out: string }
@@ -62,6 +111,11 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
   const send = (e: UpdateProgressEvent) => {
     if (!window.isDestroyed()) window.webContents.send('update-progress', e)
   }
+  logUpdater('brew', 'runBrewUpgrade start', {
+    appVersion: app.getVersion(),
+    execPath: process.execPath,
+    brew,
+  })
   if (!brew) {
     send({ phase: 'error', message: 'brew_not_found' })
     return
@@ -71,6 +125,10 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
 
   // 1. Refresh taps so the latest cask version is visible locally.
   const update = await runBrew(brew, ['update', '--quiet'], window)
+  logUpdater('brew', 'brew update done', {
+    code: update.code,
+    tail: update.out.trim().slice(-400),
+  })
   if (update.code !== 0) {
     send({
       phase: 'error',
@@ -97,6 +155,11 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
       }
     },
   )
+  // Tail-truncated to keep the log readable; full stdout/stderr can be huge.
+  logUpdater('brew', 'brew upgrade done', {
+    code: upgrade.code,
+    tail: upgrade.out.trim().slice(-2000),
+  })
 
   if (upgrade.code !== 0) {
     send({
@@ -106,11 +169,8 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
     return
   }
 
-  const lower = upgrade.out.toLowerCase()
-  const noop =
-    lower.includes('already installed') ||
-    lower.includes('no available upgrade') ||
-    lower.includes('no casks to upgrade')
+  const noop = isBrewNoOp(upgrade.out)
+  logUpdater('brew', 'no-op check', { noop })
   if (noop) {
     send({
       phase: 'error',
@@ -121,9 +181,56 @@ export async function runBrewUpgrade(window: BrowserWindow): Promise<void> {
     return
   }
 
+  logUpdater('brew', 'sending downloaded event, scheduling relaunch')
   send({ phase: 'downloaded', version: '' })
   setTimeout(() => {
-    app.relaunch()
-    app.exit(0)
+    relaunchAfterBrewUpgrade()
   }, 800)
+}
+
+/**
+ * brew prints various wordings when a cask doesn't actually need upgrading.
+ * Treat all of them as no-op so we don't relaunch on top of an unchanged
+ * bundle and pretend an update happened.
+ *
+ * Exported for tests.
+ */
+export function isBrewNoOp(output: string): boolean {
+  const lower = output.toLowerCase()
+  const patterns = [
+    'already installed',
+    'no available upgrade',
+    'no casks to upgrade',
+    'nothing to upgrade',
+    'is up-to-date',
+    'are up-to-date',
+    '0 outdated packages',
+  ]
+  return patterns.some((p) => lower.includes(p))
+}
+
+/**
+ * Mac-specific relaunch after `brew upgrade --cask` has swapped the bundle.
+ * Prefers `/usr/bin/open -n <bundle>` over `app.relaunch()` because the
+ * latter execs `process.execPath`, which is the (now-deleted) Caskroom
+ * realpath — see `findAppBundleForRelaunch` for the long story.
+ */
+function relaunchAfterBrewUpgrade(): void {
+  const bundle = findAppBundleForRelaunch(process.execPath)
+  logUpdater('brew', 'relaunch', {
+    execPath: process.execPath,
+    bundle,
+    method: bundle ? 'open -n' : 'app.relaunch (fallback)',
+  })
+  if (bundle) {
+    spawn('/usr/bin/open', ['-n', bundle], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref()
+  } else {
+    // Last resort — only fires when the canonical /Applications/<name>.app
+    // symlink is missing (e.g. exotic HOMEBREW_CASK_OPTS --appdir).
+    app.relaunch()
+  }
+  app.exit(0)
 }
