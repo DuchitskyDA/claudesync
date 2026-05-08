@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useAppState } from './hooks/useAppState'
-import { SyncButton } from './components/SyncButton'
+import { PullButton } from './components/PullButton'
 import { LogConsole } from './components/LogConsole'
 import { StepList } from './components/StepList'
 import { Settings } from './components/Settings'
@@ -32,7 +32,7 @@ export function App() {
         {tab === 'sync' ? (
           <>
             <div className="flex items-center gap-3 px-4 py-3">
-              <SyncButton
+              <PullButton
                 configComplete={configComplete}
                 isRunning={state.isRunning}
                 onClick={() => void syncNow()}

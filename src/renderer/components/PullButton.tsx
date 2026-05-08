@@ -6,14 +6,13 @@ type Props = {
   onClick: () => void
 }
 
-export function SyncButton({ configComplete, isRunning, onClick }: Props) {
+export function PullButton({ configComplete, isRunning, onClick }: Props) {
   const disabled = !configComplete || isRunning
   const reason = !configComplete
-    ? 'Sync requires Repo URL and Rules target in Settings'
+    ? 'Pull requires Repo URL and Rules target in Settings'
     : isRunning
       ? 'Already running'
       : ''
-
   return (
     <button
       type="button"
@@ -22,7 +21,7 @@ export function SyncButton({ configComplete, isRunning, onClick }: Props) {
       title={reason}
       className="rounded-md bg-blue-600 px-5 py-2 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 dark:disabled:bg-neutral-700"
     >
-      {isRunning ? 'Syncing…' : 'Sync now'}
+      {isRunning ? 'Pulling…' : 'Pull & Install'}
     </button>
   )
 }

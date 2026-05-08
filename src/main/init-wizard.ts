@@ -10,6 +10,11 @@ import {
 } from 'node:fs'
 import { join, sep, posix, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
+import type { LogLine, RunResult, StepStatus, InitStep } from '@shared/api'
+import { runCommand, withRunLock } from './runner'
+import { createRepo as ghCreateRepo } from './github-api'
+import { loadToken } from './safe-storage'
 import type { ScanResult } from '@shared/api'
 
 const RUNTIME_TOP_DIRS = [
@@ -234,4 +239,150 @@ export function dropTemplatesFrom(
 
 export function dropTemplates(repoPath: string, ctx: TemplateContext): void {
   return dropTemplatesFrom(templatesDir(), repoPath, ctx)
+}
+
+// ---------------------------------------------------------------------------
+// initRepo orchestration
+// ---------------------------------------------------------------------------
+
+function defaultManagedRepoPath(url: string, userDataDir: string): string {
+  const sha = createHash('sha256').update(url).digest('hex').slice(0, 12)
+  return join(userDataDir, 'repos', sha)
+}
+
+function tokenEnv(token: string): Record<string, string> {
+  return {
+    GIT_HTTP_USER_AGENT: 'claudesync',
+    GITHUB_TOKEN: token,
+  }
+}
+
+function authArgs(token: string): string[] {
+  return ['-c', `http.extraheader=Authorization: Bearer ${token}`]
+}
+
+function nowHHMMSS(): string {
+  const d = new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+export type InitRepoOpts = {
+  ownerLogin: string
+  name: string
+  isPrivate: boolean
+  description?: string
+  rulesTarget: string
+  userDataDir: string
+  tplDir: string
+  emit: (line: LogLine) => void
+  emitStep: (e: { step: InitStep; status: StepStatus; message?: string }) => void
+}
+
+export type InitRepoResult = RunResult & { repoUrl?: string; repoPath?: string }
+
+function fail(error: string): InitRepoResult {
+  return { ok: false, exitCode: -1, error }
+}
+
+export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
+  const token = loadToken(opts.userDataDir)
+  if (!token) return fail('Not signed in to GitHub. Sign in first.')
+
+  return withRunLock(async () => {
+    // Step 1: create repo via API
+    opts.emitStep({ step: 'create-repo', status: 'running' })
+    let cloneUrl: string
+    try {
+      const repo = await ghCreateRepo(token, {
+        owner: opts.ownerLogin,
+        name: opts.name,
+        isPrivate: opts.isPrivate,
+        description: opts.description,
+      })
+      cloneUrl = repo.clone_url
+      opts.emit({ time: nowHHMMSS(), text: `✓ Created ${repo.full_name}`, level: 'info' })
+      opts.emitStep({ step: 'create-repo', status: 'done' })
+    } catch (e) {
+      const msg = (e as Error).message
+      opts.emitStep({ step: 'create-repo', status: 'failed', message: msg })
+      return fail(msg)
+    }
+
+    // Step 2: clone empty repo
+    const localPath = defaultManagedRepoPath(cloneUrl, opts.userDataDir)
+    mkdirSync(dirname(localPath), { recursive: true })
+    opts.emitStep({ step: 'clone', status: 'running' })
+    const cloneResult = await runCommand(
+      'git',
+      [...authArgs(token), 'clone', cloneUrl, localPath],
+      {
+        cwd: dirname(localPath),
+        env: tokenEnv(token),
+        onLine: opts.emit,
+      },
+    )
+    if (cloneResult.exitCode !== 0) {
+      opts.emitStep({ step: 'clone', status: 'failed' })
+      return fail(`git clone failed (exit ${cloneResult.exitCode})`)
+    }
+    opts.emitStep({ step: 'clone', status: 'done' })
+
+    // Step 3: generate global/ + drop templates
+    opts.emitStep({ step: 'generate', status: 'running' })
+    try {
+      generateGlobalStructure(opts.rulesTarget, localPath)
+      dropTemplatesFrom(opts.tplDir, localPath, { name: opts.name, owner: opts.ownerLogin })
+    } catch (e) {
+      opts.emitStep({ step: 'generate', status: 'failed', message: (e as Error).message })
+      return fail((e as Error).message)
+    }
+    opts.emitStep({ step: 'generate', status: 'done' })
+
+    // Step 4: commit (add then commit)
+    opts.emitStep({ step: 'commit', status: 'running' })
+    const addResult = await runCommand('git', ['-C', localPath, 'add', '-A'], {
+      cwd: localPath,
+      onLine: opts.emit,
+    })
+    if (addResult.exitCode !== 0) {
+      opts.emitStep({ step: 'commit', status: 'failed' })
+      return fail('git add failed')
+    }
+    const commitResult = await runCommand(
+      'git',
+      [
+        '-C',
+        localPath,
+        '-c',
+        'user.email=claudesync@noreply',
+        '-c',
+        'user.name=claudesync',
+        'commit',
+        '-m',
+        'initial commit from claudesync',
+      ],
+      { cwd: localPath, onLine: opts.emit },
+    )
+    if (commitResult.exitCode !== 0) {
+      opts.emitStep({ step: 'commit', status: 'failed' })
+      return fail('initial commit failed')
+    }
+    opts.emitStep({ step: 'commit', status: 'done' })
+
+    // Step 5: push
+    opts.emitStep({ step: 'push', status: 'running' })
+    const pushResult = await runCommand(
+      'git',
+      [...authArgs(token), '-C', localPath, 'push', '-u', 'origin', 'main'],
+      { cwd: localPath, env: tokenEnv(token), onLine: opts.emit },
+    )
+    if (pushResult.exitCode !== 0) {
+      opts.emitStep({ step: 'push', status: 'failed' })
+      return fail(`push failed (exit ${pushResult.exitCode})`)
+    }
+    opts.emitStep({ step: 'push', status: 'done' })
+
+    return { ok: true, exitCode: 0, repoUrl: cloneUrl, repoPath: localPath }
+  }).catch((e: Error) => fail(e.message))
 }

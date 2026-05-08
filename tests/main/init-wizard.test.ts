@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   mkdtempSync,
   rmSync,
@@ -9,6 +9,27 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+const runCommandMock = vi.hoisted(() => vi.fn())
+vi.mock('../../src/main/runner', () => ({
+  runCommand: runCommandMock,
+  withRunLock: <T,>(task: () => Promise<T>) => task(),
+}))
+
+const createRepoMock = vi.hoisted(() => vi.fn())
+vi.mock('../../src/main/github-api', () => ({
+  createRepo: createRepoMock,
+  getUser: vi.fn(),
+  listOrgs: vi.fn(),
+  listOwners: vi.fn(),
+}))
+
+const loadTokenMock = vi.hoisted(() => vi.fn())
+vi.mock('../../src/main/safe-storage', () => ({
+  loadToken: loadTokenMock,
+  saveToken: vi.fn(),
+  deleteToken: vi.fn(),
+}))
 
 import { scanLocalConfig, generateGlobalStructure, dropTemplatesFrom } from '../../src/main/init-wizard'
 
@@ -178,5 +199,149 @@ describe('dropTemplatesFrom', () => {
     dropTemplatesFrom(tplDir, repoPath, { name: 'r', owner: 'o' })
     const out = readFileSync(join(repoPath, 'LICENSE'), 'utf8')
     expect(out).toMatch(/^year=\d{4}$/)
+  })
+})
+
+import { initRepo } from '../../src/main/init-wizard'
+
+describe('initRepo', () => {
+  beforeEach(() => {
+    runCommandMock.mockReset()
+    createRepoMock.mockReset()
+    loadTokenMock.mockReset()
+  })
+
+  it('returns failure when no token', async () => {
+    loadTokenMock.mockReturnValue(null)
+    const r = await initRepo({
+      ownerLogin: 'me',
+      name: 'test',
+      isPrivate: true,
+      rulesTarget,
+      userDataDir: dir,
+      tplDir: 'unused',
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/sign|auth/i)
+  })
+
+  it('runs full happy path: createRepo → clone → generate → commit → push', async () => {
+    loadTokenMock.mockReturnValue('gho_token')
+    createRepoMock.mockResolvedValue({
+      clone_url: 'https://github.com/me/test.git',
+      html_url: 'https://github.com/me/test',
+      full_name: 'me/test',
+    })
+    runCommandMock.mockResolvedValue({ exitCode: 0 })
+
+    writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
+
+    const tplDir = join(dir, 'tpl')
+    mkdirSync(tplDir)
+    writeFileSync(join(tplDir, 'install.sh.template'), '#!/usr/bin/env bash')
+    writeFileSync(join(tplDir, 'install.ps1.template'), '# ps')
+    writeFileSync(join(tplDir, 'README.md.template'), '{{name}}')
+    writeFileSync(join(tplDir, 'LICENSE.template'), 'MIT {{year}} {{owner}}')
+    writeFileSync(join(tplDir, 'gitignore.template'), '.DS_Store')
+
+    const steps: string[] = []
+    const r = await initRepo({
+      ownerLogin: 'me',
+      name: 'test',
+      isPrivate: true,
+      rulesTarget,
+      userDataDir: dir,
+      tplDir,
+      emit: () => {},
+      emitStep: (e) => steps.push(`${e.step}:${e.status}`),
+    })
+
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r as { ok: true; exitCode: number; repoUrl?: string; repoPath?: string }).repoUrl).toBe('https://github.com/me/test.git')
+    }
+    expect(createRepoMock).toHaveBeenCalled()
+    expect(steps).toContain('create-repo:done')
+    expect(steps).toContain('clone:done')
+    expect(steps).toContain('generate:done')
+    expect(steps).toContain('commit:done')
+    expect(steps).toContain('push:done')
+  })
+
+  it('aborts on createRepo failure', async () => {
+    loadTokenMock.mockReturnValue('gho_token')
+    createRepoMock.mockRejectedValue(new Error('GitHub API 422: name taken'))
+
+    const r = await initRepo({
+      ownerLogin: 'me',
+      name: 'taken',
+      isPrivate: true,
+      rulesTarget,
+      userDataDir: dir,
+      tplDir: 'unused',
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/422/)
+  })
+
+  it('aborts on clone failure', async () => {
+    loadTokenMock.mockReturnValue('gho_token')
+    createRepoMock.mockResolvedValue({
+      clone_url: 'https://github.com/me/test.git',
+      html_url: '',
+      full_name: 'me/test',
+    })
+    runCommandMock.mockResolvedValueOnce({ exitCode: 128 })
+
+    const tplDir = join(dir, 'tpl')
+    mkdirSync(tplDir)
+
+    const r = await initRepo({
+      ownerLogin: 'me',
+      name: 'test',
+      isPrivate: true,
+      rulesTarget,
+      userDataDir: dir,
+      tplDir,
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/clone/i)
+  })
+
+  it('aborts on commit failure', async () => {
+    loadTokenMock.mockReturnValue('gho_token')
+    createRepoMock.mockResolvedValue({
+      clone_url: 'https://github.com/me/test.git',
+      html_url: '',
+      full_name: 'me/test',
+    })
+    runCommandMock
+      .mockResolvedValueOnce({ exitCode: 0 }) // clone
+      .mockResolvedValueOnce({ exitCode: 0 }) // add
+      .mockResolvedValueOnce({ exitCode: 1 }) // commit fails
+
+    const tplDir = join(dir, 'tpl')
+    mkdirSync(tplDir)
+
+    writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
+
+    const r = await initRepo({
+      ownerLogin: 'me',
+      name: 'test',
+      isPrivate: true,
+      rulesTarget,
+      userDataDir: dir,
+      tplDir,
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/commit/i)
   })
 })
