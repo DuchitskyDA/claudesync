@@ -37,6 +37,7 @@ export interface AppApi {
   pickRepoPath(): Promise<string | null>
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
+  getArch(): Promise<NodeJS.Architecture>
   getSystemLocale(): Promise<string>
   openExternal(url: string): Promise<void>
   onStep(callback: (e: StepEvent) => void): () => void
@@ -76,6 +77,9 @@ export interface AppApi {
   getUpdateInfo(): Promise<UpdateInfo>
   checkForUpdates(): Promise<UpdateInfo>
   dismissUpdate(version: string): Promise<void>
+  /** macOS only: opens Terminal.app and runs `brew upgrade --cask claudesync`.
+   *  No-op on other platforms. */
+  runBrewUpgrade(): Promise<void>
 
   // v0.5 — Conflict resolver
   conflictGetState(): Promise<ConflictState>

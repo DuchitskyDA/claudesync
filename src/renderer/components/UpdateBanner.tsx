@@ -5,21 +5,74 @@ import { useT } from '../i18n'
 type Props = {
   info: UpdateInfo | null
   lastDismissed: string | null
+  platform: NodeJS.Platform | null
+  arch: NodeJS.Architecture | null
   onDismiss: (version: string) => void
 }
 
-export function UpdateBanner({ info, lastDismissed, onDismiss }: Props) {
+const RELEASE_BASE = 'https://github.com/DuchitskyDA/claudesync/releases/download'
+
+function downloadUrlFor(
+  platform: NodeJS.Platform | null,
+  arch: NodeJS.Architecture | null,
+  version: string,
+): string | null {
+  if (!platform) return null
+  const base = `${RELEASE_BASE}/v${version}`
+  if (platform === 'darwin') {
+    return arch === 'arm64'
+      ? `${base}/claudesync-${version}-arm64.dmg`
+      : `${base}/claudesync-${version}.dmg`
+  }
+  if (platform === 'win32') {
+    return `${base}/claudesync.Setup.${version}.exe`
+  }
+  if (platform === 'linux') {
+    return `${base}/claudesync-${version}.AppImage`
+  }
+  return null
+}
+
+export function UpdateBanner({ info, lastDismissed, platform, arch, onDismiss }: Props) {
   const t = useT()
 
   if (!info || !info.available || !info.latest) return null
   if (info.latest === lastDismissed) return null
 
-  const handleView = () => {
+  const handleViewRelease = () => {
     if (info.releaseUrl) void window.api.openExternal(info.releaseUrl)
   }
 
   const handleDismiss = () => {
     if (info.latest) onDismiss(info.latest)
+  }
+
+  const handleBrewUpgrade = () => {
+    void window.api.runBrewUpgrade()
+  }
+
+  const handleDirectDownload = () => {
+    const url = downloadUrlFor(platform, arch, info.latest!)
+    if (url) void window.api.openExternal(url)
+  }
+
+  let primaryLabel: string
+  let primaryAction: () => void
+  let primaryTooltip: string | undefined
+
+  if (platform === 'darwin') {
+    primaryLabel = t('update.banner.brewUpgrade')
+    primaryAction = handleBrewUpgrade
+    primaryTooltip = t('update.banner.brewUpgrade.tooltip')
+  } else if (platform === 'win32') {
+    primaryLabel = t('update.banner.downloadInstaller')
+    primaryAction = handleDirectDownload
+  } else if (platform === 'linux') {
+    primaryLabel = t('update.banner.downloadAppImage')
+    primaryAction = handleDirectDownload
+  } else {
+    primaryLabel = t('update.banner.viewRelease')
+    primaryAction = handleViewRelease
   }
 
   return (
@@ -35,11 +88,20 @@ export function UpdateBanner({ info, lastDismissed, onDismiss }: Props) {
       </div>
       <div className="flex flex-shrink-0 items-center gap-2">
         <button
-          onClick={handleView}
+          onClick={primaryAction}
+          title={primaryTooltip}
           className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
         >
-          {t('update.banner.viewRelease')}
+          {primaryLabel}
         </button>
+        {platform === 'darwin' && (
+          <button
+            onClick={handleViewRelease}
+            className="rounded-md border border-blue-300 px-3 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:border-blue-700 dark:text-blue-200 dark:hover:bg-blue-900"
+          >
+            {t('update.banner.viewRelease')}
+          </button>
+        )}
         <button
           onClick={handleDismiss}
           className="rounded-md px-2 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900"

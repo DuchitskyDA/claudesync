@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { spawn } from 'node:child_process'
 import { ipcMain, dialog, BrowserWindow, app, shell } from 'electron'
 import type {
   LogLine,
@@ -209,6 +210,7 @@ export function registerIpc(window: BrowserWindow): void {
   })
 
   ipcMain.handle('get-platform', (): NodeJS.Platform => process.platform)
+  ipcMain.handle('get-arch', (): NodeJS.Architecture => process.arch)
   ipcMain.handle('get-system-locale', () => app.getLocale())
 
   ipcMain.handle('open-external', (_e, url: string) => {
@@ -354,6 +356,27 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('dismiss-update', (_e, version: string) => {
     const cfg = readConfig(configPath)
     writeConfig(configPath, { ...cfg, lastDismissedUpdate: version })
+  })
+  ipcMain.handle('run-brew-upgrade', () => {
+    if (process.platform !== 'darwin') return
+    // Open Terminal.app and run brew upgrade interactively. Detached so it
+    // survives this electron process if the user quits the app afterwards.
+    // The `read -n 1` keeps the window open after brew finishes so the user
+    // can see the result before closing.
+    const cmd =
+      'brew upgrade --cask claudesync; echo; echo "[Press any key to close]"; read -n 1'
+    const escaped = cmd.replace(/"/g, '\\"')
+    const child = spawn(
+      '/usr/bin/osascript',
+      [
+        '-e',
+        `tell application "Terminal" to do script "${escaped}"`,
+        '-e',
+        'tell application "Terminal" to activate',
+      ],
+      { detached: true, stdio: 'ignore' },
+    )
+    child.unref()
   })
 
   ipcMain.handle('run-push', (_e, opts: PushOptions) => {

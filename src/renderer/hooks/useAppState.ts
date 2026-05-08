@@ -28,6 +28,7 @@ export type AppState = {
   repoUrl: string | null
   rulesTarget: string | null
   platform: NodeJS.Platform | null
+  arch: NodeJS.Architecture | null
   isRunning: boolean
   log: LogLine[]
   settingsOpen: boolean
@@ -44,6 +45,7 @@ export type AppState = {
 type Action =
   | { type: 'set-config'; repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }
   | { type: 'set-platform'; platform: NodeJS.Platform }
+  | { type: 'set-arch'; arch: NodeJS.Architecture }
   | { type: 'run-start' }
   | { type: 'run-end' }
   | { type: 'append-log'; line: LogLine }
@@ -72,6 +74,7 @@ const initial: AppState = {
   repoUrl: null,
   rulesTarget: null,
   platform: null,
+  arch: null,
   isRunning: false,
   log: [],
   settingsOpen: false,
@@ -90,6 +93,8 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, repoPath: a.repoPath, repoUrl: a.repoUrl, rulesTarget: a.rulesTarget }
     case 'set-platform':
       return { ...s, platform: a.platform }
+    case 'set-arch':
+      return { ...s, arch: a.arch }
     case 'run-start':
       return { ...s, isRunning: true, log: [], steps: initialSteps }
     case 'run-end':
@@ -158,6 +163,7 @@ export function useAppState() {
 
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
+    void window.api.getArch().then((a) => dispatch({ type: 'set-arch', arch: a }))
     void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
     void window.api.conflictGetState().then((s) => {
       dispatch({ type: 'set-conflict', inProgress: s.inProgress })

@@ -63,6 +63,8 @@ export function App() {
       <UpdateBanner
         info={state.updateInfo}
         lastDismissed={state.lastDismissedUpdate}
+        platform={state.platform}
+        arch={state.arch}
         onDismiss={(v) => void dismissUpdate(v)}
       />
       {state.conflictInProgress && !conflictOpen && (

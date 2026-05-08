@@ -42,6 +42,7 @@ const api: AppApi = {
     return () => ipcRenderer.off('log', listener)
   },
   getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('get-platform'),
+  getArch: (): Promise<NodeJS.Architecture> => ipcRenderer.invoke('get-arch'),
   getSystemLocale: (): Promise<string> => ipcRenderer.invoke('get-system-locale'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   onStep: (callback: (e: StepEvent) => void): (() => void) => {
@@ -115,6 +116,8 @@ const api: AppApi = {
     ipcRenderer.invoke('check-for-updates'),
   dismissUpdate: (version: string): Promise<void> =>
     ipcRenderer.invoke('dismiss-update', version),
+  runBrewUpgrade: (): Promise<void> =>
+    ipcRenderer.invoke('run-brew-upgrade'),
 
   // v0.5 — Conflict resolver
   conflictGetState: (): Promise<ConflictState> =>
