@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app } from 'electron'
-import type { LogLine, RunResult, AppConfig, SetConfigResult, StepEvent } from '@shared/api'
+import type { LogLine, RunResult, AppConfig, SetConfigResult, StepEvent, ApplyPluginChanges } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import {
   readConfig,
@@ -11,6 +11,8 @@ import {
   validateRulesTarget,
   expandTilde,
 } from './config'
+import { fetchCatalog } from './catalog'
+import { getInstalled, applyChanges, settingsPathFor, validateClaudeTarget } from './plugins'
 
 const LOG_LIMIT = 200
 
@@ -166,4 +168,24 @@ export function registerIpc(window: BrowserWindow): void {
   })
 
   ipcMain.handle('get-platform', (): NodeJS.Platform => process.platform)
+
+  ipcMain.handle('get-plugin-catalog', (_e, force?: boolean) => fetchCatalog({ force }))
+
+  ipcMain.handle('get-installed-plugins', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.rulesTarget) return { enabledIds: [], envSet: [], knownMarketplaces: [] }
+    return getInstalled(settingsPathFor(cfg.rulesTarget))
+  })
+
+  ipcMain.handle('apply-plugin-changes', (_e, changes: ApplyPluginChanges) => {
+    const cfg = readConfig(configPath)
+    if (!cfg.rulesTarget) return { ok: false, error: 'Rules target not configured' }
+    const settingsPath = settingsPathFor(cfg.rulesTarget)
+    return applyChanges(settingsPath, changes)
+  })
+
+  ipcMain.handle('validate-claude-target', () => {
+    const cfg = readConfig(configPath)
+    return validateClaudeTarget(cfg.rulesTarget)
+  })
 }

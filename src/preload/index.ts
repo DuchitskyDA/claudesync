@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppApi, LogLine, AppConfig, RunResult, SetConfigResult, StepEvent } from '@shared/api'
+import type {
+  AppApi,
+  LogLine,
+  AppConfig,
+  RunResult,
+  SetConfigResult,
+  StepEvent,
+  PluginCatalog,
+  InstalledPluginsState,
+  ApplyPluginChanges,
+  ClaudeTargetCheck,
+} from '@shared/api'
 
 const api: AppApi = {
   runSync: (): Promise<RunResult> =>
@@ -18,6 +29,14 @@ const api: AppApi = {
     ipcRenderer.on('step', listener)
     return () => ipcRenderer.off('step', listener)
   },
+  getPluginCatalog: (force?: boolean): Promise<PluginCatalog> =>
+    ipcRenderer.invoke('get-plugin-catalog', force),
+  getInstalledPlugins: (): Promise<InstalledPluginsState> =>
+    ipcRenderer.invoke('get-installed-plugins'),
+  applyPluginChanges: (c: ApplyPluginChanges): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('apply-plugin-changes', c),
+  validateClaudeTarget: (): Promise<ClaudeTargetCheck> =>
+    ipcRenderer.invoke('validate-claude-target'),
 }
 
 contextBridge.exposeInMainWorld('api', api)
