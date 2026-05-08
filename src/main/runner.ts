@@ -8,7 +8,7 @@ export type RunOptions = {
   onLine: (line: LogLine) => void
 }
 
-export type RunCommandResult = { exitCode: number }
+export type RunCommandResult = { exitCode: number; stdout: string; stderr: string }
 
 function nowHHMMSS(): string {
   const d = new Date()
@@ -16,16 +16,18 @@ function nowHHMMSS(): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-function streamToLines(
+function captureStream(
   stream: Readable,
   level: 'info' | 'error',
   onLine: (line: LogLine) => void,
+  onData: (chunk: string) => void,
 ): Promise<void> {
   return new Promise((resolve) => {
     let buf = ''
     stream.setEncoding?.('utf8')
     stream.on('data', (chunk: string) => {
       buf += chunk
+      onData(chunk)
       const parts = buf.split(/\r?\n/)
       buf = parts.pop() ?? ''
       for (const part of parts) {
@@ -50,12 +52,14 @@ export function runCommand(
       shell: false,
       env: opts.env ? { ...process.env, ...opts.env } as NodeJS.ProcessEnv : process.env,
     })
-    const outDone = streamToLines(proc.stdout, 'info', opts.onLine)
-    const errDone = streamToLines(proc.stderr, 'error', opts.onLine)
+    let stdout = ''
+    let stderr = ''
+    const outDone = captureStream(proc.stdout, 'info', opts.onLine, (c) => { stdout += c })
+    const errDone = captureStream(proc.stderr, 'error', opts.onLine, (c) => { stderr += c })
     proc.on('error', (err) => reject(err))
     proc.on('exit', async (code) => {
       await Promise.all([outDone, errDone])
-      resolve({ exitCode: code ?? 1 })
+      resolve({ exitCode: code ?? 1, stdout, stderr })
     })
   })
 }
