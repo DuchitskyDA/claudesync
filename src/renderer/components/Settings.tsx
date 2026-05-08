@@ -70,6 +70,7 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
         repoUrl: trimmedUrl || null,
         repoPath: finalPath,
         rulesTarget: trimmedTarget || null,
+        includeSecretsInPush: false,
       })
       if (!r.ok) {
         setError(r.error ?? 'Unknown error')

@@ -16,34 +16,45 @@ afterEach(() => {
 
 describe('readConfig', () => {
   it('returns all-null when file does not exist', () => {
-    expect(readConfig(join(dir, 'config.json'))).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null })
+    expect(readConfig(join(dir, 'config.json'))).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null, includeSecretsInPush: false })
   })
 
   it('returns all-null on invalid JSON', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, '{not json')
-    expect(readConfig(f)).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null })
+    expect(readConfig(f)).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null, includeSecretsInPush: false })
   })
 
   it('reads valid config with all three fields', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, JSON.stringify({ repoPath: '/some/path', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude' }))
-    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude' })
+    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false })
   })
 
   it('reads legacy config with only repoPath (backwards compat)', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, JSON.stringify({ repoPath: '/some/path' }))
-    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: null, rulesTarget: null })
+    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: null, rulesTarget: null, includeSecretsInPush: false })
+  })
+
+  it('reads includeSecretsInPush=true when set', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(f, JSON.stringify({ rulesTarget: '/x', includeSecretsInPush: true }))
+    expect(readConfig(f)).toEqual({
+      repoPath: null,
+      repoUrl: null,
+      rulesTarget: '/x',
+      includeSecretsInPush: true,
+    })
   })
 })
 
 describe('writeConfig', () => {
   it('writes JSON atomically (round-trip with all fields)', () => {
     const f = join(dir, 'config.json')
-    writeConfig(f, { repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude' })
+    writeConfig(f, { repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false })
     expect(existsSync(f)).toBe(true)
-    expect(readConfig(f)).toEqual({ repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude' })
+    expect(readConfig(f)).toEqual({ repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false })
   })
 })
 

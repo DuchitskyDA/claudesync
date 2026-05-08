@@ -10,6 +10,16 @@ import type {
   InstalledPluginsState,
   ApplyPluginChanges,
   ClaudeTargetCheck,
+  GitHubAuthState,
+  DeviceFlowChallenge,
+  DeviceFlowResult,
+  GitHubOwner,
+  InitWizardOptions,
+  ScanResult,
+  PushOptions,
+  RepoStatus,
+  InitStepEvent,
+  PushStepEvent,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -43,6 +53,44 @@ const api: AppApi = {
     ipcRenderer.invoke('suggest-rules-target'),
   suggestRepoPath: (url: string): Promise<string> =>
     ipcRenderer.invoke('suggest-repo-path', url),
+
+  // v0.4 — Auth
+  getAuthState: (): Promise<GitHubAuthState> =>
+    ipcRenderer.invoke('get-auth-state'),
+  startDeviceFlow: (): Promise<DeviceFlowChallenge> =>
+    ipcRenderer.invoke('start-device-flow'),
+  pollDeviceFlow: (): Promise<DeviceFlowResult> =>
+    ipcRenderer.invoke('poll-device-flow'),
+  cancelDeviceFlow: (): Promise<void> =>
+    ipcRenderer.invoke('cancel-device-flow'),
+  signOut: (): Promise<void> =>
+    ipcRenderer.invoke('sign-out'),
+
+  // v0.4 — GitHub
+  listOwners: (): Promise<GitHubOwner[]> =>
+    ipcRenderer.invoke('list-owners'),
+
+  // v0.4 — Init
+  scanLocalConfig: (): Promise<ScanResult> =>
+    ipcRenderer.invoke('scan-local-config'),
+  initRepo: (opts: InitWizardOptions): Promise<RunResult> =>
+    ipcRenderer.invoke('init-repo', opts),
+  onInitStep: (callback: (e: InitStepEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: InitStepEvent) => callback(e)
+    ipcRenderer.on('init-step', listener)
+    return () => ipcRenderer.off('init-step', listener)
+  },
+
+  // v0.4 — Push
+  getRepoStatus: (): Promise<RepoStatus> =>
+    ipcRenderer.invoke('get-repo-status'),
+  runPush: (opts: PushOptions): Promise<RunResult> =>
+    ipcRenderer.invoke('run-push', opts),
+  onPushStep: (callback: (e: PushStepEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: PushStepEvent) => callback(e)
+    ipcRenderer.on('push-step', listener)
+    return () => ipcRenderer.off('push-step', listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

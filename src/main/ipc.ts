@@ -147,6 +147,7 @@ export function registerIpc(window: BrowserWindow): void {
       repoUrl: cfg.repoUrl,
       repoPath: cfg.repoPath ? expandTilde(cfg.repoPath) : null,
       rulesTarget: cfg.rulesTarget ? expandTilde(cfg.rulesTarget) : null,
+      includeSecretsInPush: cfg.includeSecretsInPush ?? false,
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)

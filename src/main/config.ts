@@ -28,7 +28,13 @@ export function expandTilde(p: string): string {
 }
 
 export function readConfig(filePath: string): AppConfig {
-  if (!existsSync(filePath)) return { repoPath: null, repoUrl: null, rulesTarget: null }
+  const fallback: AppConfig = {
+    repoPath: null,
+    repoUrl: null,
+    rulesTarget: null,
+    includeSecretsInPush: false,
+  }
+  if (!existsSync(filePath)) return fallback
   try {
     const raw = readFileSync(filePath, 'utf8')
     const parsed = JSON.parse(raw) as Partial<AppConfig>
@@ -36,9 +42,10 @@ export function readConfig(filePath: string): AppConfig {
       repoPath: typeof parsed.repoPath === 'string' ? parsed.repoPath : null,
       repoUrl: typeof parsed.repoUrl === 'string' ? parsed.repoUrl : null,
       rulesTarget: typeof parsed.rulesTarget === 'string' ? parsed.rulesTarget : null,
+      includeSecretsInPush: parsed.includeSecretsInPush === true,
     }
   } catch {
-    return { repoPath: null, repoUrl: null, rulesTarget: null }
+    return fallback
   }
 }
 
