@@ -11,15 +11,35 @@ Desktop app to sync AI tool configs (`~/.claude/`, etc.) across machines + manag
 
 Download the build for your OS from [Releases](https://github.com/DuchitskyDA/claudesync/releases).
 
-### macOS (unsigned — extra step required)
+### macOS — via Homebrew (recommended)
 
-The app is **not signed with an Apple Developer ID** (signing costs $99/year). macOS Gatekeeper will block it on first launch with a message like *"claudesync is damaged and can't be opened"* or *"cannot be opened because the developer cannot be verified"*.
+The cask handles Gatekeeper for you (strips quarantine + applies ad-hoc signature) so you never have to touch Terminal.
+
+```bash
+brew tap DuchitskyDA/claudesync https://github.com/DuchitskyDA/claudesync
+brew install --cask claudesync
+```
+
+To upgrade later:
+
+```bash
+brew update && brew upgrade --cask claudesync
+```
+
+To uninstall (cleans up app + caches):
+
+```bash
+brew uninstall --cask --zap claudesync
+```
+
+### macOS — manual install (.dmg)
+
+If you don't use Homebrew, download `claudesync-<version>-arm64.dmg` (Apple Silicon: M1/M2/M3/M4) or `-x64.dmg` (Intel) from Releases. Because the app is **not signed with an Apple Developer ID** (signing costs $99/year), macOS Gatekeeper will block it on first launch with a message like *"claudesync is damaged and can't be opened"* or *"cannot be opened because the developer cannot be verified"*.
 
 **To run:**
 
-1. Download `claudesync-<version>-arm64.dmg` (Apple Silicon: M1/M2/M3/M4) or `-x64.dmg` (Intel).
-2. Open the `.dmg` and drag **claudesync.app** into `Applications`.
-3. Open Terminal and run:
+1. Open the `.dmg` and drag **claudesync.app** into `Applications`.
+2. Open Terminal and run:
 
    ```bash
    xattr -cr /Applications/claudesync.app
@@ -27,7 +47,7 @@ The app is **not signed with an Apple Developer ID** (signing costs $99/year). m
    ```
 
    First line clears all macOS extended attributes (including quarantine). Second line re-applies ad-hoc signature — Apple Silicon refuses to launch unsigned arm64 binaries even after quarantine removal.
-4. Open the app from Launchpad / Applications normally.
+3. Open the app from Launchpad / Applications normally.
 
 If you see *"claudesync is damaged and can't be opened"* — re-run the two commands above. They are idempotent.
 

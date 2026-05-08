@@ -50,3 +50,85 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+
+  bump-cask:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Use a token with push permission. GITHUB_TOKEN works for the same repo.
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute version + sha256
+        id: meta
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          ASSET_ARM="claudesync-${VERSION}-arm64.dmg"
+          ASSET_INTEL="claudesync-${VERSION}.dmg"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+
+          download() {
+            local url="$1" out="$2"
+            for i in 1 2 3 4 5; do
+              if curl -fsSL "$url" -o "$out"; then return 0; fi
+              echo "retry $i for $url"
+              sleep 5
+            done
+            echo "failed to download $url" >&2
+            return 1
+          }
+
+          download "${BASE}/${ASSET_ARM}"   /tmp/arm.dmg
+          download "${BASE}/${ASSET_INTEL}" /tmp/intel.dmg
+
+          ARM_SHA=$(sha256sum /tmp/arm.dmg   | awk '{print $1}')
+          INTEL_SHA=$(sha256sum /tmp/intel.dmg | awk '{print $1}')
+
+          echo "version=${VERSION}"     >> "$GITHUB_OUTPUT"
+          echo "arm_sha=${ARM_SHA}"     >> "$GITHUB_OUTPUT"
+          echo "intel_sha=${INTEL_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Casks/claudesync.rb
+        run: |
+          set -e
+          V="${{ steps.meta.outputs.version }}"
+          ARM="${{ steps.meta.outputs.arm_sha }}"
+          INT="${{ steps.meta.outputs.intel_sha }}"
+
+          # Replace version line
+          sed -i -E "s/^  version \"[^\"]+\"/  version \"${V}\"/" Casks/claudesync.rb
+
+          # Replace arm sha (the sha256 line that immediately follows `on_arm do`)
+          awk -v sha="${ARM}" '
+            /^  on_arm do/ { in_arm=1 }
+            in_arm && /^    sha256 "/ { print "    sha256 \"" sha "\""; in_arm=0; next }
+            { print }
+          ' Casks/claudesync.rb > Casks/claudesync.rb.tmp && mv Casks/claudesync.rb.tmp Casks/claudesync.rb
+
+          # Replace intel sha (the sha256 line that immediately follows `on_intel do`)
+          awk -v sha="${INT}" '
+            /^  on_intel do/ { in_intel=1 }
+            in_intel && /^    sha256 "/ { print "    sha256 \"" sha "\""; in_intel=0; next }
+            { print }
+          ' Casks/claudesync.rb > Casks/claudesync.rb.tmp && mv Casks/claudesync.rb.tmp Casks/claudesync.rb
+
+          echo "--- diff ---"
+          git diff Casks/claudesync.rb || true
+
+      - name: Commit and push
+        run: |
+          set -e
+          if git diff --quiet Casks/claudesync.rb; then
+            echo "Cask already up to date — nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/claudesync.rb
+          git commit -m "chore(cask): bump to ${{ steps.meta.outputs.version }}"
+          git push origin main
