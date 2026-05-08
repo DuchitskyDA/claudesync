@@ -11,6 +11,16 @@ mac:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.developer-tools
+  # Force ad-hoc signing — required for arm64 binaries to launch on Apple Silicon.
+  # Without this, electron-builder skips signing entirely and Gatekeeper blocks
+  # the .app even after `xattr -dr com.apple.quarantine`.
+  identity: null
+  # No notarization — we don't have an Apple Developer ID. Users still need
+  # `xattr -dr com.apple.quarantine` for the first launch.
+  notarize: false
+  # Don't try to access keychain or sign with hardened runtime (which requires a real cert).
+  hardenedRuntime: false
+  gatekeeperAssess: false
 win:
   target:
     - target: nsis
