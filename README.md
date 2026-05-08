@@ -22,13 +22,16 @@ The app is **not signed with an Apple Developer ID** (signing costs $99/year). m
 3. Open Terminal and run:
 
    ```bash
-   xattr -dr com.apple.quarantine /Applications/claudesync.app
+   xattr -cr /Applications/claudesync.app
+   codesign --force --deep --sign - /Applications/claudesync.app
    ```
 
-   This removes the quarantine attribute macOS adds to apps downloaded from the internet.
-4. Now open the app from Launchpad / Applications normally.
+   First line clears all macOS extended attributes (including quarantine). Second line re-applies ad-hoc signature — Apple Silicon refuses to launch unsigned arm64 binaries even after quarantine removal.
+4. Open the app from Launchpad / Applications normally.
 
-If you still see a warning the first time → **right-click claudesync.app → Open → Open**. macOS remembers this choice, future launches work normally.
+If you see *"claudesync is damaged and can't be opened"* — re-run the two commands above. They are idempotent.
+
+> **Note:** v0.3.3+ build pipeline applies ad-hoc signing automatically, but the `xattr -cr` is still required because macOS adds a fresh quarantine flag every time you download a file.
 
 ### Windows
 
