@@ -15,16 +15,23 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { saveToken, loadToken, deleteToken } from '../../src/main/safe-storage'
+import { saveToken, loadToken, deleteToken, _resetCache } from '../../src/main/safe-storage'
 
 let dir: string
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'claudesync-token-'))
-  encryptStringMock.mockClear()
-  decryptStringMock.mockClear()
-  isAvailableMock.mockClear()
+  // mockReset (vs mockClear) drops any queued `mockImplementationOnce`
+  // from a previous test — important here because `saveToken` now caches
+  // and a queued one-shot impl can survive past the test that registered
+  // it and fire in an unrelated test that finally calls the real decrypt.
+  encryptStringMock.mockReset()
+  encryptStringMock.mockImplementation((s: string) => Buffer.from('enc:' + s))
+  decryptStringMock.mockReset()
+  decryptStringMock.mockImplementation((b: Buffer) => b.toString().replace(/^enc:/, ''))
+  isAvailableMock.mockReset()
   isAvailableMock.mockReturnValue(true)
+  _resetCache()
 })
 
 afterEach(() => {
@@ -51,6 +58,9 @@ describe('safe-storage', () => {
 
   it('loadToken returns null on decrypt failure', () => {
     saveToken(dir, 'gho_xyz')
+    // Drop the in-memory cache so the next loadToken actually exercises
+    // the decrypt path we want to test.
+    _resetCache()
     decryptStringMock.mockImplementationOnce(() => {
       throw new Error('bad')
     })
@@ -65,6 +75,39 @@ describe('safe-storage', () => {
 
   it('deleteToken on missing file is a no-op', () => {
     expect(() => deleteToken(dir)).not.toThrow()
+  })
+
+  it('caches decrypted token across loadToken calls (avoids extra keychain prompts on macOS)', () => {
+    saveToken(dir, 'gho_xyz')
+    decryptStringMock.mockClear()
+    expect(loadToken(dir)).toBe('gho_xyz')
+    expect(loadToken(dir)).toBe('gho_xyz')
+    expect(loadToken(dir)).toBe('gho_xyz')
+    // saveToken populates the cache directly, so decryptString is never even called.
+    expect(decryptStringMock).not.toHaveBeenCalled()
+  })
+
+  it('first loadToken after a fresh process decrypts exactly once for repeat calls', () => {
+    saveToken(dir, 'gho_xyz')
+    _resetCache()
+    decryptStringMock.mockClear()
+    expect(loadToken(dir)).toBe('gho_xyz')
+    expect(loadToken(dir)).toBe('gho_xyz')
+    expect(decryptStringMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('saveToken refreshes the cache so subsequent loadToken returns the new value', () => {
+    saveToken(dir, 'first')
+    expect(loadToken(dir)).toBe('first')
+    saveToken(dir, 'second')
+    expect(loadToken(dir)).toBe('second')
+  })
+
+  it('deleteToken evicts the cached value', () => {
+    saveToken(dir, 'gho_xyz')
+    expect(loadToken(dir)).toBe('gho_xyz')
+    deleteToken(dir)
+    expect(loadToken(dir)).toBeNull()
   })
 })
 
