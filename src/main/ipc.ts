@@ -1,7 +1,18 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app } from 'electron'
-import type { LogLine, RunResult, AppConfig, SetConfigResult, StepEvent, ApplyPluginChanges } from '@shared/api'
+import type {
+  LogLine,
+  RunResult,
+  AppConfig,
+  SetConfigResult,
+  StepEvent,
+  ApplyPluginChanges,
+  InitStepEvent,
+  PushStepEvent,
+  PushOptions,
+  InitWizardOptions,
+} from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import {
   readConfig,
@@ -16,6 +27,17 @@ import {
 } from './config'
 import { fetchCatalog } from './catalog'
 import { getInstalled, applyChanges, settingsPathFor, validateClaudeTarget } from './plugins'
+import {
+  startDeviceFlow,
+  pollDeviceFlow,
+  cancelDeviceFlow,
+  getAuthState,
+  signOut,
+} from './github-auth'
+import { listOwners } from './github-api'
+import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
+import { runPush, getRepoStatus } from './push'
+import { loadToken } from './safe-storage'
 
 const LOG_LIMIT = 200
 
@@ -198,4 +220,76 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('suggest-repo-path', (_e, url: string) =>
     defaultManagedRepoPath(url, app.getPath('userData')),
   )
+
+  const userDataDir = app.getPath('userData')
+
+  // Auth
+  ipcMain.handle('get-auth-state', () => getAuthState(userDataDir))
+  ipcMain.handle('start-device-flow', () => startDeviceFlow())
+  ipcMain.handle('poll-device-flow', () => pollDeviceFlow(userDataDir))
+  ipcMain.handle('cancel-device-flow', () => cancelDeviceFlow())
+  ipcMain.handle('sign-out', () => {
+    signOut(userDataDir)
+  })
+
+  // GitHub
+  ipcMain.handle('list-owners', () => {
+    const token = loadToken(userDataDir)
+    if (!token) throw new Error('Not authenticated')
+    return listOwners(token)
+  })
+
+  // Init wizard
+  ipcMain.handle('scan-local-config', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.rulesTarget) return { files: [], excluded: [], totalSize: 0 }
+    return scanLocalConfig(cfg.rulesTarget)
+  })
+
+  const emitInitStep = (e: InitStepEvent) => {
+    if (!window.isDestroyed()) window.webContents.send('init-step', e)
+  }
+
+  ipcMain.handle('init-repo', async (_e, opts: InitWizardOptions) => {
+    const cfg = readConfig(configPath)
+    if (!cfg.rulesTarget) return { ok: false, exitCode: -1, error: 'Rules target not set' }
+    const result = await initRepo({
+      ownerLogin: opts.owner,
+      name: opts.name,
+      isPrivate: opts.isPrivate,
+      description: opts.description,
+      rulesTarget: cfg.rulesTarget,
+      userDataDir,
+      tplDir: templatesDir(),
+      emit,
+      emitStep: emitInitStep,
+    })
+    if (result.ok && 'repoUrl' in result && 'repoPath' in result && result.repoUrl && result.repoPath) {
+      const fresh = readConfig(configPath)
+      writeConfig(configPath, { ...fresh, repoUrl: result.repoUrl, repoPath: result.repoPath })
+    }
+    return result
+  })
+
+  // Push
+  const emitPushStep = (e: PushStepEvent) => {
+    if (!window.isDestroyed()) window.webContents.send('push-step', e)
+  }
+
+  ipcMain.handle('get-repo-status', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return { changedFiles: [], clean: true }
+    return getRepoStatus(cfg.repoPath)
+  })
+
+  ipcMain.handle('run-push', (_e, opts: PushOptions) => {
+    return runPush({
+      configPath,
+      userDataDir,
+      includeSecrets: opts.includeSecrets,
+      commitMessage: opts.commitMessage,
+      emit,
+      emitStep: emitPushStep,
+    })
+  })
 }
