@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { DeviceFlowChallenge } from '@shared/api'
 
 type Props = {
@@ -12,50 +12,89 @@ type State =
   | { phase: 'waiting'; challenge: DeviceFlowChallenge }
   | { phase: 'error'; error: string }
 
+const MIN_POLL_INTERVAL_SEC = 3
+
 export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
   const [state, setState] = useState<State>({ phase: 'starting' })
+  const [checking, setChecking] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const pollingRef = useRef(false)
+  const intervalRef = useRef(MIN_POLL_INTERVAL_SEC)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    if (!open) return
-    setState({ phase: 'starting' })
-    let polling = true
-    let pollTimer: ReturnType<typeof setTimeout> | null = null
-    let intervalSec = 5
+  const cancelTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
 
-    const poll = async () => {
-      if (!polling) return
+  const doPoll = async (manual = false): Promise<void> => {
+    if (!pollingRef.current) return
+    if (manual) setChecking(true)
+    try {
       const result = await window.api.pollDeviceFlow()
-      if (!polling) return
+      if (!pollingRef.current) return
       if (result.ok) {
+        cancelTimer()
+        pollingRef.current = false
         onSuccess()
         return
       }
       if (result.error === 'authorization_pending' || result.error === 'slow_down') {
-        if (result.error === 'slow_down') intervalSec += 5
-        pollTimer = setTimeout(poll, intervalSec * 1000)
+        if (result.error === 'slow_down') intervalRef.current += 5
+        cancelTimer()
+        timerRef.current = setTimeout(() => void doPoll(false), intervalRef.current * 1000)
       } else {
         setState({ phase: 'error', error: `Authorization failed: ${result.error}` })
       }
+    } catch (e) {
+      setState({ phase: 'error', error: `Poll error: ${(e as Error).message}` })
+    } finally {
+      if (manual) setChecking(false)
     }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setState({ phase: 'starting' })
+    setCopied(false)
+    pollingRef.current = true
+    intervalRef.current = MIN_POLL_INTERVAL_SEC
 
     void window.api
       .startDeviceFlow()
       .then((challenge) => {
-        if (!polling) return
-        intervalSec = challenge.interval
+        if (!pollingRef.current) return
+        intervalRef.current = Math.max(challenge.interval, MIN_POLL_INTERVAL_SEC)
         setState({ phase: 'waiting', challenge })
-        pollTimer = setTimeout(poll, intervalSec * 1000)
+        timerRef.current = setTimeout(() => void doPoll(false), intervalRef.current * 1000)
       })
       .catch((e: Error) => setState({ phase: 'error', error: e.message }))
 
     return () => {
-      polling = false
-      if (pollTimer) clearTimeout(pollTimer)
+      pollingRef.current = false
+      cancelTimer()
       void window.api.cancelDeviceFlow()
     }
-  }, [open, onSuccess])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   if (!open) return null
+
+  const handleOpenBrowser = (url: string) => {
+    void window.api.openExternal(url)
+  }
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // ignore
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
@@ -69,19 +108,40 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
         {state.phase === 'waiting' && (
           <>
             <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-300">
-              1. Open <strong>{state.challenge.verificationUri}</strong>
+              <strong>1.</strong> Open{' '}
               <button
-                onClick={() => window.open(state.challenge.verificationUri, '_blank')}
-                className="ml-2 text-blue-500 hover:underline"
+                onClick={() => handleOpenBrowser(state.challenge.verificationUri)}
+                className="text-blue-500 hover:underline"
               >
-                Open in browser
-              </button>
+                {state.challenge.verificationUri}
+              </button>{' '}
+              in your browser
             </p>
-            <p className="mb-3 text-sm">2. Enter this code:</p>
-            <div className="mb-4 rounded bg-neutral-100 p-3 text-center font-mono text-lg dark:bg-neutral-900">
+            <p className="mb-2 text-sm">
+              <strong>2.</strong> Enter this code (click to copy):
+            </p>
+            <button
+              onClick={() => void handleCopyCode(state.challenge.userCode)}
+              className="mb-1 w-full rounded bg-neutral-100 p-3 text-center font-mono text-lg tracking-wider hover:bg-neutral-200 dark:bg-neutral-900 dark:hover:bg-neutral-700"
+            >
               {state.challenge.userCode}
+            </button>
+            <div className="mb-3 h-4 text-center text-xs text-emerald-500">
+              {copied ? '✓ Copied' : ''}
             </div>
-            <div className="text-xs text-neutral-500">Waiting for authorization…</div>
+            <p className="mb-3 text-sm">
+              <strong>3.</strong> After authorizing in browser, click below:
+            </p>
+            <button
+              onClick={() => void doPoll(true)}
+              disabled={checking}
+              className="mb-2 w-full rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-neutral-400"
+            >
+              {checking ? 'Checking…' : "I've authorized — check now"}
+            </button>
+            <div className="text-center text-xs text-neutral-500">
+              Or wait — auto-checks every {intervalRef.current}s
+            </div>
           </>
         )}
 

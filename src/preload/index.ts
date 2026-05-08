@@ -34,6 +34,7 @@ const api: AppApi = {
     return () => ipcRenderer.off('log', listener)
   },
   getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('get-platform'),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   onStep: (callback: (e: StepEvent) => void): (() => void) => {
     const listener = (_: unknown, e: StepEvent) => callback(e)
     ipcRenderer.on('step', listener)

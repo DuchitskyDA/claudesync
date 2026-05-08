@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ipcMain, dialog, BrowserWindow, app } from 'electron'
+import { ipcMain, dialog, BrowserWindow, app, shell } from 'electron'
 import type {
   LogLine,
   RunResult,
@@ -194,6 +194,10 @@ export function registerIpc(window: BrowserWindow): void {
   })
 
   ipcMain.handle('get-platform', (): NodeJS.Platform => process.platform)
+
+  ipcMain.handle('open-external', (_e, url: string) => {
+    return shell.openExternal(url)
+  })
 
   ipcMain.handle('get-plugin-catalog', (_e, force?: boolean) => fetchCatalog({ force }))
 

@@ -21,6 +21,7 @@ export interface AppApi {
   pickRepoPath(): Promise<string | null>
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
+  openExternal(url: string): Promise<void>
   onStep(callback: (e: StepEvent) => void): () => void
   getPluginCatalog(force?: boolean): Promise<PluginCatalog>
   getInstalledPlugins(): Promise<InstalledPluginsState>
