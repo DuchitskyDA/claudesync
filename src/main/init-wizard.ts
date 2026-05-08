@@ -250,13 +250,6 @@ function defaultManagedRepoPath(url: string, userDataDir: string): string {
   return join(userDataDir, 'repos', sha)
 }
 
-function tokenEnv(token: string): Record<string, string> {
-  return {
-    GIT_HTTP_USER_AGENT: 'claudesync',
-    GITHUB_TOKEN: token,
-  }
-}
-
 function authArgs(token: string): string[] {
   return ['-c', `http.extraheader=Authorization: Bearer ${token}`]
 }
@@ -318,7 +311,6 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
       [...authArgs(token), 'clone', cloneUrl, localPath],
       {
         cwd: dirname(localPath),
-        env: tokenEnv(token),
         onLine: opts.emit,
       },
     )
@@ -375,7 +367,7 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
     const pushResult = await runCommand(
       'git',
       [...authArgs(token), '-C', localPath, 'push', '-u', 'origin', 'main'],
-      { cwd: localPath, env: tokenEnv(token), onLine: opts.emit },
+      { cwd: localPath, onLine: opts.emit },
     )
     if (pushResult.exitCode !== 0) {
       opts.emitStep({ step: 'push', status: 'failed' })

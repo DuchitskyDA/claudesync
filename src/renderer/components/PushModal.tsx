@@ -20,6 +20,8 @@ export function PushModal({ open, onClose, onConfirm }: Props) {
     setError(null)
     setBusy(false)
     void window.api.getRepoStatus().then(setStatus)
+    // Read default from config
+    void window.api.getConfig().then((cfg) => setIncludeSecrets(cfg.includeSecretsInPush))
   }, [open])
 
   if (!open) return null
@@ -28,6 +30,9 @@ export function PushModal({ open, onClose, onConfirm }: Props) {
     setBusy(true)
     setError(null)
     try {
+      // Persist toggle preference for next time
+      const cfg = await window.api.getConfig()
+      await window.api.setConfig({ ...cfg, includeSecretsInPush: includeSecrets })
       await onConfirm(message.trim(), includeSecrets)
     } catch (e) {
       setError((e as Error).message)

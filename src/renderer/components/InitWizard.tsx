@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import type { GitHubAuthState, RunResult } from '@shared/api'
 import { SignInStep } from './steps/SignInStep'
 import { RepoSettingsStep } from './steps/RepoSettingsStep'
@@ -21,9 +21,7 @@ export function InitWizard({ open, authState, onClose, onAuthChanged, onComplete
   const [settings, setSettings] = useState<RepoSettings | null>(null)
   const [finalRepoUrl, setFinalRepoUrl] = useState<string | null>(null)
 
-  if (!open) return null
-
-  const startInit = async (): Promise<RunResult> => {
+  const startInit = useCallback(async (): Promise<RunResult> => {
     if (!settings) return { ok: false, exitCode: -1, error: 'No settings' }
     const r = await window.api.initRepo({
       owner: settings.owner,
@@ -37,7 +35,9 @@ export function InitWizard({ open, authState, onClose, onAuthChanged, onComplete
       onCompleted()
     }
     return r
-  }
+  }, [settings, onCompleted])
+
+  if (!open) return null
 
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40">

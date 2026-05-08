@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const encryptStringMock = vi.hoisted(() => vi.fn((s: string) => Buffer.from('enc:' + s)))
 const decryptStringMock = vi.hoisted(() => vi.fn((b: Buffer) => b.toString().replace(/^enc:/, '')))
+const isAvailableMock = vi.hoisted(() => vi.fn(() => true))
 
 vi.mock('electron', () => ({
   safeStorage: {
     encryptString: encryptStringMock,
     decryptString: decryptStringMock,
-    isEncryptionAvailable: () => true,
+    isEncryptionAvailable: isAvailableMock,
   },
 }))
 
@@ -22,6 +23,8 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'claudesync-token-'))
   encryptStringMock.mockClear()
   decryptStringMock.mockClear()
+  isAvailableMock.mockClear()
+  isAvailableMock.mockReturnValue(true)
 })
 
 afterEach(() => {
@@ -62,5 +65,26 @@ describe('safe-storage', () => {
 
   it('deleteToken on missing file is a no-op', () => {
     expect(() => deleteToken(dir)).not.toThrow()
+  })
+})
+
+describe('safe-storage with encryption unavailable', () => {
+  it('saveToken falls back to plaintext when encryption unavailable', () => {
+    isAvailableMock.mockReturnValue(false)
+    saveToken(dir, 'gho_fallback')
+    const path = join(dir, 'github-credentials.bin')
+    expect(readFileSync(path, 'utf8')).toBe('plaintext:gho_fallback')
+  })
+
+  it('loadToken reads plaintext fallback', () => {
+    writeFileSync(join(dir, 'github-credentials.bin'), 'plaintext:gho_x', 'utf8')
+    expect(loadToken(dir)).toBe('gho_x')
+  })
+
+  it('loadToken returns null when encryption unavailable and no plaintext marker', () => {
+    isAvailableMock.mockReturnValue(false)
+    // write some non-plaintext bytes
+    writeFileSync(join(dir, 'github-credentials.bin'), Buffer.from([0x00, 0x01]))
+    expect(loadToken(dir)).toBeNull()
   })
 })
