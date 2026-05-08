@@ -21,10 +21,70 @@ export interface AppApi {
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
   onStep(callback: (e: StepEvent) => void): () => void
+  getPluginCatalog(force?: boolean): Promise<PluginCatalog>
+  getInstalledPlugins(): Promise<InstalledPluginsState>
+  applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: string }>
+  validateClaudeTarget(): Promise<ClaudeTargetCheck>
 }
 
 declare global {
   interface Window {
     api: AppApi
   }
+}
+
+export type PluginEnvRequirement = {
+  name: string
+  label: string
+  instructions: string
+  placeholder?: string
+  docsUrl?: string
+  optional?: boolean
+}
+
+export type PluginMarketplace = {
+  id: string
+  source: { source: 'github'; repo: string }
+}
+
+export type PluginEntry = {
+  id: string
+  name: string
+  description: string
+  author?: string
+  homepage?: string
+  tags?: string[]
+  marketplace?: PluginMarketplace
+  requiresEnv?: PluginEnvRequirement[]
+  recommendedFor?: string[]
+}
+
+export type PresetEntry = {
+  id: string
+  name: string
+  description: string
+  pluginIds: string[]
+  icon?: string
+}
+
+export type PluginCatalog = {
+  version: 1
+  plugins: PluginEntry[]
+  presets: PresetEntry[]
+}
+
+export type InstalledPluginsState = {
+  enabledIds: string[]
+  envSet: string[]
+  knownMarketplaces: string[]
+}
+
+export type ClaudeTargetCheck =
+  | { ok: true; settingsPath: string }
+  | { ok: false; reason: string }
+
+export type ApplyPluginChanges = {
+  enable: PluginEntry[]
+  disable: string[]
+  envValues: Record<string, string>
 }
