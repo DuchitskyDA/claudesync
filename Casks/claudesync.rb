@@ -1,13 +1,13 @@
 cask "claudesync" do
-  version "0.8.2"
+  version "0.8.3"
 
   on_arm do
-    sha256 "245bc61117cc7127d258d18101ae6ec983edec33db78756573d99ac786d237fa"
+    sha256 "af2acf744c8a426271d18f24df96f906c65eda953cf252d36677e5abbd4288eb"
     url "https://github.com/DuchitskyDA/claudesync/releases/download/v#{version}/claudesync-#{version}-arm64.dmg"
   end
 
   on_intel do
-    sha256 "65e7fd4917f2b5dfeb481cf67da5ed3fbd393839c218f489481329391f5dac67"
+    sha256 "734a914cb1c676e7e8cbe84aac73e90c27ee37d9660712f5df39a472105a4358"
     url "https://github.com/DuchitskyDA/claudesync/releases/download/v#{version}/claudesync-#{version}.dmg"
   end
 
