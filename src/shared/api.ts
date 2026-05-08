@@ -80,6 +80,7 @@ export type InstalledPluginsState = {
   enabledIds: string[]
   envSet: string[]
   knownMarketplaces: string[]
+  marketplaceSources: Record<string, { source: string; repo: string }>
 }
 
 export type ClaudeTargetCheck =

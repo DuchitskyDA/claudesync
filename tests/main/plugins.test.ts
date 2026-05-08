@@ -65,14 +65,14 @@ describe('getInstalled', () => {
   it('returns empty state when settings file does not exist', () => {
     const sp = join(tmpDir, 'settings.json')
     const r = getInstalled(sp)
-    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [] })
+    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
   })
 
   it('returns empty state when settings file is empty object', () => {
     const sp = join(tmpDir, 'settings.json')
     writeFileSync(sp, '{}', 'utf8')
     const r = getInstalled(sp)
-    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [] })
+    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
   })
 
   it('returns only enabled=true plugin ids', () => {
@@ -96,6 +96,17 @@ describe('getInstalled', () => {
     const r = getInstalled(sp)
     expect(r.envSet).toEqual(expect.arrayContaining(['MY_KEY', 'OTHER']))
     expect(r.knownMarketplaces).toEqual(['market-1'])
+    expect(r.marketplaceSources).toEqual({ 'market-1': { source: 'github', repo: 'a/b' } })
+  })
+
+  it('round-trip via applyChanges includes marketplaceSources', () => {
+    const sp = join(tmpDir, 'settings.json')
+    // Write settings with a marketplace
+    writeFileSync(sp, JSON.stringify({
+      extraKnownMarketplaces: { 'mkt-x': { source: { source: 'github', repo: 'org/repo' } } },
+    }), 'utf8')
+    const r = getInstalled(sp)
+    expect(r.marketplaceSources['mkt-x']).toEqual({ source: 'github', repo: 'org/repo' })
   })
 })
 

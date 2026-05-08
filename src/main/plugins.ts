@@ -43,12 +43,17 @@ export function readClaudeSettings(settingsPath: string): ClaudeSettings {
 
 export function getInstalled(settingsPath: string): InstalledPluginsState {
   const s = readClaudeSettings(settingsPath)
+  const marketplaceSources: Record<string, { source: string; repo: string }> = {}
+  for (const [k, v] of Object.entries(s.extraKnownMarketplaces ?? {})) {
+    if (v?.source) marketplaceSources[k] = v.source
+  }
   return {
     enabledIds: Object.entries(s.enabledPlugins ?? {})
       .filter(([, v]) => v === true)
       .map(([k]) => k),
     envSet: Object.keys(s.env ?? {}),
     knownMarketplaces: Object.keys(s.extraKnownMarketplaces ?? {}),
+    marketplaceSources,
   }
 }
 

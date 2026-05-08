@@ -8,23 +8,51 @@ import type {
   PluginEnvRequirement,
 } from '@shared/api'
 import { EnvPromptModal } from './EnvPromptModal'
-import { PresetCard } from './PresetCard'
 
-type EnvQueueItem = { plugin: PluginEntry; requirement: PluginEnvRequirement }
+// ---------------------------------------------------------------------------
+// Badge helper
+// ---------------------------------------------------------------------------
+
+type BadgeTone = 'green' | 'amber'
+
+function Badge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
+  const cls =
+    tone === 'green'
+      ? 'rounded px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      : 'rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+  return <span className={cls}>{children}</span>
+}
+
+// ---------------------------------------------------------------------------
+// Env modal state
+// ---------------------------------------------------------------------------
+
+type EnvModalState = {
+  plugin: PluginEntry
+  requirement: PluginEnvRequirement
+  /** remaining plugins to enable in this batch (includes current plugin) */
+  pendingPlugins: PluginEntry[]
+  collectedEnv: Record<string, string>
+  disable: string[]
+  /** "edit" mode — only update env, do not enable/disable anything */
+  editOnly?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// PluginsTab
+// ---------------------------------------------------------------------------
 
 export function PluginsTab() {
   const [catalog, setCatalog] = useState<PluginCatalog | null>(null)
   const [installed, setInstalled] = useState<InstalledPluginsState | null>(null)
   const [target, setTarget] = useState<ClaudeTargetCheck | null>(null)
-  const [pendingEnabled, setPendingEnabled] = useState<Set<string>>(new Set())
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [envQueue, setEnvQueue] = useState<EnvQueueItem[]>([])
-  const [pendingEnvValues, setPendingEnvValues] = useState<Record<string, string>>({})
-  const [pendingApply, setPendingApply] = useState<{
-    enable: PluginEntry[]
-    disable: string[]
-  } | null>(null)
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
+  const [envModal, setEnvModal] = useState<EnvModalState | null>(null)
+  const [showRestart, setShowRestart] = useState(false)
+
+  // -------------------------------------------------------------------------
+  // Load
+  // -------------------------------------------------------------------------
 
   const load = (force?: boolean) => {
     void window.api.validateClaudeTarget().then(setTarget)
@@ -32,147 +60,228 @@ export function PluginsTab() {
       .getPluginCatalog(force)
       .then(setCatalog)
       .catch(() => setCatalog(null))
-    void window.api.getInstalledPlugins().then((s) => {
-      setInstalled(s)
-      setPendingEnabled(new Set(s.enabledIds))
-    })
+    void window.api.getInstalledPlugins().then(setInstalled)
   }
 
   useEffect(() => {
     load()
   }, [])
 
+  // -------------------------------------------------------------------------
+  // Core helpers
+  // -------------------------------------------------------------------------
+
+  const refreshInstalled = async () => {
+    const fresh = await window.api.getInstalledPlugins()
+    setInstalled(fresh)
+  }
+
   const applyChanges = async (
     enable: PluginEntry[],
     disable: string[],
     envValues: Record<string, string>,
-  ) => {
-    setBusy(true)
-    setMessage(null)
+  ): Promise<boolean> => {
     const r = await window.api.applyPluginChanges({ enable, disable, envValues })
     if (r.ok) {
-      setMessage('Updated. Restart Claude Code to apply.')
-      const fresh = await window.api.getInstalledPlugins()
-      setInstalled(fresh)
-      setPendingEnabled(new Set(fresh.enabledIds))
+      setShowRestart(true)
+      await refreshInstalled()
     } else {
-      setMessage(`Error: ${r.error}`)
+      alert(`Error: ${r.error}`)
     }
-    setBusy(false)
-    setPendingApply(null)
-    setPendingEnvValues({})
+    return r.ok
   }
 
-  const processEnableList = (enableList: PluginEntry[], disableList: string[]) => {
-    const queue: EnvQueueItem[] = []
-    for (const plugin of enableList) {
-      if (!plugin.requiresEnv) continue
-      for (const req of plugin.requiresEnv) {
-        if (!installed?.envSet.includes(req.name)) {
-          queue.push({ plugin, requirement: req })
-        }
-      }
+  const runWithBusy = async (id: string, fn: () => Promise<boolean>) => {
+    setBusyIds((prev) => new Set(prev).add(id))
+    try {
+      await fn()
+    } finally {
+      setBusyIds((prev) => {
+        const n = new Set(prev)
+        n.delete(id)
+        return n
+      })
     }
-    setPendingApply({ enable: enableList, disable: disableList })
-    if (queue.length === 0) {
-      void applyChanges(enableList, disableList, {})
-    } else {
-      setEnvQueue(queue)
+  }
+
+  // -------------------------------------------------------------------------
+  // Batch / env-queue helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start a batch enable for `plugins`. Walks through and opens env modal for
+   * first plugin that has an unset env requirement. If none, applies directly.
+   */
+  const startBatch = (plugins: PluginEntry[], disable: string[]) => {
+    const first = plugins.find((p) =>
+      (p.requiresEnv ?? []).some((r) => !installed!.envSet.includes(r.name)),
+    )
+    if (!first) {
+      void applyChanges(plugins, disable, {})
+      return
     }
+    const req = (first.requiresEnv ?? []).find((r) => !installed!.envSet.includes(r.name))!
+    setEnvModal({
+      plugin: first,
+      requirement: req,
+      pendingPlugins: plugins,
+      collectedEnv: {},
+      disable,
+    })
   }
 
   const handleEnvSave = (value: string) => {
-    const current = envQueue[0]
-    if (!current) return
-    const newEnvValues = { ...pendingEnvValues, [current.requirement.name]: value }
-    setPendingEnvValues(newEnvValues)
-    const remaining = envQueue.slice(1)
-    setEnvQueue(remaining)
-    if (remaining.length === 0 && pendingApply) {
-      void applyChanges(pendingApply.enable, pendingApply.disable, newEnvValues)
+    if (!envModal) return
+    const { plugin, requirement, pendingPlugins, collectedEnv, disable, editOnly } = envModal
+    const newEnv = { ...collectedEnv, [requirement.name]: value }
+
+    if (editOnly) {
+      // Just update the env value, no enable/disable
+      setEnvModal(null)
+      void applyChanges([], [], newEnv)
+      return
     }
+
+    // Find next plugin in batch that still has an unmet env requirement
+    const remaining = pendingPlugins.filter((p) => p.id !== plugin.id)
+    const nextPlugin = remaining.find((p) =>
+      (p.requiresEnv ?? []).some((r) => !newEnv[r.name] && !installed!.envSet.includes(r.name)),
+    )
+
+    if (nextPlugin) {
+      const nextReq = (nextPlugin.requiresEnv ?? []).find(
+        (r) => !newEnv[r.name] && !installed!.envSet.includes(r.name),
+      )!
+      setEnvModal({
+        plugin: nextPlugin,
+        requirement: nextReq,
+        pendingPlugins,
+        collectedEnv: newEnv,
+        disable,
+      })
+      return
+    }
+
+    // All env collected
+    setEnvModal(null)
+    void applyChanges(pendingPlugins, disable, newEnv)
   }
 
   const handleEnvSkip = () => {
-    const skipped = envQueue[0]
-    if (!skipped) return
-    // Remove this plugin from pendingApply.enable
-    setPendingApply((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        enable: prev.enable.filter((p) => p.id !== skipped.plugin.id),
-      }
-    })
-    // Also update pendingEnabled to reflect skip
-    setPendingEnabled((prev) => {
-      const next = new Set(prev)
-      next.delete(skipped.plugin.id)
-      return next
-    })
-    const remaining = envQueue.slice(1)
-    setEnvQueue(remaining)
+    if (!envModal) return
+    const { plugin, pendingPlugins, collectedEnv, disable } = envModal
+    const remaining = pendingPlugins.filter((p) => p.id !== plugin.id)
+
     if (remaining.length === 0) {
-      setPendingApply((current) => {
-        if (!current) return current
-        const updatedEnable = current.enable.filter((p) => p.id !== skipped.plugin.id)
-        void applyChanges(updatedEnable, current.disable, pendingEnvValues)
-        return null
-      })
+      setEnvModal(null)
+      // Apply whatever was collected (may be empty)
+      void applyChanges([], disable, collectedEnv)
+      return
     }
-  }
 
-  const toggle = (id: string) => {
-    if (!catalog || !installed) return
-    const plugin = catalog.plugins.find((p) => p.id === id)
-    if (!plugin) return
+    const nextPlugin = remaining.find((p) =>
+      (p.requiresEnv ?? []).some(
+        (r) => !collectedEnv[r.name] && !installed!.envSet.includes(r.name),
+      ),
+    )
 
-    const isCurrentlyEnabled = pendingEnabled.has(id)
-
-    if (!isCurrentlyEnabled && plugin.requiresEnv) {
-      // Enabling a plugin with env requirements — go through modal flow
-      const enable = [plugin]
-      const disable: string[] = []
-      processEnableList(enable, disable)
-      // Also add to pendingEnabled optimistically
-      setPendingEnabled((prev) => {
-        const next = new Set(prev)
-        next.add(id)
-        return next
+    if (nextPlugin) {
+      const nextReq = (nextPlugin.requiresEnv ?? []).find(
+        (r) => !collectedEnv[r.name] && !installed!.envSet.includes(r.name),
+      )!
+      setEnvModal({
+        plugin: nextPlugin,
+        requirement: nextReq,
+        pendingPlugins: remaining,
+        collectedEnv,
+        disable,
       })
     } else {
-      setPendingEnabled((prev) => {
-        const next = new Set(prev)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        return next
-      })
+      setEnvModal(null)
+      void applyChanges(remaining, disable, collectedEnv)
     }
   }
 
-  const apply = () => {
-    if (!catalog || !installed) return
-    const enable = catalog.plugins.filter(
-      (p) => pendingEnabled.has(p.id) && !installed.enabledIds.includes(p.id),
-    )
-    const disable = installed.enabledIds.filter((id) => !pendingEnabled.has(id))
-    processEnableList(enable, disable)
+  // -------------------------------------------------------------------------
+  // Plugin card actions
+  // -------------------------------------------------------------------------
+
+  const installPlugin = (p: PluginEntry) => {
+    if (!installed) return
+    const missingEnvs = (p.requiresEnv ?? []).filter((r) => !installed.envSet.includes(r.name))
+    if (missingEnvs.length > 0) {
+      setEnvModal({
+        plugin: p,
+        requirement: missingEnvs[0]!,
+        pendingPlugins: [p],
+        collectedEnv: {},
+        disable: [],
+      })
+      return
+    }
+    void runWithBusy(p.id, () => applyChanges([p], [], {}))
   }
 
-  const applyPreset = (preset: PresetEntry) => {
+  const removePlugin = (p: PluginEntry) => {
+    void runWithBusy(p.id, () => applyChanges([], [p.id], {}))
+  }
+
+  const editApiKey = (p: PluginEntry) => {
+    if (!p.requiresEnv || p.requiresEnv.length === 0) return
+    setEnvModal({
+      plugin: p,
+      requirement: p.requiresEnv[0]!,
+      pendingPlugins: [p],
+      collectedEnv: {},
+      disable: [],
+      editOnly: true,
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // Preset card actions
+  // -------------------------------------------------------------------------
+
+  const activatePreset = (preset: PresetEntry) => {
     if (!catalog || !installed) return
-    const enableList = preset.pluginIds
+    const missing = preset.pluginIds
       .map((id) => catalog.plugins.find((p) => p.id === id))
       .filter((p): p is PluginEntry => !!p)
       .filter((p) => !installed.enabledIds.includes(p.id))
-    // Merge into pendingEnabled
-    setPendingEnabled((prev) => {
-      const next = new Set(prev)
-      for (const p of enableList) next.add(p.id)
-      return next
-    })
-    processEnableList(enableList, [])
+    if (missing.length === 0) return
+    startBatch(missing, [])
   }
+
+  const removePreset = (preset: PresetEntry) => {
+    if (!installed) return
+    const toRemove = preset.pluginIds.filter((id) => installed.enabledIds.includes(id))
+    void runWithBusy(`preset:${preset.id}`, () => applyChanges([], toRemove, {}))
+  }
+
+  // -------------------------------------------------------------------------
+  // Marketplace conflict detection
+  // -------------------------------------------------------------------------
+
+  const computeConflicts = () => {
+    if (!catalog || !installed) return []
+    const seen = new Set<string>()
+    const result: Array<{ id: string; expected: { source: string; repo: string }; actual: { source: string; repo: string } }> = []
+    for (const plugin of catalog.plugins) {
+      if (!plugin.marketplace) continue
+      const m = plugin.marketplace
+      if (seen.has(m.id)) continue
+      seen.add(m.id)
+      const actual = installed.marketplaceSources[m.id]
+      if (actual && actual.repo !== m.source.repo) {
+        result.push({ id: m.id, expected: m.source, actual })
+      }
+    }
+    return result
+  }
+
+  // -------------------------------------------------------------------------
+  // Guards
+  // -------------------------------------------------------------------------
 
   if (!target?.ok) {
     return (
@@ -183,23 +292,51 @@ export function PluginsTab() {
     )
   }
 
-  if (!catalog) {
+  if (!catalog || !installed) {
     return <div className="p-6 text-sm text-neutral-500">Loading catalog…</div>
   }
 
-  const currentEnvItem = envQueue[0] ?? null
+  const conflicts = computeConflicts()
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
 
   return (
     <div className="space-y-4 p-4">
-      {currentEnvItem !== null && (
+      {/* Env modal */}
+      {envModal !== null && (
         <EnvPromptModal
-          pluginName={currentEnvItem.plugin.name}
-          requirement={currentEnvItem.requirement}
+          pluginName={envModal.plugin.name}
+          requirement={envModal.requirement}
           onSkip={handleEnvSkip}
           onSave={handleEnvSave}
         />
       )}
 
+      {/* Restart toast */}
+      {showRestart && (
+        <div className="rounded bg-blue-50 p-2 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-200">
+          Plugins updated. Restart Claude Code to apply.
+        </div>
+      )}
+
+      {/* Marketplace conflict banner */}
+      {conflicts.length > 0 && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          <strong>⚠ Marketplace conflict</strong>
+          <ul className="mt-1 list-disc pl-5">
+            {conflicts.map((c) => (
+              <li key={c.id}>
+                &ldquo;{c.id}&rdquo; points to <code>{c.actual.repo}</code>, catalog expects{' '}
+                <code>{c.expected.repo}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Top bar */}
       <div className="flex items-center justify-between">
         <div className="text-xs text-neutral-500">Settings: {target.settingsPath}</div>
         <button
@@ -210,78 +347,154 @@ export function PluginsTab() {
         </button>
       </div>
 
+      {/* Presets */}
       {catalog.presets.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
             Presets
           </h3>
           <div className="grid grid-cols-2 gap-3">
-            {catalog.presets.map((p) => (
-              <PresetCard key={p.id} preset={p} onApply={() => applyPreset(p)} />
-            ))}
+            {catalog.presets.map((preset) => {
+              const installedCount = preset.pluginIds.filter((id) =>
+                installed.enabledIds.includes(id),
+              ).length
+              const total = preset.pluginIds.length
+              const presetBusy = busyIds.has(`preset:${preset.id}`)
+
+              return (
+                <div
+                  key={preset.id}
+                  className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700"
+                >
+                  <div className="font-medium">{preset.name}</div>
+                  <div className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">
+                    {preset.description}
+                  </div>
+                  <div className="mb-3 text-xs text-neutral-500">
+                    {installedCount === total
+                      ? 'All installed'
+                      : `${installedCount} of ${total} installed`}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {installedCount < total && (
+                      <button
+                        onClick={() => activatePreset(preset)}
+                        disabled={presetBusy}
+                        className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
+                      >
+                        {installedCount === 0
+                          ? 'Activate all'
+                          : `Activate ${total - installedCount} missing`}
+                      </button>
+                    )}
+                    {installedCount > 0 && (
+                      <button
+                        onClick={() => removePreset(preset)}
+                        disabled={presetBusy}
+                        className="rounded border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                      >
+                        {installedCount === total ? 'Remove all' : 'Remove preset'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
 
+      {/* Plugins */}
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Plugins
         </h3>
         <ul className="space-y-2">
-          {catalog.plugins.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-start gap-3 rounded border border-neutral-200 p-3 dark:border-neutral-700"
-            >
-              <input
-                type="checkbox"
-                checked={pendingEnabled.has(p.id)}
-                onChange={() => toggle(p.id)}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{p.name}</span>
-                  {p.tags?.map((t) => (
-                    <span
-                      key={t}
-                      className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+          {catalog.plugins.map((p) => {
+            const isInstalled = installed.enabledIds.includes(p.id)
+            const envOk =
+              !p.requiresEnv ||
+              p.requiresEnv.every((r) => r.optional || installed.envSet.includes(r.name))
+            const busy = busyIds.has(p.id)
+
+            return (
+              <li
+                key={p.id}
+                className="flex items-start gap-3 rounded border border-neutral-200 p-3 dark:border-neutral-700"
+              >
+                {/* Left: info */}
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{p.name}</span>
+                    {isInstalled && envOk && <Badge tone="green">✓ Installed</Badge>}
+                    {isInstalled && !envOk && <Badge tone="amber">⚠ Env missing</Badge>}
+                    {p.tags?.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                    {p.description}
+                  </div>
+                  {p.homepage && (
+                    <a
+                      href={p.homepage}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-blue-500 hover:underline"
                     >
-                      {t}
-                    </span>
-                  ))}
+                      {p.homepage}
+                    </a>
+                  )}
                 </div>
-                <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                  {p.description}
+
+                {/* Right: actions */}
+                <div className="flex flex-col items-end gap-1">
+                  {!isInstalled && (
+                    <button
+                      onClick={() => installPlugin(p)}
+                      disabled={busy}
+                      className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
+                    >
+                      {busy ? '…' : 'Install'}
+                    </button>
+                  )}
+                  {isInstalled && !envOk && (
+                    <button
+                      onClick={() => installPlugin(p)}
+                      disabled={busy}
+                      className="rounded bg-amber-500 px-3 py-1 text-xs text-white hover:bg-amber-600 disabled:bg-neutral-400"
+                    >
+                      {busy ? '…' : 'Set key'}
+                    </button>
+                  )}
+                  {isInstalled && (
+                    <button
+                      onClick={() => removePlugin(p)}
+                      disabled={busy}
+                      className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                    >
+                      {busy ? '…' : 'Remove'}
+                    </button>
+                  )}
+                  {isInstalled && envOk && p.requiresEnv && p.requiresEnv.length > 0 && (
+                    <button
+                      onClick={() => editApiKey(p)}
+                      className="text-xs text-neutral-500 hover:underline"
+                    >
+                      Edit API key
+                    </button>
+                  )}
                 </div>
-                {p.homepage && (
-                  <a
-                    href={p.homepage}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-blue-500 hover:underline"
-                  >
-                    {p.homepage}
-                  </a>
-                )}
-              </div>
-            </li>
-          ))}
+              </li>
+            )
+          })}
         </ul>
       </section>
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={apply}
-          disabled={busy}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-neutral-400"
-        >
-          {busy ? 'Applying…' : 'Apply changes'}
-        </button>
-        {message && (
-          <span className="text-sm text-neutral-600 dark:text-neutral-300">{message}</span>
-        )}
-      </div>
     </div>
   )
 }
