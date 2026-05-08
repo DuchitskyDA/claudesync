@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import type { ConflictFileContent } from '@shared/api'
 import { useT } from '../i18n'
+import { cn } from '@/lib/utils'
 
 const MAX_PREVIEW_BYTES = 500 * 1024
 
@@ -15,8 +16,8 @@ type Props = {
 
 function colorRow(line: string, baseLines: Set<string>, otherSide: Set<string>): string {
   if (baseLines.has(line)) return ''
-  if (otherSide.has(line)) return 'bg-yellow-50 dark:bg-yellow-900/20'
-  return 'bg-amber-100 dark:bg-amber-900/30'
+  if (otherSide.has(line)) return 'bg-yellow-100/60 dark:bg-yellow-500/15'
+  return 'bg-amber-200/60 dark:bg-amber-500/25'
 }
 
 export function ThreeWayDiff({ path, fileContent }: Props) {
@@ -37,7 +38,7 @@ export function ThreeWayDiff({ path, fileContent }: Props) {
   if (base.binary || remote.binary || mine.binary) {
     return (
       <Wrapper path={path}>
-        <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
           {t('conflict.diff.binary')}
         </div>
       </Wrapper>
@@ -52,7 +53,7 @@ export function ThreeWayDiff({ path, fileContent }: Props) {
   if (totalBytes > MAX_PREVIEW_BYTES) {
     return (
       <Wrapper path={path}>
-        <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
           {t('conflict.diff.tooLarge', { size: Math.round(totalBytes / 1024) })}
         </div>
       </Wrapper>
@@ -72,10 +73,8 @@ export function ThreeWayDiff({ path, fileContent }: Props) {
     otherSide: Set<string>,
     idx: number,
   ) => (
-    <div className="flex min-w-0 flex-1 flex-col border-r border-neutral-200 last:border-r-0 dark:border-neutral-700">
-      <div className="border-b border-neutral-200 bg-neutral-100 px-3 py-1.5 text-xs font-semibold dark:border-neutral-700 dark:bg-neutral-800">
-        {label}
-      </div>
+    <div className="flex min-w-0 flex-1 flex-col border-r last:border-r-0">
+      <div className="border-b bg-muted/40 px-3 py-1.5 text-xs font-semibold">{label}</div>
       <div
         ref={setRef(idx)}
         onScroll={onScroll(idx)}
@@ -83,13 +82,12 @@ export function ThreeWayDiff({ path, fileContent }: Props) {
       >
         <pre className="m-0 p-0">
           {lines.length === 0 || (lines.length === 1 && lines[0] === '') ? (
-            <span className="block px-3 py-0.5 text-neutral-500">{t('conflict.diff.empty')}</span>
+            <span className="block px-3 py-0.5 text-muted-foreground">
+              {t('conflict.diff.empty')}
+            </span>
           ) : (
             lines.map((line, i) => (
-              <span
-                key={i}
-                className={`block px-3 py-0.5 ${colorRow(line, baseSet, otherSide)}`}
-              >
+              <span key={i} className={cn('block px-3 py-0.5', colorRow(line, baseSet, otherSide))}>
                 {line || ' '}
               </span>
             ))
@@ -113,9 +111,7 @@ export function ThreeWayDiff({ path, fileContent }: Props) {
 function Wrapper({ path, children }: { path: string; children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-200 px-3 py-1.5 font-mono text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
-        {path}
-      </div>
+      <div className="border-b px-3 py-1.5 font-mono text-xs text-muted-foreground">{path}</div>
       {children}
     </div>
   )

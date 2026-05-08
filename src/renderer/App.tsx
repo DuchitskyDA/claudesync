@@ -13,6 +13,7 @@ import { Settings } from './components/Settings'
 import { Header } from './components/Header'
 import { Tabs } from './components/Tabs'
 import { PluginsTab } from './components/PluginsTab'
+import { Button } from './components/ui/button'
 import { useT } from './i18n'
 
 type Tab = 'sync' | 'plugins'
@@ -80,14 +81,15 @@ export function App() {
         onStartUpdater={() => void startUpdater()}
       />
       {state.conflictInProgress && !conflictOpen && (
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           <span>{t('conflict.recovery.banner')}</span>
-          <button
+          <Button
+            size="sm"
             onClick={() => setConflictOpen(true)}
-            className="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-amber-700"
+            className="bg-amber-600 text-white hover:bg-amber-700"
           >
             {t('conflict.recovery.resolve')}
-          </button>
+          </Button>
         </div>
       )}
       <Tabs<Tab>
@@ -103,16 +105,13 @@ export function App() {
           <>
             {state.repoUrl === null ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-                <div className="text-sm text-neutral-500">{t('sync.noRepo.title')}</div>
-                <button
-                  onClick={() => setInitOpen(true)}
-                  className="rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-                >
+                <div className="text-sm text-muted-foreground">{t('sync.noRepo.title')}</div>
+                <Button size="lg" onClick={() => setInitOpen(true)}>
                   {t('sync.noRepo.initialize')}
-                </button>
-                <div className="text-xs text-neutral-500">
+                </Button>
+                <div className="text-xs text-muted-foreground">
                   {t('sync.noRepo.orSet')}{' '}
-                  <button className="text-blue-500 hover:underline" onClick={openSettings}>
+                  <button className="text-primary hover:underline" onClick={openSettings}>
                     {t('sync.noRepo.settings')}
                   </button>{' '}
                   {t('sync.noRepo.ifHave')}
@@ -132,7 +131,7 @@ export function App() {
                     onClick={() => setPushOpen(true)}
                   />
                 </div>
-                <div className="flex-1 overflow-auto border-t border-neutral-200 dark:border-neutral-700">
+                <div className="flex-1 overflow-auto border-t">
                   <StepList steps={state.steps} />
                 </div>
               </>
@@ -149,20 +148,20 @@ export function App() {
           the OS window vertically by LOG_PANEL_HEIGHT so existing content
           isn't squashed. */}
       {tab === 'sync' && state.repoUrl !== null && (
-        <div className="border-t border-neutral-200 dark:border-neutral-700">
+        <div className="border-t">
           <button
             onClick={() => {
               const willOpen = !showDetails
               setShowDetails(willOpen)
               void window.api.resizeWindowBy(willOpen ? LOG_PANEL_HEIGHT : -LOG_PANEL_HEIGHT)
             }}
-            className="w-full px-4 py-1 text-left text-xs text-neutral-500 transition hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="w-full px-4 py-1 text-left text-xs text-muted-foreground transition hover:text-foreground"
           >
             {showDetails ? `▾ ${t('sync.log.hide')}` : `▸ ${t('sync.log.show')}`}
           </button>
           {showDetails && (
             <div
-              className="overflow-hidden border-t border-neutral-200 dark:border-neutral-700"
+              className="overflow-hidden border-t"
               style={{ height: LOG_PANEL_HEIGHT }}
             >
               <LogConsole lines={state.log} onClear={clearLog} />

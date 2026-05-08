@@ -1,5 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { DeviceFlowChallenge } from '@shared/api'
+import { Loader2, Check } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from './ui/dialog'
+import { Button } from './ui/button'
 import { useT } from '../i18n'
 
 type Props = {
@@ -47,7 +56,6 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
         cancelTimer()
         pollingRef.current = false
         setState({ phase: 'success' })
-        // brief success flash then close
         setTimeout(() => onSuccess(), 600)
         return
       }
@@ -57,7 +65,6 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
       if (isPending || isSlowDown) {
         if (isSlowDown) intervalRef.current += 5
         cancelTimer()
-        // If we showed verifying state for a manual click — return to waiting view with the saved challenge
         if (manual && lastChallengeRef.current) {
           setState({ phase: 'waiting', challenge: lastChallengeRef.current })
         }
@@ -98,8 +105,6 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
     }
   }, [open])
 
-  if (!open) return null
-
   const handleOpenBrowser = (url: string) => {
     void window.api.openExternal(url)
   }
@@ -115,101 +120,80 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
-      <div className="flex max-h-[88vh] w-[480px] flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-neutral-800">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <h2 className="font-display text-base font-semibold tracking-tight">{t('deviceFlow.title')}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
-          >
-            ✕
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{t('deviceFlow.title')}</DialogTitle>
+        </DialogHeader>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {state.phase === 'starting' && (
-            <div className="flex items-center gap-2 text-sm text-neutral-500">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-blue-500" />
-              {t('deviceFlow.starting')}
-            </div>
-          )}
+        {state.phase === 'starting' && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('deviceFlow.starting')}
+          </div>
+        )}
 
-          {state.phase === 'verifying' && (
-            <div className="flex flex-col items-center gap-3 py-6 text-sm text-neutral-600 dark:text-neutral-300">
-              <span className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-neutral-200 border-t-blue-500 dark:border-neutral-700" />
-              <div>{t('deviceFlow.verifying')}</div>
-              <div className="text-xs text-neutral-500">{t('deviceFlow.verifyingHint')}</div>
-            </div>
-          )}
+        {state.phase === 'verifying' && (
+          <div className="flex flex-col items-center gap-3 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div>{t('deviceFlow.verifying')}</div>
+            <div className="text-xs">{t('deviceFlow.verifyingHint')}</div>
+          </div>
+        )}
 
-          {state.phase === 'success' && (
-            <div className="flex flex-col items-center gap-2 py-6 text-emerald-500">
-              <span className="text-3xl">✓</span>
-              <div className="text-sm font-medium">{t('deviceFlow.success')}</div>
-            </div>
-          )}
+        {state.phase === 'success' && (
+          <div className="flex flex-col items-center gap-2 py-6 text-emerald-500">
+            <Check className="h-8 w-8" />
+            <div className="text-sm font-medium">{t('deviceFlow.success')}</div>
+          </div>
+        )}
 
-          {state.phase === 'waiting' && (
-            <div className="space-y-3 text-sm text-neutral-700 dark:text-neutral-300">
-              <p>
-                <strong>1.</strong> {t('deviceFlow.step1.before')}{' '}
-                <button
-                  onClick={() => handleOpenBrowser(state.challenge.verificationUri)}
-                  className="font-mono text-blue-500 hover:underline"
-                >
-                  {state.challenge.verificationUri}
-                </button>{' '}
-                {t('deviceFlow.step1.after')}
-              </p>
-              <p>
-                <strong>2.</strong> {t('deviceFlow.step2')}
-              </p>
+        {state.phase === 'waiting' && (
+          <div className="space-y-3 text-sm">
+            <p>
+              <strong>1.</strong> {t('deviceFlow.step1.before')}{' '}
               <button
-                onClick={() => void handleCopyCode(state.challenge.userCode)}
-                className="w-full rounded-md border border-neutral-200 bg-neutral-50 p-3 text-center font-mono text-lg tracking-[0.25em] text-neutral-900 transition hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                onClick={() => handleOpenBrowser(state.challenge.verificationUri)}
+                className="font-mono text-primary hover:underline"
               >
-                {state.challenge.userCode}
-              </button>
-              <div className="h-4 text-center text-xs text-emerald-500">
-                {copied ? t('deviceFlow.copied') : ''}
-              </div>
-              <p>
-                <strong>3.</strong> {t('deviceFlow.step3')}
-              </p>
-              <button
-                onClick={() => void doPoll(true)}
-                disabled={checking}
-                className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none dark:disabled:bg-neutral-700"
-              >
-                {checking ? t('deviceFlow.checking') : t('deviceFlow.checkNow')}
-              </button>
-              <div className="text-center text-xs text-neutral-500">
-                {t('deviceFlow.autoCheck', { interval: intervalRef.current })}
-              </div>
+                {state.challenge.verificationUri}
+              </button>{' '}
+              {t('deviceFlow.step1.after')}
+            </p>
+            <p><strong>2.</strong> {t('deviceFlow.step2')}</p>
+            <button
+              onClick={() => void handleCopyCode(state.challenge.userCode)}
+              className="w-full rounded-md border bg-muted/40 p-3 text-center font-mono text-lg tracking-[0.25em] transition hover:bg-muted"
+            >
+              {state.challenge.userCode}
+            </button>
+            <div className="h-4 text-center text-xs text-emerald-500">
+              {copied ? t('deviceFlow.copied') : ''}
             </div>
-          )}
-
-          {state.phase === 'error' && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-              {state.error}
+            <p><strong>3.</strong> {t('deviceFlow.step3')}</p>
+            <Button
+              onClick={() => void doPoll(true)}
+              disabled={checking}
+              className="w-full"
+            >
+              {checking ? t('deviceFlow.checking') : t('deviceFlow.checkNow')}
+            </Button>
+            <div className="text-center text-xs text-muted-foreground">
+              {t('deviceFlow.autoCheck', { interval: intervalRef.current })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-end border-t border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-          >
-            {t('common.cancel')}
-          </button>
-        </div>
-      </div>
-    </div>
+        {state.phase === 'error' && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {state.error}
+          </div>
+        )}
+
+        <DialogFooter className="sm:justify-end">
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -1,5 +1,7 @@
 import React from 'react'
 import type { UpdateInfo } from '@shared/api'
+import { ArrowUp } from 'lucide-react'
+import { Button } from './ui/button'
 import { useT } from '../i18n'
 import type { UpdaterKind } from '../hooks/useAppState'
 
@@ -27,12 +29,8 @@ function downloadUrlFor(
       ? `${base}/claudesync-${version}-arm64.dmg`
       : `${base}/claudesync-${version}.dmg`
   }
-  if (platform === 'win32') {
-    return `${base}/claudesync.Setup.${version}.exe`
-  }
-  if (platform === 'linux') {
-    return `${base}/claudesync-${version}.AppImage`
-  }
+  if (platform === 'win32') return `${base}/claudesync.Setup.${version}.exe`
+  if (platform === 'linux') return `${base}/claudesync-${version}.AppImage`
   return null
 }
 
@@ -63,7 +61,6 @@ export function UpdateBanner({
     if (url) void window.api.openExternal(url)
   }
 
-  // 1-click flow available — render the silent in-app updater button.
   const oneClick = updaterKind === 'auto' || updaterKind === 'brew'
 
   let primaryLabel: string
@@ -75,7 +72,6 @@ export function UpdateBanner({
     primaryAction = onStartUpdater
     primaryTooltip = t('update.banner.updateNow.tooltip')
   } else if (platform === 'darwin') {
-    // brew not detected — fall back to opening Terminal with the command
     primaryLabel = t('update.banner.brewUpgrade')
     primaryAction = () => void window.api.runBrewUpgrade()
     primaryTooltip = t('update.banner.brewUpgrade.tooltip')
@@ -91,36 +87,23 @@ export function UpdateBanner({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100">
+    <div className="flex items-center justify-between gap-3 border-b bg-primary/10 px-4 py-2 text-sm">
       <div className="flex min-w-0 items-center gap-2">
-        <span aria-hidden>↑</span>
+        <ArrowUp className="h-4 w-4 shrink-0" />
         <span className="truncate">
-          {t('update.banner.available', {
-            current: info.current,
-            latest: info.latest,
-          })}
+          {t('update.banner.available', { current: info.current, latest: info.latest })}
         </span>
       </div>
       <div className="flex flex-shrink-0 items-center gap-2">
-        <button
-          onClick={primaryAction}
-          title={primaryTooltip}
-          className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
-        >
+        <Button size="sm" onClick={primaryAction} title={primaryTooltip}>
           {primaryLabel}
-        </button>
-        <button
-          onClick={handleViewRelease}
-          className="rounded-md border border-blue-300 px-3 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:border-blue-700 dark:text-blue-200 dark:hover:bg-blue-900"
-        >
+        </Button>
+        <Button size="sm" variant="outline" onClick={handleViewRelease}>
           {t('update.banner.viewRelease')}
-        </button>
-        <button
-          onClick={handleDismiss}
-          className="rounded-md px-2 py-1 text-xs text-blue-700 transition hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900"
-        >
+        </Button>
+        <Button size="sm" variant="ghost" onClick={handleDismiss}>
           {t('update.banner.dismiss')}
-        </button>
+        </Button>
       </div>
     </div>
   )

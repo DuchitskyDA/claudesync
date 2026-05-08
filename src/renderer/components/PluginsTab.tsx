@@ -7,41 +7,21 @@ import type {
   PresetEntry,
   PluginEnvRequirement,
 } from '@shared/api'
+import { AlertTriangle } from 'lucide-react'
+import { Button } from './ui/button'
+import { Badge } from './ui/badge'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/card'
 import { EnvPromptModal } from './EnvPromptModal'
 import { useT, tMessage } from '../i18n'
-
-// ---------------------------------------------------------------------------
-// Badge helper
-// ---------------------------------------------------------------------------
-
-type BadgeTone = 'green' | 'amber'
-
-function Badge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
-  const cls =
-    tone === 'green'
-      ? 'rounded px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      : 'rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
-  return <span className={cls}>{children}</span>
-}
-
-// ---------------------------------------------------------------------------
-// Env modal state
-// ---------------------------------------------------------------------------
 
 type EnvModalState = {
   plugin: PluginEntry
   requirement: PluginEnvRequirement
-  /** remaining plugins to enable in this batch (includes current plugin) */
   pendingPlugins: PluginEntry[]
   collectedEnv: Record<string, string>
   disable: string[]
-  /** "edit" mode — only update env, do not enable/disable anything */
   editOnly?: boolean
 }
-
-// ---------------------------------------------------------------------------
-// PluginsTab
-// ---------------------------------------------------------------------------
 
 export function PluginsTab() {
   const t = useT()
@@ -51,10 +31,6 @@ export function PluginsTab() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [envModal, setEnvModal] = useState<EnvModalState | null>(null)
   const [showRestart, setShowRestart] = useState(false)
-
-  // -------------------------------------------------------------------------
-  // Load
-  // -------------------------------------------------------------------------
 
   const load = (force?: boolean) => {
     void window.api.validateClaudeTarget().then(setTarget)
@@ -68,10 +44,6 @@ export function PluginsTab() {
   useEffect(() => {
     load()
   }, [])
-
-  // -------------------------------------------------------------------------
-  // Core helpers
-  // -------------------------------------------------------------------------
 
   const refreshInstalled = async () => {
     const fresh = await window.api.getInstalledPlugins()
@@ -106,14 +78,6 @@ export function PluginsTab() {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Batch / env-queue helpers
-  // -------------------------------------------------------------------------
-
-  /**
-   * Start a batch enable for `plugins`. Walks through and opens env modal for
-   * first plugin that has an unset env requirement. If none, applies directly.
-   */
   const startBatch = (plugins: PluginEntry[], disable: string[]) => {
     const first = plugins.find((p) =>
       (p.requiresEnv ?? []).some((r) => !installed!.envSet.includes(r.name)),
@@ -123,13 +87,7 @@ export function PluginsTab() {
       return
     }
     const req = (first.requiresEnv ?? []).find((r) => !installed!.envSet.includes(r.name))!
-    setEnvModal({
-      plugin: first,
-      requirement: req,
-      pendingPlugins: plugins,
-      collectedEnv: {},
-      disable,
-    })
+    setEnvModal({ plugin: first, requirement: req, pendingPlugins: plugins, collectedEnv: {}, disable })
   }
 
   const handleEnvSave = (value: string) => {
@@ -138,13 +96,11 @@ export function PluginsTab() {
     const newEnv = { ...collectedEnv, [requirement.name]: value }
 
     if (editOnly) {
-      // Just update the env value, no enable/disable
       setEnvModal(null)
       void applyChanges([], [], newEnv)
       return
     }
 
-    // Find next plugin in batch that still has an unmet env requirement
     const remaining = pendingPlugins.filter((p) => p.id !== plugin.id)
     const nextPlugin = remaining.find((p) =>
       (p.requiresEnv ?? []).some((r) => !newEnv[r.name] && !installed!.envSet.includes(r.name)),
@@ -164,7 +120,6 @@ export function PluginsTab() {
       return
     }
 
-    // All env collected
     setEnvModal(null)
     void applyChanges(pendingPlugins, disable, newEnv)
   }
@@ -176,7 +131,6 @@ export function PluginsTab() {
 
     if (remaining.length === 0) {
       setEnvModal(null)
-      // Apply whatever was collected (may be empty)
       void applyChanges([], disable, collectedEnv)
       return
     }
@@ -203,10 +157,6 @@ export function PluginsTab() {
       void applyChanges(remaining, disable, collectedEnv)
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Plugin card actions
-  // -------------------------------------------------------------------------
 
   const installPlugin = (p: PluginEntry) => {
     if (!installed) return
@@ -240,10 +190,6 @@ export function PluginsTab() {
     })
   }
 
-  // -------------------------------------------------------------------------
-  // Preset card actions
-  // -------------------------------------------------------------------------
-
   const activatePreset = (preset: PresetEntry) => {
     if (!catalog || !installed) return
     const missing = preset.pluginIds
@@ -260,14 +206,14 @@ export function PluginsTab() {
     void runWithBusy(`preset:${preset.id}`, () => applyChanges([], toRemove, {}))
   }
 
-  // -------------------------------------------------------------------------
-  // Marketplace conflict detection
-  // -------------------------------------------------------------------------
-
   const computeConflicts = () => {
     if (!catalog || !installed) return []
     const seen = new Set<string>()
-    const result: Array<{ id: string; expected: { source: string; repo: string }; actual: { source: string; repo: string } }> = []
+    const result: Array<{
+      id: string
+      expected: { source: string; repo: string }
+      actual: { source: string; repo: string }
+    }> = []
     for (const plugin of catalog.plugins) {
       if (!plugin.marketplace) continue
       const m = plugin.marketplace
@@ -281,32 +227,22 @@ export function PluginsTab() {
     return result
   }
 
-  // -------------------------------------------------------------------------
-  // Guards
-  // -------------------------------------------------------------------------
-
   if (!target?.ok) {
     return (
-      <div className="p-6 text-sm text-neutral-500">
-        {t('plugins.noTarget')}{' '}
-        {target?.ok === false ? target.reason : ''}
+      <div className="p-6 text-sm text-muted-foreground">
+        {t('plugins.noTarget')} {target?.ok === false ? target.reason : ''}
       </div>
     )
   }
 
   if (!catalog || !installed) {
-    return <div className="p-6 text-sm text-neutral-500">{t('plugins.loading')}</div>
+    return <div className="p-6 text-sm text-muted-foreground">{t('plugins.loading')}</div>
   }
 
   const conflicts = computeConflicts()
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
-
   return (
     <div className="space-y-4 p-4">
-      {/* Env modal */}
       {envModal !== null && (
         <EnvPromptModal
           pluginName={envModal.plugin.name}
@@ -316,42 +252,44 @@ export function PluginsTab() {
         />
       )}
 
-      {/* Restart toast */}
       {showRestart && (
-        <div className="rounded bg-blue-50 p-2 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-200">
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-200">
           {t('plugins.restart')}
         </div>
       )}
 
-      {/* Marketplace conflict banner */}
       {conflicts.length > 0 && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          <strong>⚠ {t('plugins.conflict.title')}</strong>
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-4 w-4" />
+            {t('plugins.conflict.title')}
+          </div>
           <ul className="mt-1 list-disc pl-5">
             {conflicts.map((c) => (
               <li key={c.id}>
-                {t('plugins.conflict.item', { id: c.id, actual: c.actual.repo, expected: c.expected.repo })}
+                {t('plugins.conflict.item', {
+                  id: c.id,
+                  actual: c.actual.repo,
+                  expected: c.expected.repo,
+                })}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* Top bar */}
       <div className="flex items-center justify-between">
-        <div className="text-xs text-neutral-500">{t('plugins.topbar.settings', { path: target.settingsPath })}</div>
-        <button
-          onClick={() => load(true)}
-          className="rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-        >
+        <div className="text-xs text-muted-foreground">
+          {t('plugins.topbar.settings', { path: target.settingsPath })}
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => load(true)} className="h-7 text-xs">
           {t('plugins.topbar.refresh')}
-        </button>
+        </Button>
       </div>
 
-      {/* Presets */}
       {catalog.presets.length > 0 && (
         <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t('plugins.section.presets')}
           </h3>
           <div className="grid grid-cols-2 gap-3">
@@ -363,51 +301,48 @@ export function PluginsTab() {
               const presetBusy = busyIds.has(`preset:${preset.id}`)
 
               return (
-                <div
-                  key={preset.id}
-                  className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700"
-                >
-                  <div className="font-medium">{preset.name}</div>
-                  <div className="mb-2 text-xs text-neutral-600 dark:text-neutral-400">
-                    {preset.description}
-                  </div>
-                  <div className="mb-3 text-xs text-neutral-500">
-                    {installedCount === total
-                      ? t('plugins.preset.allInstalled')
-                      : t('plugins.preset.progress', { installed: installedCount, total })}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+                <Card key={preset.id}>
+                  <CardHeader className="p-4 pb-2">
+                    <CardTitle className="text-sm">{preset.name}</CardTitle>
+                    <CardDescription className="text-xs">{preset.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4 pt-0 pb-2">
+                    <div className="text-xs text-muted-foreground">
+                      {installedCount === total
+                        ? t('plugins.preset.allInstalled')
+                        : t('plugins.preset.progress', { installed: installedCount, total })}
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex flex-wrap gap-2 p-4 pt-2">
                     {installedCount < total && (
-                      <button
-                        onClick={() => activatePreset(preset)}
-                        disabled={presetBusy}
-                        className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
-                      >
+                      <Button size="sm" onClick={() => activatePreset(preset)} disabled={presetBusy}>
                         {installedCount === 0
                           ? t('plugins.preset.activateAll')
                           : t('plugins.preset.activateMissing', { count: total - installedCount })}
-                      </button>
+                      </Button>
                     )}
                     {installedCount > 0 && (
-                      <button
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => removePreset(preset)}
                         disabled={presetBusy}
-                        className="rounded border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-700"
                       >
-                        {installedCount === total ? t('plugins.preset.removeAll') : t('plugins.preset.removePreset')}
-                      </button>
+                        {installedCount === total
+                          ? t('plugins.preset.removeAll')
+                          : t('plugins.preset.removePreset')}
+                      </Button>
                     )}
-                  </div>
-                </div>
+                  </CardFooter>
+                </Card>
               )
             })}
           </div>
         </section>
       )}
 
-      {/* Plugins */}
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t('plugins.section.plugins')}
         </h3>
         <ul className="space-y-2">
@@ -421,74 +356,72 @@ export function PluginsTab() {
             return (
               <li
                 key={p.id}
-                className="flex items-start gap-3 rounded border border-neutral-200 p-3 dark:border-neutral-700"
+                className="flex items-start gap-3 rounded-lg border bg-card p-3"
               >
-                {/* Left: info */}
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{p.name}</span>
-                    {isInstalled && envOk && <Badge tone="green">{t('plugins.card.installed')}</Badge>}
-                    {isInstalled && !envOk && <Badge tone="amber">{t('plugins.card.envMissing')}</Badge>}
+                    {isInstalled && envOk && (
+                      <Badge variant="success">{t('plugins.card.installed')}</Badge>
+                    )}
+                    {isInstalled && !envOk && (
+                      <Badge variant="warning">{t('plugins.card.envMissing')}</Badge>
+                    )}
                     {p.tags?.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-                      >
+                      <Badge key={tag} variant="secondary">
                         {tag}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
-                  <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                    {p.description}
-                  </div>
+                  <div className="text-sm text-muted-foreground">{p.description}</div>
                   {p.homepage && (
                     <a
                       href={p.homepage}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-blue-500 hover:underline"
+                      className="text-xs text-primary hover:underline"
                     >
                       {p.homepage}
                     </a>
                   )}
                 </div>
 
-                {/* Right: actions */}
                 <div className="flex flex-col items-end gap-1">
                   {!isInstalled && (
-                    <button
-                      onClick={() => installPlugin(p)}
-                      disabled={busy}
-                      className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
-                    >
+                    <Button size="sm" onClick={() => installPlugin(p)} disabled={busy}>
                       {busy ? t('plugins.card.installing') : t('plugins.card.install')}
-                    </button>
+                    </Button>
                   )}
                   {isInstalled && !envOk && (
-                    <button
+                    <Button
+                      size="sm"
                       onClick={() => installPlugin(p)}
                       disabled={busy}
-                      className="rounded bg-amber-500 px-3 py-1 text-xs text-white hover:bg-amber-600 disabled:bg-neutral-400"
+                      className="bg-amber-500 text-white hover:bg-amber-600"
                     >
                       {busy ? t('plugins.card.installing') : t('plugins.card.setKey')}
-                    </button>
+                    </Button>
                   )}
                   {isInstalled && (
-                    <button
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => removePlugin(p)}
                       disabled={busy}
-                      className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10"
                     >
                       {busy ? t('plugins.card.installing') : t('plugins.card.remove')}
-                    </button>
+                    </Button>
                   )}
                   {isInstalled && envOk && p.requiresEnv && p.requiresEnv.length > 0 && (
-                    <button
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs text-muted-foreground"
                       onClick={() => editApiKey(p)}
-                      className="text-xs text-neutral-500 hover:underline"
                     >
                       {t('plugins.card.editApiKey')}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </li>

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import type { InitStepEvent, LocalizedMessage, RunResult } from '@shared/api'
+import { Circle, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Button } from '../ui/button'
 import { useT, tMessage } from '../../i18n'
+import { cn } from '@/lib/utils'
 
 type Props = {
   onClose: () => void
@@ -11,6 +14,20 @@ type Props = {
 const stepOrder = ['create-repo', 'clone', 'generate', 'commit', 'push'] as const
 
 type StepInfo = { status: 'idle' | 'running' | 'done' | 'failed'; message?: LocalizedMessage }
+
+function StepIcon({ status }: { status: StepInfo['status'] | undefined }) {
+  const cls = cn(
+    'h-4 w-4 shrink-0',
+    !status && 'text-muted-foreground',
+    status === 'running' && 'text-primary animate-spin',
+    status === 'done' && 'text-emerald-500',
+    status === 'failed' && 'text-destructive',
+  )
+  if (!status || status === 'idle') return <Circle className={cls} />
+  if (status === 'running') return <Loader2 className={cls} />
+  if (status === 'done') return <CheckCircle2 className={cls} />
+  return <XCircle className={cls} />
+}
 
 export function ProgressStep({ onClose, startInit, finalRepoUrl }: Props) {
   const t = useT()
@@ -34,29 +51,23 @@ export function ProgressStep({ onClose, startInit, finalRepoUrl }: Props) {
 
   return (
     <div className="space-y-4">
-      <ul className="space-y-1 font-mono text-sm">
+      <ul className="space-y-2 text-sm">
         {stepOrder.map((step) => {
           const s = stepStates[step]
-          const icon = !s ? '○' : s.status === 'running' ? '⟳' : s.status === 'done' ? '✓' : '✗'
-          const color = !s
-            ? 'text-neutral-400'
-            : s.status === 'running'
-              ? 'text-blue-500'
-              : s.status === 'done'
-                ? 'text-emerald-500'
-                : 'text-red-500'
           return (
-            <li key={step} className="flex gap-2">
-              <span className={`w-5 ${color}`}>{icon}</span>
+            <li key={step} className="flex items-center gap-2">
+              <StepIcon status={s?.status} />
               <span>{labels[step]}</span>
-              {s?.message && <span className="text-xs text-red-500">— {tMessage(t, s.message)}</span>}
+              {s?.message && (
+                <span className="text-xs text-destructive">— {tMessage(t, s.message)}</span>
+              )}
             </li>
           )
         })}
       </ul>
 
       {result?.ok && finalRepoUrl && (
-        <div className="rounded bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
           ✓ {t('init.progress.success')} Repo:{' '}
           <a href={finalRepoUrl} target="_blank" rel="noreferrer" className="underline">
             {finalRepoUrl}
@@ -65,19 +76,13 @@ export function ProgressStep({ onClose, startInit, finalRepoUrl }: Props) {
       )}
 
       {result && !result.ok && (
-        <div className="rounded bg-red-50 p-3 text-sm text-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           ✗ {tMessage(t, result.error)}
         </div>
       )}
 
       <div className="flex justify-end">
-        <button
-          onClick={onClose}
-          disabled={!result}
-          className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:bg-neutral-400"
-        >
-          {t('init.progress.close')}
-        </button>
+        <Button onClick={onClose} disabled={!result}>{t('init.progress.close')}</Button>
       </div>
     </div>
   )

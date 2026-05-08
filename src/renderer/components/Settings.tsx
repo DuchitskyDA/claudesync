@@ -1,5 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import type { GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from './ui/dialog'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
+import { Separator } from './ui/separator'
 import { DeviceFlowModal } from './DeviceFlowModal'
 import { useT, useLocale, SUPPORTED, tMessage } from '../i18n'
 
@@ -14,12 +26,6 @@ type Props = {
   onSignOut: () => Promise<void>
   onSignedIn: () => void
 }
-
-const inputCls =
-  'w-full rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-sm text-neutral-900 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100'
-
-const ghostBtnCls =
-  'rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
 
 export function Settings({ open, initial, authState, updateInfo, onCheckForUpdates, onClose, onSaved, onSignOut, onSignedIn }: Props) {
   const [url, setUrl] = useState(initial.repoUrl ?? '')
@@ -47,8 +53,6 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
       void window.api.suggestRulesTarget().then(setPlaceholderTarget)
     }
   }, [open, initial.repoUrl, initial.repoPath, initial.rulesTarget])
-
-  if (!open) return null
 
   const browse = async (setter: (s: string) => void) => {
     const picked = await window.api.pickRepoPath()
@@ -101,53 +105,34 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
   const canSave = target.trim() !== ''
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40">
-      <div className="flex max-h-[88vh] w-[560px] flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-neutral-800">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <h2 className="font-display text-base font-semibold tracking-tight">
-            {t('settings.title')}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
-          >
-            ✕
-          </button>
-        </div>
+    <>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+        <DialogContent className="sm:max-w-[560px] max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('settings.title')}</DialogTitle>
+          </DialogHeader>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
           <div className="space-y-4">
-            <Field
-              label={t('settings.repoUrl.label')}
-              hint={t('settings.repoUrl.optionalHint')}
-            >
-              <input
-                type="text"
+            <Field label={t('settings.repoUrl.label')} hint={t('settings.repoUrl.optionalHint')}>
+              <Input
                 value={url}
                 onChange={(e) => { void onUrlChange(e.target.value) }}
                 placeholder={t('settings.repoUrl.placeholder')}
-                className={`font-mono ${inputCls}`}
+                className="font-mono"
               />
             </Field>
 
-            <Field
-              label={t('settings.target.label')}
-              hint={t('settings.target.requiredHint')}
-            >
+            <Field label={t('settings.target.label')} hint={t('settings.target.requiredHint')}>
               <div className="flex gap-2">
-                <input
-                  type="text"
+                <Input
                   value={target}
                   onChange={(e) => setTarget(e.target.value)}
                   placeholder={placeholderTarget || t('settings.target.placeholder')}
-                  className={`font-mono ${inputCls}`}
+                  className="font-mono"
                 />
-                <button type="button" onClick={() => browse(setTarget)} className={ghostBtnCls}>
+                <Button type="button" variant="outline" onClick={() => browse(setTarget)}>
                   {t('settings.browse')}
-                </button>
+                </Button>
               </div>
             </Field>
 
@@ -155,28 +140,24 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
               <button
                 type="button"
                 onClick={() => setShowAdvanced((v) => !v)}
-                className="text-xs text-neutral-500 transition hover:text-neutral-700 dark:hover:text-neutral-200"
+                className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
               >
-                {showAdvanced ? '▾' : '▸'} {t('settings.advanced.toggle')}
+                {showAdvanced ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                {t('settings.advanced.toggle')}
               </button>
-
               {showAdvanced && (
-                <div className="mt-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
-                  <Field
-                    label={t('settings.localRepo.label')}
-                    hint={t('settings.localRepo.hint')}
-                  >
+                <div className="mt-2 rounded-md border p-3">
+                  <Field label={t('settings.localRepo.label')} hint={t('settings.localRepo.hint')}>
                     <div className="flex gap-2">
-                      <input
-                        type="text"
+                      <Input
                         value={path}
                         onChange={(e) => setPath(e.target.value)}
                         placeholder={t('settings.localRepo.placeholder')}
-                        className={`font-mono ${inputCls}`}
+                        className="font-mono"
                       />
-                      <button type="button" onClick={() => browse(setPath)} className={ghostBtnCls}>
+                      <Button type="button" variant="outline" onClick={() => browse(setPath)}>
                         {t('settings.browse')}
-                      </button>
+                      </Button>
                     </div>
                   </Field>
                 </div>
@@ -184,7 +165,7 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
             </div>
 
             {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {tMessage(t, error)}
               </div>
             )}
@@ -195,17 +176,14 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
                   <span className="text-sm">
                     {t('settings.github.signedInAs', { login: authState.login ?? '' })}
                   </span>
-                  <button
-                    onClick={() => void onSignOut()}
-                    className="text-xs text-neutral-500 transition hover:underline"
-                  >
+                  <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void onSignOut()}>
                     {t('settings.github.signOut')}
-                  </button>
+                  </Button>
                 </div>
               ) : (
-                <button onClick={() => setDeviceFlowOpen(true)} className={ghostBtnCls}>
+                <Button variant="outline" onClick={() => setDeviceFlowOpen(true)}>
                   {t('settings.github.signIn')}
-                </button>
+                </Button>
               )}
             </Section>
 
@@ -217,6 +195,7 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
                     name="locale"
                     checked={preference === null}
                     onChange={() => void setPreference(null)}
+                    className="accent-primary"
                   />
                   {t('settings.language.system')}
                 </label>
@@ -227,6 +206,7 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
                       name="locale"
                       checked={preference === loc}
                       onChange={() => void setPreference(loc)}
+                      className="accent-primary"
                     />
                     {t(`settings.language.${loc}`)}
                   </label>
@@ -235,28 +215,16 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
             </Section>
 
             <Section title={t('settings.updates.title')}>
-              <UpdatesPanel
-                info={updateInfo}
-                onCheck={onCheckForUpdates}
-              />
+              <UpdatesPanel info={updateInfo} onCheck={onCheckForUpdates} />
             </Section>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <button onClick={onClose} className={ghostBtnCls}>
-            {t('common.cancel')}
-          </button>
-          <button
-            onClick={save}
-            disabled={busy || !canSave}
-            className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none dark:disabled:bg-neutral-700"
-          >
-            {t('common.save')}
-          </button>
-        </div>
-      </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+            <Button onClick={save} disabled={busy || !canSave}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DeviceFlowModal
         open={deviceFlowOpen}
@@ -266,7 +234,7 @@ export function Settings({ open, initial, authState, updateInfo, onCheckForUpdat
           onSignedIn()
         }}
       />
-    </div>
+    </>
   )
 }
 
@@ -280,11 +248,11 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <label className="mb-1 flex items-baseline justify-between">
-        <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{label}</span>
-        {hint && <span className="text-xs text-neutral-400">{hint}</span>}
-      </label>
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <Label>{label}</Label>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </div>
       {children}
     </div>
   )
@@ -292,8 +260,9 @@ function Field({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border-t border-neutral-200 pt-4 dark:border-neutral-700">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+    <div>
+      <Separator className="mb-4" />
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </h3>
       {children}
@@ -323,10 +292,7 @@ function UpdatesPanel({
   const renderStatus = (): string => {
     if (!info) return t('settings.updates.notChecked')
     if (info.available && info.latest) {
-      return t('settings.updates.available', {
-        current: info.current,
-        latest: info.latest,
-      })
+      return t('settings.updates.available', { current: info.current, latest: info.latest })
     }
     return t('settings.updates.upToDate', { current: info.current })
   }
@@ -340,20 +306,16 @@ function UpdatesPanel({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0 text-sm">
-        <div className={info?.available ? 'text-blue-600 dark:text-blue-400' : 'text-neutral-700 dark:text-neutral-200'}>
+        <div className={info?.available ? 'text-primary' : 'text-foreground'}>
           {renderStatus()}
         </div>
         {renderLastChecked() && (
-          <div className="mt-0.5 text-xs text-neutral-500">{renderLastChecked()}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{renderLastChecked()}</div>
         )}
       </div>
-      <button
-        onClick={() => void handle()}
-        disabled={checking}
-        className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-      >
+      <Button variant="outline" size="sm" onClick={() => void handle()} disabled={checking}>
         {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
-      </button>
+      </Button>
     </div>
   )
 }
