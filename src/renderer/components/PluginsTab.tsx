@@ -395,9 +395,10 @@ export function PluginsTab() {
                   {isInstalled && !envOk && (
                     <Button
                       size="sm"
+                      variant="outline"
                       onClick={() => installPlugin(p)}
                       disabled={busy}
-                      className="bg-amber-500 text-white hover:bg-amber-600"
+                      className="border-amber-500/40 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-500/15 dark:hover:text-amber-200"
                     >
                       {busy ? t('plugins.card.installing') : t('plugins.card.setKey')}
                     </Button>
@@ -408,7 +409,7 @@ export function PluginsTab() {
                       variant="outline"
                       onClick={() => removePlugin(p)}
                       disabled={busy}
-                      className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                      className="border-red-500/40 text-red-700 hover:bg-red-500/10 hover:text-red-800 dark:text-red-400 dark:hover:bg-red-500/15 dark:hover:text-red-300"
                     >
                       {busy ? t('plugins.card.installing') : t('plugins.card.remove')}
                     </Button>
