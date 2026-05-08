@@ -15,11 +15,17 @@ import type {
   DeviceFlowResult,
   GitHubOwner,
   InitWizardOptions,
+  LocalizedMessage,
   ScanResult,
   PushOptions,
   RepoStatus,
   InitStepEvent,
   PushStepEvent,
+  ConflictState,
+  ConflictSide,
+  ConflictFileContent,
+  ConflictResolveChoice,
+  ConflictResolveResult,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -34,6 +40,7 @@ const api: AppApi = {
     return () => ipcRenderer.off('log', listener)
   },
   getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('get-platform'),
+  getSystemLocale: (): Promise<string> => ipcRenderer.invoke('get-system-locale'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   onStep: (callback: (e: StepEvent) => void): (() => void) => {
     const listener = (_: unknown, e: StepEvent) => callback(e)
@@ -44,7 +51,7 @@ const api: AppApi = {
     ipcRenderer.invoke('get-plugin-catalog', force),
   getInstalledPlugins: (): Promise<InstalledPluginsState> =>
     ipcRenderer.invoke('get-installed-plugins'),
-  applyPluginChanges: (c: ApplyPluginChanges): Promise<{ ok: boolean; error?: string }> =>
+  applyPluginChanges: (c: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }> =>
     ipcRenderer.invoke('apply-plugin-changes', c),
   validateClaudeTarget: (): Promise<ClaudeTargetCheck> =>
     ipcRenderer.invoke('validate-claude-target'),
@@ -92,6 +99,20 @@ const api: AppApi = {
     ipcRenderer.on('push-step', listener)
     return () => ipcRenderer.off('push-step', listener)
   },
+
+  // v0.5 — Conflict resolver
+  conflictGetState: (): Promise<ConflictState> =>
+    ipcRenderer.invoke('conflict-get-state'),
+  conflictGetFile: (path: string, side: ConflictSide): Promise<ConflictFileContent> =>
+    ipcRenderer.invoke('conflict-get-file', path, side),
+  conflictResolveFile: (path: string, choice: ConflictResolveChoice): Promise<ConflictResolveResult> =>
+    ipcRenderer.invoke('conflict-resolve-file', path, choice),
+  conflictOpenInEditor: (path: string): Promise<void> =>
+    ipcRenderer.invoke('conflict-open-in-editor', path),
+  conflictContinue: (): Promise<RunResult> =>
+    ipcRenderer.invoke('conflict-continue'),
+  conflictAbort: (): Promise<void> =>
+    ipcRenderer.invoke('conflict-abort'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

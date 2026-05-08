@@ -53,10 +53,10 @@ export async function startDeviceFlow(): Promise<DeviceFlowChallenge> {
 }
 
 export async function pollDeviceFlow(userDataDir: string): Promise<DeviceFlowResult> {
-  if (!activeFlow) return { ok: false, error: 'no_active_flow' }
+  if (!activeFlow) return { ok: false, error: { key: 'auth.error.noActiveFlow', fallback: 'no_active_flow' } }
   if (Date.now() > activeFlow.expiresAt) {
     activeFlow = null
-    return { ok: false, error: 'expired_token' }
+    return { ok: false, error: { key: 'auth.error.expiredToken', fallback: 'expired_token' } }
   }
 
   const r = await fetch(TOKEN_URL, {
@@ -71,15 +71,15 @@ export async function pollDeviceFlow(userDataDir: string): Promise<DeviceFlowRes
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     }),
   })
-  if (!r.ok) return { ok: false, error: `http_${r.status}` }
+  if (!r.ok) return { ok: false, error: { key: 'auth.error.httpError', params: { status: r.status }, fallback: `http_${r.status}` } }
   const data = (await r.json()) as { error: string } | { access_token: string; scope: string }
 
   if ('error' in data) {
     if (data.error === 'authorization_pending' || data.error === 'slow_down') {
-      return { ok: false, error: data.error }
+      return { ok: false, error: { key: `auth.error.${data.error}`, fallback: data.error } }
     }
     activeFlow = null
-    return { ok: false, error: data.error }
+    return { ok: false, error: { key: 'auth.error.oauthError', params: { code: data.error }, fallback: data.error } }
   }
 
   // Success — verify token by fetching user, then persist
@@ -90,7 +90,7 @@ export async function pollDeviceFlow(userDataDir: string): Promise<DeviceFlowRes
     },
   })
   if (!userResp.ok) {
-    return { ok: false, error: 'token_verification_failed' }
+    return { ok: false, error: { key: 'auth.error.tokenVerificationFailed', fallback: 'token_verification_failed' } }
   }
   saveToken(userDataDir, data.access_token)
   activeFlow = null

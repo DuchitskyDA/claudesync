@@ -83,7 +83,7 @@ describe('pollDeviceFlow', () => {
       json: async () => ({ error: 'authorization_pending' }),
     })
     const r1 = await pollDeviceFlow(dir)
-    expect(r1).toEqual({ ok: false, error: 'authorization_pending' })
+    expect(r1).toEqual({ ok: false, error: { key: 'auth.error.authorization_pending', fallback: 'authorization_pending' } })
     expect(saveTokenMock).not.toHaveBeenCalled()
 
     fetchMock.mockResolvedValueOnce({
@@ -117,7 +117,7 @@ describe('pollDeviceFlow', () => {
       json: async () => ({ error: 'expired_token' }),
     })
     const r = await pollDeviceFlow(dir)
-    expect(r).toEqual({ ok: false, error: 'expired_token' })
+    expect(r).toEqual({ ok: false, error: { key: 'auth.error.oauthError', params: { code: 'expired_token' }, fallback: 'expired_token' } })
   })
 
   it('returns slow_down error (retry hint)', async () => {
@@ -138,12 +138,12 @@ describe('pollDeviceFlow', () => {
       json: async () => ({ error: 'slow_down' }),
     })
     const r = await pollDeviceFlow(dir)
-    expect(r).toEqual({ ok: false, error: 'slow_down' })
+    expect(r).toEqual({ ok: false, error: { key: 'auth.error.slow_down', fallback: 'slow_down' } })
   })
 
   it('returns error if no flow started', async () => {
     const r = await pollDeviceFlow(dir)
-    expect(r).toEqual({ ok: false, error: 'no_active_flow' })
+    expect(r).toEqual({ ok: false, error: { key: 'auth.error.noActiveFlow', fallback: 'no_active_flow' } })
   })
 })
 
@@ -163,7 +163,7 @@ describe('cancelDeviceFlow', () => {
     await cancelDeviceFlow()
     const r = await pollDeviceFlow(dir)
     expect(r.ok).toBe(false)
-    expect((r as { ok: false; error: string }).error).toBe('no_active_flow')
+    expect((r as { ok: false; error: { key: string; fallback: string } }).error.fallback).toBe('no_active_flow')
   })
 })
 

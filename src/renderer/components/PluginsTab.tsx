@@ -8,6 +8,7 @@ import type {
   PluginEnvRequirement,
 } from '@shared/api'
 import { EnvPromptModal } from './EnvPromptModal'
+import { useT, tMessage } from '../i18n'
 
 // ---------------------------------------------------------------------------
 // Badge helper
@@ -43,6 +44,7 @@ type EnvModalState = {
 // ---------------------------------------------------------------------------
 
 export function PluginsTab() {
+  const t = useT()
   const [catalog, setCatalog] = useState<PluginCatalog | null>(null)
   const [installed, setInstalled] = useState<InstalledPluginsState | null>(null)
   const [target, setTarget] = useState<ClaudeTargetCheck | null>(null)
@@ -86,7 +88,7 @@ export function PluginsTab() {
       setShowRestart(true)
       await refreshInstalled()
     } else {
-      alert(`Error: ${r.error}`)
+      alert(tMessage(t, r.error) || t('plugins.error.apply', { reason: String(r.error ?? '') }))
     }
     return r.ok
   }
@@ -286,14 +288,14 @@ export function PluginsTab() {
   if (!target?.ok) {
     return (
       <div className="p-6 text-sm text-neutral-500">
-        Plugin manager requires a configured Rules target.{' '}
+        {t('plugins.noTarget')}{' '}
         {target?.ok === false ? target.reason : ''}
       </div>
     )
   }
 
   if (!catalog || !installed) {
-    return <div className="p-6 text-sm text-neutral-500">Loading catalog…</div>
+    return <div className="p-6 text-sm text-neutral-500">{t('plugins.loading')}</div>
   }
 
   const conflicts = computeConflicts()
@@ -317,19 +319,18 @@ export function PluginsTab() {
       {/* Restart toast */}
       {showRestart && (
         <div className="rounded bg-blue-50 p-2 text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-200">
-          Plugins updated. Restart Claude Code to apply.
+          {t('plugins.restart')}
         </div>
       )}
 
       {/* Marketplace conflict banner */}
       {conflicts.length > 0 && (
         <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          <strong>⚠ Marketplace conflict</strong>
+          <strong>⚠ {t('plugins.conflict.title')}</strong>
           <ul className="mt-1 list-disc pl-5">
             {conflicts.map((c) => (
               <li key={c.id}>
-                &ldquo;{c.id}&rdquo; points to <code>{c.actual.repo}</code>, catalog expects{' '}
-                <code>{c.expected.repo}</code>
+                {t('plugins.conflict.item', { id: c.id, actual: c.actual.repo, expected: c.expected.repo })}
               </li>
             ))}
           </ul>
@@ -338,12 +339,12 @@ export function PluginsTab() {
 
       {/* Top bar */}
       <div className="flex items-center justify-between">
-        <div className="text-xs text-neutral-500">Settings: {target.settingsPath}</div>
+        <div className="text-xs text-neutral-500">{t('plugins.topbar.settings', { path: target.settingsPath })}</div>
         <button
           onClick={() => load(true)}
           className="rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          Refresh catalog
+          {t('plugins.topbar.refresh')}
         </button>
       </div>
 
@@ -351,7 +352,7 @@ export function PluginsTab() {
       {catalog.presets.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-            Presets
+            {t('plugins.section.presets')}
           </h3>
           <div className="grid grid-cols-2 gap-3">
             {catalog.presets.map((preset) => {
@@ -372,8 +373,8 @@ export function PluginsTab() {
                   </div>
                   <div className="mb-3 text-xs text-neutral-500">
                     {installedCount === total
-                      ? 'All installed'
-                      : `${installedCount} of ${total} installed`}
+                      ? t('plugins.preset.allInstalled')
+                      : t('plugins.preset.progress', { installed: installedCount, total })}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {installedCount < total && (
@@ -383,8 +384,8 @@ export function PluginsTab() {
                         className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
                       >
                         {installedCount === 0
-                          ? 'Activate all'
-                          : `Activate ${total - installedCount} missing`}
+                          ? t('plugins.preset.activateAll')
+                          : t('plugins.preset.activateMissing', { count: total - installedCount })}
                       </button>
                     )}
                     {installedCount > 0 && (
@@ -393,7 +394,7 @@ export function PluginsTab() {
                         disabled={presetBusy}
                         className="rounded border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-700"
                       >
-                        {installedCount === total ? 'Remove all' : 'Remove preset'}
+                        {installedCount === total ? t('plugins.preset.removeAll') : t('plugins.preset.removePreset')}
                       </button>
                     )}
                   </div>
@@ -407,7 +408,7 @@ export function PluginsTab() {
       {/* Plugins */}
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-          Plugins
+          {t('plugins.section.plugins')}
         </h3>
         <ul className="space-y-2">
           {catalog.plugins.map((p) => {
@@ -426,14 +427,14 @@ export function PluginsTab() {
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{p.name}</span>
-                    {isInstalled && envOk && <Badge tone="green">✓ Installed</Badge>}
-                    {isInstalled && !envOk && <Badge tone="amber">⚠ Env missing</Badge>}
-                    {p.tags?.map((t) => (
+                    {isInstalled && envOk && <Badge tone="green">{t('plugins.card.installed')}</Badge>}
+                    {isInstalled && !envOk && <Badge tone="amber">{t('plugins.card.envMissing')}</Badge>}
+                    {p.tags?.map((tag) => (
                       <span
-                        key={t}
+                        key={tag}
                         className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
                       >
-                        {t}
+                        {tag}
                       </span>
                     ))}
                   </div>
@@ -460,7 +461,7 @@ export function PluginsTab() {
                       disabled={busy}
                       className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-neutral-400"
                     >
-                      {busy ? '…' : 'Install'}
+                      {busy ? t('plugins.card.installing') : t('plugins.card.install')}
                     </button>
                   )}
                   {isInstalled && !envOk && (
@@ -469,7 +470,7 @@ export function PluginsTab() {
                       disabled={busy}
                       className="rounded bg-amber-500 px-3 py-1 text-xs text-white hover:bg-amber-600 disabled:bg-neutral-400"
                     >
-                      {busy ? '…' : 'Set key'}
+                      {busy ? t('plugins.card.installing') : t('plugins.card.setKey')}
                     </button>
                   )}
                   {isInstalled && (
@@ -478,7 +479,7 @@ export function PluginsTab() {
                       disabled={busy}
                       className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
                     >
-                      {busy ? '…' : 'Remove'}
+                      {busy ? t('plugins.card.installing') : t('plugins.card.remove')}
                     </button>
                   )}
                   {isInstalled && envOk && p.requiresEnv && p.requiresEnv.length > 0 && (
@@ -486,7 +487,7 @@ export function PluginsTab() {
                       onClick={() => editApiKey(p)}
                       className="text-xs text-neutral-500 hover:underline"
                     >
-                      Edit API key
+                      {t('plugins.card.editApiKey')}
                     </button>
                   )}
                 </div>

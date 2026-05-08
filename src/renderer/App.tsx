@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAppState } from './hooks/useAppState'
 import { PullButton } from './components/PullButton'
 import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
+import { ConflictModal } from './components/ConflictModal'
 import { InitWizard } from './components/InitWizard'
 import { LogConsole } from './components/LogConsole'
 import { StepList } from './components/StepList'
@@ -10,6 +11,7 @@ import { Settings } from './components/Settings'
 import { Header } from './components/Header'
 import { Tabs } from './components/Tabs'
 import { PluginsTab } from './components/PluginsTab'
+import { useT } from './i18n'
 
 type Tab = 'sync' | 'plugins'
 
@@ -24,11 +26,18 @@ export function App() {
     setConfigState,
     refreshAuth,
     signOut,
+    setConflictInProgress,
   } = useAppState()
   const [tab, setTab] = useState<Tab>('sync')
   const [showDetails, setShowDetails] = useState(false)
   const [initOpen, setInitOpen] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const t = useT()
+
+  useEffect(() => {
+    if (state.conflictInProgress) setConflictOpen(true)
+  }, [state.conflictInProgress])
 
   const configComplete =
     state.repoUrl !== null && state.repoPath !== null && state.rulesTarget !== null
@@ -45,12 +54,23 @@ export function App() {
         authState={state.authState}
         onOpenSettings={openSettings}
       />
+      {state.conflictInProgress && !conflictOpen && (
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <span>{t('conflict.recovery.banner')}</span>
+          <button
+            onClick={() => setConflictOpen(true)}
+            className="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-amber-700"
+          >
+            {t('conflict.recovery.resolve')}
+          </button>
+        </div>
+      )}
       <Tabs<Tab>
         active={tab}
         onChange={setTab}
         tabs={[
-          { id: 'sync', label: 'Sync' },
-          { id: 'plugins', label: 'Plugins' },
+          { id: 'sync', label: t('tabs.sync') },
+          { id: 'plugins', label: t('tabs.plugins') },
         ]}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -58,19 +78,19 @@ export function App() {
           <>
             {state.repoUrl === null ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-                <div className="text-sm text-neutral-500">No repo configured.</div>
+                <div className="text-sm text-neutral-500">{t('sync.noRepo.title')}</div>
                 <button
                   onClick={() => setInitOpen(true)}
-                  className="rounded-md bg-blue-600 px-5 py-3 text-white hover:bg-blue-700"
+                  className="rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
                 >
-                  Initialize new repo from current config
+                  {t('sync.noRepo.initialize')}
                 </button>
                 <div className="text-xs text-neutral-500">
-                  Or set Repo URL in{' '}
-                  <button className="text-blue-500" onClick={openSettings}>
-                    ⚙ Settings
+                  {t('sync.noRepo.orSet')}{' '}
+                  <button className="text-blue-500 hover:underline" onClick={openSettings}>
+                    {t('sync.noRepo.settings')}
                   </button>{' '}
-                  if you already have one.
+                  {t('sync.noRepo.ifHave')}
                 </div>
               </div>
             ) : (
@@ -93,9 +113,9 @@ export function App() {
                 <div className="flex items-center justify-between border-t border-neutral-200 px-4 py-1 dark:border-neutral-700">
                   <button
                     onClick={() => setShowDetails((v) => !v)}
-                    className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
+                    className="text-xs text-neutral-500 transition hover:text-neutral-700 dark:hover:text-neutral-200"
                   >
-                    {showDetails ? '▾ Hide log' : '▸ Show log'}
+                    {showDetails ? `▾ ${t('sync.log.hide')}` : `▸ ${t('sync.log.show')}`}
                   </button>
                 </div>
                 {showDetails && (
@@ -150,6 +170,18 @@ export function App() {
       />
 
       <PushModal open={pushOpen} onClose={() => setPushOpen(false)} onConfirm={handlePush} />
+
+      <ConflictModal
+        open={conflictOpen}
+        onClose={() => {
+          setConflictOpen(false)
+          setConflictInProgress(false)
+        }}
+        onContinued={() => {
+          setConflictOpen(false)
+          setConflictInProgress(false)
+        }}
+      />
     </div>
   )
 }

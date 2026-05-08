@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { LocalizedMessage } from '../../src/shared/api'
 import {
   mkdtempSync,
   rmSync,
@@ -224,7 +225,7 @@ describe('initRepo', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/sign|auth/i)
+    expect((r.error as LocalizedMessage).key).toBe('init.error.notSignedIn')
   })
 
   it('runs full happy path: createRepo → clone → generate → commit → push', async () => {
@@ -285,7 +286,8 @@ describe('initRepo', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/422/)
+    expect((r.error as LocalizedMessage).key).toBe('init.error.createRepoFailed')
+    expect((r.error as LocalizedMessage).params?.reason).toMatch(/422/)
   })
 
   it('aborts on clone failure', async () => {
@@ -311,7 +313,7 @@ describe('initRepo', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/clone/i)
+    expect((r.error as LocalizedMessage).key).toBe('init.error.cloneFailed')
   })
 
   it('aborts on commit failure', async () => {
@@ -342,6 +344,6 @@ describe('initRepo', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/commit/i)
+    expect((r.error as LocalizedMessage).key).toBe('init.error.commitFailed')
   })
 })

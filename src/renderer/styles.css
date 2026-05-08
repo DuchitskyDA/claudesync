@@ -2,15 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Minimalist scrollbar — overrides Windows default chunky bar */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-/* Firefox */
+  body {
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .font-display {
+    font-family: 'Bricolage Grotesque', 'Manrope', system-ui, sans-serif;
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Minimalist scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }
 
-/* WebKit / Blink (Electron / Chromium) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -36,7 +54,6 @@
   background: transparent;
 }
 
-/* Dark mode */
 @media (prefers-color-scheme: dark) {
   * {
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;

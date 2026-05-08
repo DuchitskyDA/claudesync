@@ -198,7 +198,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/sign|auth/i)
+    expect((r.error as { key: string }).key).toBe('push.error.notSignedIn')
   })
 
   it('fails when sync not configured', async () => {
@@ -221,7 +221,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/not configured/i)
+    expect((r.error as { key: string }).key).toBe('push.error.notConfigured')
   })
 
   it('returns nothing-to-push when status clean', async () => {
@@ -237,7 +237,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(true)
-    expect(r.error).toMatch(/nothing/i)
+    expect((r.error as { key: string }).key).toBe('push.info.nothingToPush')
   })
 
   it('happy path: export → status dirty → rebase → commit → push', async () => {
@@ -267,12 +267,11 @@ describe('runPush', () => {
     expect(steps).toContain('push:done')
   })
 
-  it('aborts on rebase conflict', async () => {
+  it('returns conflict kind without aborting on rebase conflict', async () => {
     loadTokenMock.mockReturnValue('tok')
     runCommandMock
       .mockResolvedValueOnce({ exitCode: 0, stdout: ' M file', stderr: '' }) // status (dirty)
       .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'CONFLICT (content): Merge conflict in foo' }) // pull --rebase fails
-      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // rebase --abort
 
     const r = await runPush({
       configPath: join(dir, 'config.json'),
@@ -283,7 +282,14 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/conflict|resolve/i)
+    expect((r.error as { key: string }).key).toBe('push.error.conflict')
+    expect(r.kind).toBe('conflict')
+
+    // Ensure rebase --abort was NOT called — rebase must stay paused for the resolver UI
+    const abortCalled = vi.mocked(runCommandMock).mock.calls.some(
+      (args) => Array.isArray(args[1]) && args[1].includes('--abort'),
+    )
+    expect(abortCalled).toBe(false)
   })
 
   it('retries pull once on TLS error and succeeds', async () => {
@@ -337,7 +343,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/network|TLS|connection/i)
+    expect((r.error as { key: string }).key).toBe('push.error.network')
   })
 
   it('classifies auth failure distinctly', async () => {
@@ -360,7 +366,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/auth/i)
+    expect((r.error as { key: string }).key).toBe('push.error.auth')
   })
 
   it('strips secrets when includeSecrets=false', async () => {

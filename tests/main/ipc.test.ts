@@ -20,6 +20,7 @@ const ipcMainHandleMock = vi.hoisted(() => vi.fn((channel: string, handler: (...
   ipcHandlers.set(channel, handler)
 }))
 const appGetPathMock = vi.hoisted(() => vi.fn(() => '/tmp/userData'))
+const appGetLocaleMock = vi.hoisted(() => vi.fn(() => 'en-US'))
 
 vi.mock('../../src/main/runner', () => ({
   runCommand: runCommandMock,
@@ -48,9 +49,10 @@ vi.mock('node:fs', async () => {
 })
 vi.mock('electron', () => ({
   ipcMain: { handle: ipcMainHandleMock },
-  app: { getPath: appGetPathMock },
+  app: { getPath: appGetPathMock, getLocale: appGetLocaleMock },
   dialog: { showOpenDialog: vi.fn() },
   BrowserWindow: vi.fn(),
+  shell: { openExternal: vi.fn() },
 }))
 
 import { runSyncHandler, registerIpc } from '../../src/main/ipc'
@@ -98,29 +100,29 @@ describe('runSyncHandler', () => {
     readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: null, rulesTarget: '/target' })
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/repo url/i)
+    expect(r.error?.fallback).toMatch(/repo url/i)
   })
 
   it('fails when repoPath is missing', async () => {
     readConfigMock.mockReturnValue({ repoPath: null, repoUrl: 'https://github.com/org/repo', rulesTarget: '/target' })
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/local repo path/i)
+    expect(r.error?.fallback).toMatch(/local repo path/i)
   })
 
   it('fails when rulesTarget is missing', async () => {
     readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: 'https://github.com/org/repo', rulesTarget: null })
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/rules target/i)
+    expect(r.error?.fallback).toMatch(/rules target/i)
   })
 
   it('fails when URL validation fails', async () => {
     readConfigMock.mockReturnValue(fullConfig)
-    validateRepoUrlMock.mockReturnValue({ ok: false, error: 'Invalid URL format' })
+    validateRepoUrlMock.mockReturnValue({ ok: false, error: { key: 'config.error.urlInvalid', fallback: 'Invalid URL format' } })
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error).toBe('Invalid URL format')
+    expect(r.error).toEqual({ key: 'config.error.urlInvalid', fallback: 'Invalid URL format' })
   })
 
   it('fresh clone: no .git → runs git clone then install.sh on linux', async () => {
@@ -170,7 +172,7 @@ describe('runSyncHandler', () => {
 
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/install\.sh not found/i)
+    expect(r.error?.fallback).toMatch(/install\.sh not found/i)
   })
 
   it('windows: uses powershell and install.ps1', async () => {
@@ -280,7 +282,7 @@ describe('registerIpc plugin handlers', () => {
       readConfigMock.mockReturnValue({ repoPath: null, repoUrl: null, rulesTarget: null })
       const handler = getHandler('apply-plugin-changes')
       const result = handler({}, { enable: [], disable: [], envValues: {} })
-      expect(result).toEqual({ ok: false, error: 'Rules target not configured' })
+      expect(result).toEqual({ ok: false, error: { key: 'config.error.targetRequired' } })
       expect(applyChangesMock).not.toHaveBeenCalled()
     })
 
@@ -314,5 +316,30 @@ describe('registerIpc plugin handlers', () => {
       handler({})
       expect(validateClaudeTargetMock).toHaveBeenCalledWith(null)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// registerIpc — get-system-locale handler
+// ---------------------------------------------------------------------------
+describe('registerIpc get-system-locale', () => {
+  beforeEach(() => {
+    appGetLocaleMock.mockReset()
+  })
+
+  it('returns locale from app.getLocale() — ru-RU', () => {
+    appGetLocaleMock.mockReturnValue('ru-RU')
+    const handler = getHandler('get-system-locale')
+    const result = handler()
+    expect(appGetLocaleMock).toHaveBeenCalled()
+    expect(result).toBe('ru-RU')
+  })
+
+  it('returns locale from app.getLocale() — en-US (non-tautology check)', () => {
+    appGetLocaleMock.mockReturnValue('en-US')
+    const handler = getHandler('get-system-locale')
+    const result = handler()
+    expect(appGetLocaleMock).toHaveBeenCalled()
+    expect(result).toBe('en-US')
   })
 })

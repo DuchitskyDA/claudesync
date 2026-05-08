@@ -1,7 +1,7 @@
 import { useEffect, useReducer } from 'react'
-import type { GitHubAuthState, LogLine, RunResult, StepName, StepStatus } from '@shared/api'
+import type { GitHubAuthState, LocalizedMessage, LogLine, RunResult, StepName, StepStatus } from '@shared/api'
 
-type Steps = Record<StepName, { status: StepStatus; message?: string }>
+type Steps = Record<StepName, { status: StepStatus; message?: LocalizedMessage }>
 
 export type AppState = {
   repoPath: string | null
@@ -13,6 +13,7 @@ export type AppState = {
   settingsOpen: boolean
   steps: Steps
   authState: GitHubAuthState | null
+  conflictInProgress: boolean
 }
 
 type Action =
@@ -24,8 +25,9 @@ type Action =
   | { type: 'clear-log' }
   | { type: 'open-settings' }
   | { type: 'close-settings' }
-  | { type: 'set-step'; step: StepName; status: StepStatus; message?: string }
+  | { type: 'set-step'; step: StepName; status: StepStatus; message?: LocalizedMessage }
   | { type: 'set-auth'; auth: GitHubAuthState }
+  | { type: 'set-conflict'; inProgress: boolean }
 
 const initialSteps: Steps = {
   fetch: { status: 'idle' },
@@ -46,6 +48,7 @@ const initial: AppState = {
   settingsOpen: false,
   steps: initialSteps,
   authState: null,
+  conflictInProgress: false,
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -70,6 +73,8 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, steps: { ...s.steps, [a.step]: { status: a.status, message: a.message } } }
     case 'set-auth':
       return { ...s, authState: a.auth }
+    case 'set-conflict':
+      return { ...s, conflictInProgress: a.inProgress }
   }
 }
 
@@ -85,6 +90,9 @@ export function useAppState() {
   useEffect(() => {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
     void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
+    void window.api.conflictGetState().then((s) => {
+      dispatch({ type: 'set-conflict', inProgress: s.inProgress })
+    })
     void window.api.getConfig().then((c) => {
       dispatch({
         type: 'set-config',
@@ -118,9 +126,10 @@ export function useAppState() {
     try {
       const r = await window.api.runSync()
       if (!r.ok && r.error) {
+        const errText = r.error.fallback ?? r.error.key
         dispatch({
           type: 'append-log',
-          line: { time: now(), text: r.error, level: 'error' },
+          line: { time: now(), text: errText, level: 'error' },
         })
       }
       return r
@@ -133,10 +142,14 @@ export function useAppState() {
     dispatch({ type: 'run-start' })
     try {
       const r = await window.api.runPush({ commitMessage, includeSecrets })
+      if (r.kind === 'conflict') {
+        dispatch({ type: 'set-conflict', inProgress: true })
+      }
       if (!r.ok && r.error) {
+        const errText = r.error.fallback ?? r.error.key
         dispatch({
           type: 'append-log',
-          line: { time: now(), text: r.error, level: 'error' },
+          line: { time: now(), text: errText, level: 'error' },
         })
       }
       return r
@@ -155,6 +168,9 @@ export function useAppState() {
     await refreshAuth()
   }
 
+  const setConflictInProgress = (inProgress: boolean) =>
+    dispatch({ type: 'set-conflict', inProgress })
+
   return {
     state,
     syncNow,
@@ -166,5 +182,6 @@ export function useAppState() {
       dispatch({ type: 'set-config', ...c }),
     refreshAuth,
     signOut: handleSignOut,
+    setConflictInProgress,
   }
 }

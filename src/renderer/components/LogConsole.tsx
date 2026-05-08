@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import type { LogLine } from '@shared/api'
+import { useT } from '../i18n'
 
 type Props = {
   lines: LogLine[]
@@ -14,6 +15,7 @@ const colorFor = (lvl: LogLine['level']): string =>
       : 'text-neutral-700 dark:text-neutral-300'
 
 export function LogConsole({ lines, onClear }: Props) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
@@ -25,9 +27,9 @@ export function LogConsole({ lines, onClear }: Props) {
         <span>Log</span>
         <button
           onClick={onClear}
-          className="rounded px-2 py-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+          className="rounded-md px-2 py-0.5 transition hover:bg-neutral-200 dark:hover:bg-neutral-700"
         >
-          Clear
+          {t('log.clear')}
         </button>
       </div>
       <div
@@ -35,7 +37,7 @@ export function LogConsole({ lines, onClear }: Props) {
         className="flex-1 overflow-auto bg-neutral-100 p-2 font-mono text-xs leading-relaxed dark:bg-neutral-900"
       >
         {lines.length === 0 ? (
-          <div className="text-neutral-400">No output yet.</div>
+          <div className="text-neutral-400">{t('log.empty')}</div>
         ) : (
           lines.map((l, i) => (
             <div key={i} className={colorFor(l.level)}>

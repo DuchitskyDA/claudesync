@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import type { GitHubOwner } from '@shared/api'
+import { useT } from '../../i18n'
 
 export type RepoSettings = {
   owner: string
@@ -17,6 +18,7 @@ type Props = {
 const NAME_RE = /^[a-zA-Z0-9._-]+$/
 
 export function RepoSettingsStep({ initial, onBack, onContinue }: Props) {
+  const t = useT()
   const [owner, setOwner] = useState(initial?.owner ?? '')
   const [name, setName] = useState(initial?.name ?? 'claudesync-config')
   const [isPrivate, setIsPrivate] = useState(initial?.isPrivate ?? true)
@@ -41,28 +43,34 @@ export function RepoSettingsStep({ initial, onBack, onContinue }: Props) {
 
   const valid = owner !== '' && NAME_RE.test(name)
 
-  if (loading) return <div className="p-4 text-sm text-neutral-500">Loading owners…</div>
+  if (loading) return <div className="p-4 text-sm text-neutral-500">{t('init.repoSettings.loadingOwners')}</div>
   if (error) return <div className="p-4 text-sm text-red-500">{error}</div>
 
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-1 block text-xs text-neutral-500">Repo name</label>
+        <label className="mb-1 block text-xs text-neutral-500">{t('init.repoSettings.name')}</label>
         <input
           type="text"
           value={name}
+          placeholder={t('init.repoSettings.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
           className="w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
         />
-        {!NAME_RE.test(name) && (
+        {name !== '' && !NAME_RE.test(name) && (
           <div className="mt-1 text-xs text-red-500">
-            Only letters, digits, dot, dash, underscore
+            {t('init.repoSettings.error.nameInvalid')}
+          </div>
+        )}
+        {name === '' && (
+          <div className="mt-1 text-xs text-red-500">
+            {t('init.repoSettings.error.nameRequired')}
           </div>
         )}
       </div>
 
       <div>
-        <label className="mb-1 block text-xs text-neutral-500">Owner</label>
+        <label className="mb-1 block text-xs text-neutral-500">{t('init.repoSettings.owner')}</label>
         <select
           value={owner}
           onChange={(e) => setOwner(e.target.value)}
@@ -77,22 +85,23 @@ export function RepoSettingsStep({ initial, onBack, onContinue }: Props) {
       </div>
 
       <div>
-        <label className="mb-1 block text-xs text-neutral-500">Visibility</label>
+        <label className="mb-1 block text-xs text-neutral-500">{t('init.repoSettings.visibility')}</label>
         <div className="flex gap-4 text-sm">
           <label>
-            <input type="radio" checked={!isPrivate} onChange={() => setIsPrivate(false)} /> Public
+            <input type="radio" checked={!isPrivate} onChange={() => setIsPrivate(false)} /> {t('init.repoSettings.public')}
           </label>
           <label>
-            <input type="radio" checked={isPrivate} onChange={() => setIsPrivate(true)} /> Private
+            <input type="radio" checked={isPrivate} onChange={() => setIsPrivate(true)} /> {t('init.repoSettings.private')}
           </label>
         </div>
       </div>
 
       <div>
-        <label className="mb-1 block text-xs text-neutral-500">Description (optional)</label>
+        <label className="mb-1 block text-xs text-neutral-500">{t('init.repoSettings.description')}</label>
         <input
           type="text"
           value={description}
+          placeholder={t('init.repoSettings.descriptionPlaceholder')}
           onChange={(e) => setDescription(e.target.value)}
           className="w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
         />
@@ -103,14 +112,14 @@ export function RepoSettingsStep({ initial, onBack, onContinue }: Props) {
           onClick={onBack}
           className="rounded px-3 py-1 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
         >
-          Back
+          {t('init.nav.back')}
         </button>
         <button
           disabled={!valid}
           onClick={() => onContinue({ owner, name, isPrivate, description })}
           className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:bg-neutral-400"
         >
-          Continue
+          {t('init.nav.next')}
         </button>
       </div>
     </div>

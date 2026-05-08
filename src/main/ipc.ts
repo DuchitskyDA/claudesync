@@ -12,6 +12,7 @@ import type {
   PushStepEvent,
   PushOptions,
   InitWizardOptions,
+  LocalizedMessage,
 } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import {
@@ -37,6 +38,16 @@ import {
 import { listOwners } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
+import {
+  getConflictState,
+  getStageContent,
+  resolveFile,
+  continueRebase,
+  abortRebase,
+  STAGE_BASE,
+  STAGE_REMOTE,
+  STAGE_MINE,
+} from './conflict'
 import { loadToken } from './safe-storage'
 
 const LOG_LIMIT = 200
@@ -54,7 +65,7 @@ function nowHHMMSS(): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-function fail(error: string): RunResult {
+function fail(error: LocalizedMessage): RunResult {
   return { ok: false, exitCode: -1, error }
 }
 
@@ -65,9 +76,9 @@ function failWithExit(prefix: string, exitCode: number, emit: (l: LogLine) => vo
 
 export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
   const cfg = readConfig(deps.configPath)
-  if (!cfg.repoUrl) return fail('Repo URL not configured. Open Settings.')
-  if (!cfg.repoPath) return fail('Local repo path not configured. Open Settings.')
-  if (!cfg.rulesTarget) return fail('Rules target folder not configured. Open Settings.')
+  if (!cfg.repoUrl) return fail({ key: 'config.error.urlRequired', fallback: 'Repo URL not configured. Open Settings.' })
+  if (!cfg.repoPath) return fail({ key: 'config.error.localRepoRequired', fallback: 'Local repo path not configured. Open Settings.' })
+  if (!cfg.rulesTarget) return fail({ key: 'config.error.targetRequired', fallback: 'Rules target folder not configured. Open Settings.' })
 
   const u = validateRepoUrl(cfg.repoUrl)
   if (!u.ok) return fail(u.error)
@@ -92,14 +103,14 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
         onLine: deps.emit,
       })
       if (clone.exitCode !== 0) {
-        deps.emitStep({ step: 'fetch', status: 'failed', message: `git clone failed (exit ${clone.exitCode})` })
+        deps.emitStep({ step: 'fetch', status: 'failed', message: { key: 'sync.error.cloneFailed', params: { exitCode: clone.exitCode }, fallback: `git clone failed (exit ${clone.exitCode})` } })
         return failWithExit('git clone failed', clone.exitCode, deps.emit)
       }
     } else {
       deps.emit({ time: nowHHMMSS(), text: '$ git pull', level: 'info' })
       const pull = await runCommand('git', ['pull'], { cwd: repoPath, onLine: deps.emit })
       if (pull.exitCode !== 0) {
-        deps.emitStep({ step: 'fetch', status: 'failed', message: `git pull failed (exit ${pull.exitCode})` })
+        deps.emitStep({ step: 'fetch', status: 'failed', message: { key: 'sync.error.pullFailed', params: { exitCode: pull.exitCode }, fallback: `git pull failed (exit ${pull.exitCode})` } })
         return failWithExit('git pull failed', pull.exitCode, deps.emit)
       }
     }
@@ -108,7 +119,7 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
     const scriptName = isWin ? 'install.ps1' : 'install.sh'
     const scriptPath = join(repoPath, scriptName)
     if (!existsSync(scriptPath)) {
-      return fail(`${scriptName} not found in repo root`)
+      return fail({ key: 'sync.error.scriptNotFound', params: { scriptName }, fallback: `${scriptName} not found in repo root` })
     }
 
     deps.emit({
@@ -128,13 +139,13 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
       : await runCommand('bash', [scriptPath], { cwd: repoPath, env, onLine: deps.emit })
 
     if (inst.exitCode !== 0) {
-      deps.emitStep({ step: 'install', status: 'failed', message: `install failed (exit ${inst.exitCode})` })
+      deps.emitStep({ step: 'install', status: 'failed', message: { key: 'sync.error.installFailed', params: { exitCode: inst.exitCode }, fallback: `install failed (exit ${inst.exitCode})` } })
       return failWithExit('install failed', inst.exitCode, deps.emit)
     }
     deps.emitStep({ step: 'install', status: 'done' })
     deps.emit({ time: nowHHMMSS(), text: '✓ DONE (exit 0)', level: 'success' })
     return { ok: true, exitCode: 0 }
-  }).catch((e: Error) => ({ ok: false, exitCode: -1, error: e.message }))
+  }).catch((e: Error) => ({ ok: false, exitCode: -1, error: { key: 'sync.error.unexpected', fallback: e.message } as LocalizedMessage }))
 }
 
 export function registerIpc(window: BrowserWindow): void {
@@ -170,6 +181,7 @@ export function registerIpc(window: BrowserWindow): void {
       repoPath: cfg.repoPath ? expandTilde(cfg.repoPath) : null,
       rulesTarget: cfg.rulesTarget ? expandTilde(cfg.rulesTarget) : null,
       includeSecretsInPush: cfg.includeSecretsInPush ?? false,
+      locale: cfg.locale ?? null,
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)
@@ -194,6 +206,7 @@ export function registerIpc(window: BrowserWindow): void {
   })
 
   ipcMain.handle('get-platform', (): NodeJS.Platform => process.platform)
+  ipcMain.handle('get-system-locale', () => app.getLocale())
 
   ipcMain.handle('open-external', (_e, url: string) => {
     return shell.openExternal(url)
@@ -209,9 +222,13 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('apply-plugin-changes', (_e, changes: ApplyPluginChanges) => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { ok: false, error: 'Rules target not configured' }
+    if (!cfg.rulesTarget) return { ok: false, error: { key: 'config.error.targetRequired' } as LocalizedMessage }
     const settingsPath = settingsPathFor(cfg.rulesTarget)
-    return applyChanges(settingsPath, changes)
+    try {
+      return applyChanges(settingsPath, changes)
+    } catch (e) {
+      return { ok: false, error: { key: 'plugins.error.applyFailed', params: { reason: (e as Error).message }, fallback: (e as Error).message } as LocalizedMessage }
+    }
   })
 
   ipcMain.handle('validate-claude-target', () => {
@@ -256,7 +273,7 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('init-repo', async (_e, opts: InitWizardOptions) => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { ok: false, exitCode: -1, error: 'Rules target not set' }
+    if (!cfg.rulesTarget) return { ok: false, exitCode: -1, error: { key: 'config.error.targetRequired', fallback: 'Rules target not set' } }
     const result = await initRepo({
       ownerLogin: opts.owner,
       name: opts.name,
@@ -295,5 +312,51 @@ export function registerIpc(window: BrowserWindow): void {
       emit,
       emitStep: emitPushStep,
     })
+  })
+
+  // Conflict resolution
+  ipcMain.handle('conflict-get-state', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return { inProgress: false, files: [] }
+    return getConflictState(cfg.repoPath)
+  })
+
+  ipcMain.handle('conflict-get-file', (_e, path: string, side: 'base' | 'remote' | 'mine') => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return { text: null, binary: false }
+    const stage =
+      side === 'base' ? STAGE_BASE : side === 'remote' ? STAGE_REMOTE : STAGE_MINE
+    return getStageContent(cfg.repoPath, path, stage)
+  })
+
+  ipcMain.handle(
+    'conflict-resolve-file',
+    (_e, path: string, choice: 'mine' | 'remote' | 'manual') => {
+      const cfg = readConfig(configPath)
+      if (!cfg.repoPath) {
+        return { ok: false, error: { key: 'push.error.notConfigured' } }
+      }
+      return resolveFile(cfg.repoPath, path, choice)
+    },
+  )
+
+  ipcMain.handle('conflict-open-in-editor', async (_e, path: string) => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return
+    await shell.openPath(join(cfg.repoPath, path))
+  })
+
+  ipcMain.handle('conflict-continue', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) {
+      return { ok: false, exitCode: -1, error: { key: 'push.error.notConfigured' } }
+    }
+    return continueRebase(cfg.repoPath)
+  })
+
+  ipcMain.handle('conflict-abort', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return
+    abortRebase(cfg.repoPath)
   })
 }

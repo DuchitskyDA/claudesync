@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync, statSync, readdirS
 import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
-import type { AppConfig } from '@shared/api'
+import type { AppConfig, LocalizedMessage } from '@shared/api'
 
 /** Default rules target (~/.claude). Returns expanded path if dir exists; null otherwise. */
 export function detectClaudeTarget(): string | null {
@@ -33,16 +33,19 @@ export function readConfig(filePath: string): AppConfig {
     repoUrl: null,
     rulesTarget: null,
     includeSecretsInPush: false,
+    locale: null,
   }
   if (!existsSync(filePath)) return fallback
   try {
     const raw = readFileSync(filePath, 'utf8')
     const parsed = JSON.parse(raw) as Partial<AppConfig>
+    const locale = parsed.locale === 'en' || parsed.locale === 'ru' ? parsed.locale : null
     return {
       repoPath: typeof parsed.repoPath === 'string' ? parsed.repoPath : null,
       repoUrl: typeof parsed.repoUrl === 'string' ? parsed.repoUrl : null,
       rulesTarget: typeof parsed.rulesTarget === 'string' ? parsed.rulesTarget : null,
       includeSecretsInPush: parsed.includeSecretsInPush === true,
+      locale,
     }
   } catch {
     return fallback
@@ -55,34 +58,34 @@ export function writeConfig(filePath: string, cfg: AppConfig): void {
   renameSync(tmp, filePath)
 }
 
-export type ValidationResult = { ok: true } | { ok: false; error: string }
+export type ValidationResult = { ok: true } | { ok: false; error: LocalizedMessage }
 
 export function validateLocalRepo(p: string): ValidationResult {
-  if (!p) return { ok: false, error: 'Local repo path is required' }
+  if (!p) return { ok: false, error: { key: 'config.error.localRepoRequired' } }
   const expanded = expandTilde(p)
-  if (!isAbsolute(expanded)) return { ok: false, error: 'Local repo path must be absolute' }
+  if (!isAbsolute(expanded)) return { ok: false, error: { key: 'config.error.localRepoAbsolute' } }
   if (!existsSync(expanded)) return { ok: true } // will be created by clone
   let st
-  try { st = statSync(expanded) } catch (e) { return { ok: false, error: `Cannot stat: ${(e as Error).message}` } }
-  if (!st.isDirectory()) return { ok: false, error: 'Local repo path must be a directory' }
+  try { st = statSync(expanded) } catch (e) { return { ok: false, error: { key: 'config.error.localRepoStat', params: { reason: (e as Error).message }, fallback: (e as Error).message } } }
+  if (!st.isDirectory()) return { ok: false, error: { key: 'config.error.localRepoNotDir' } }
   // Existing dir: must be empty OR be a git repo (have .git inside)
   const entries = readdirSync(expanded)
   if (entries.length === 0) return { ok: true }
   if (entries.includes('.git')) return { ok: true }
-  return { ok: false, error: 'Folder is not empty and not a git repo — pick a fresh path or an existing clone' }
+  return { ok: false, error: { key: 'config.error.localRepoNotEmpty' } }
 }
 
 const URL_RE = /^(https?:\/\/|git@)[\w\-.@:/~]+/i
 
 export function validateRepoUrl(u: string): ValidationResult {
-  if (!u) return { ok: false, error: 'Repo URL is required' }
-  if (!URL_RE.test(u)) return { ok: false, error: 'Invalid URL format (expected https:// or git@)' }
+  if (!u) return { ok: false, error: { key: 'config.error.urlRequired' } }
+  if (!URL_RE.test(u)) return { ok: false, error: { key: 'config.error.urlInvalid' } }
   return { ok: true }
 }
 
 export function validateRulesTarget(p: string): ValidationResult {
-  if (!p) return { ok: false, error: 'Rules target folder is required' }
+  if (!p) return { ok: false, error: { key: 'config.error.targetRequired' } }
   const expanded = expandTilde(p)
-  if (!isAbsolute(expanded)) return { ok: false, error: 'Rules target folder must be absolute' }
+  if (!isAbsolute(expanded)) return { ok: false, error: { key: 'config.error.targetAbsolute' } }
   return { ok: true }
 }

@@ -1,18 +1,31 @@
 export type LogLevel = 'info' | 'error' | 'success'
 export type LogLine = { time: string; text: string; level: LogLevel }
 export type Platform = 'macos' | 'windows'
-export type RunResult = { ok: boolean; exitCode: number; error?: string }
+export type RunResult = {
+  ok: boolean
+  exitCode: number
+  error?: LocalizedMessage
+  kind?: 'conflict'
+}
+
+export type LocalizedMessage = {
+  key: string
+  params?: Record<string, string | number>
+  /** Optional english fallback used when key missing OR for raw external text (git stderr tail) */
+  fallback?: string
+}
 export type AppConfig = {
   repoPath: string | null
   repoUrl: string | null
   rulesTarget: string | null
   includeSecretsInPush: boolean
+  locale: 'en' | 'ru' | null
 }
-export type SetConfigResult = { ok: boolean; error?: string }
+export type SetConfigResult = { ok: boolean; error?: LocalizedMessage }
 
 export type StepName = 'fetch' | 'install' | 'export' | 'pull' | 'commit' | 'push'
 export type StepStatus = 'idle' | 'running' | 'done' | 'failed'
-export type StepEvent = { step: StepName; status: StepStatus; message?: string }
+export type StepEvent = { step: StepName; status: StepStatus; message?: LocalizedMessage }
 
 export interface AppApi {
   runSync(): Promise<RunResult>
@@ -21,11 +34,12 @@ export interface AppApi {
   pickRepoPath(): Promise<string | null>
   onLog(callback: (line: LogLine) => void): () => void
   getPlatform(): Promise<NodeJS.Platform>
+  getSystemLocale(): Promise<string>
   openExternal(url: string): Promise<void>
   onStep(callback: (e: StepEvent) => void): () => void
   getPluginCatalog(force?: boolean): Promise<PluginCatalog>
   getInstalledPlugins(): Promise<InstalledPluginsState>
-  applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: string }>
+  applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }>
   validateClaudeTarget(): Promise<ClaudeTargetCheck>
   detectRulesTarget(): Promise<string | null>
   suggestRulesTarget(): Promise<string>
@@ -50,6 +64,14 @@ export interface AppApi {
   getRepoStatus(): Promise<RepoStatus>
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
+
+  // v0.5 — Conflict resolver
+  conflictGetState(): Promise<ConflictState>
+  conflictGetFile(path: string, side: ConflictSide): Promise<ConflictFileContent>
+  conflictResolveFile(path: string, choice: ConflictResolveChoice): Promise<ConflictResolveResult>
+  conflictOpenInEditor(path: string): Promise<void>
+  conflictContinue(): Promise<RunResult>
+  conflictAbort(): Promise<void>
 }
 
 declare global {
@@ -130,7 +152,7 @@ export type DeviceFlowChallenge = {
 
 export type DeviceFlowResult =
   | { ok: true }
-  | { ok: false; error: string }
+  | { ok: false; error: LocalizedMessage }
 
 export type GitHubOwner = { login: string; type: 'User' | 'Organization' }
 
@@ -149,10 +171,10 @@ export type PushOptions = {
 }
 
 export type PushStep = 'export' | 'pull' | 'commit' | 'push'
-export type PushStepEvent = { step: PushStep; status: StepStatus; message?: string }
+export type PushStepEvent = { step: PushStep; status: StepStatus; message?: LocalizedMessage }
 
 export type InitStep = 'create-repo' | 'clone' | 'generate' | 'commit' | 'push'
-export type InitStepEvent = { step: InitStep; status: StepStatus; message?: string }
+export type InitStepEvent = { step: InitStep; status: StepStatus; message?: LocalizedMessage }
 
 export type ScanResult = {
   files: string[]
@@ -164,3 +186,28 @@ export type RepoStatus = {
   changedFiles: string[]
   clean: boolean
 }
+
+export type ConflictFileStatus =
+  | 'unresolved'
+  | 'resolved-mine'
+  | 'resolved-remote'
+  | 'resolved-manual'
+
+export type ConflictFile = {
+  path: string
+  status: ConflictFileStatus
+  binary: boolean
+}
+
+export type ConflictState = {
+  inProgress: boolean
+  files: ConflictFile[]
+}
+
+export type ConflictSide = 'base' | 'remote' | 'mine'
+
+export type ConflictResolveChoice = 'mine' | 'remote' | 'manual'
+
+export type ConflictResolveResult = { ok: true } | { ok: false; error: LocalizedMessage }
+
+export type ConflictFileContent = { text: string | null; binary: boolean }

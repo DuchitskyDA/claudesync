@@ -11,7 +11,7 @@ import {
 import { join, sep, posix, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
-import type { LogLine, RunResult, StepStatus, InitStep } from '@shared/api'
+import type { LogLine, RunResult, StepStatus, InitStep, LocalizedMessage } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import { createRepo as ghCreateRepo } from './github-api'
 import { loadToken } from './safe-storage'
@@ -271,18 +271,22 @@ export type InitRepoOpts = {
   userDataDir: string
   tplDir: string
   emit: (line: LogLine) => void
-  emitStep: (e: { step: InitStep; status: StepStatus; message?: string }) => void
+  emitStep: (e: { step: InitStep; status: StepStatus; message?: LocalizedMessage }) => void
 }
 
 export type InitRepoResult = RunResult & { repoUrl?: string; repoPath?: string }
 
-function fail(error: string): InitRepoResult {
+function fail(error: LocalizedMessage): InitRepoResult {
   return { ok: false, exitCode: -1, error }
+}
+
+function failWithCode(code: number, error: LocalizedMessage): InitRepoResult {
+  return { ok: false, exitCode: code, error }
 }
 
 export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
   const token = loadToken(opts.userDataDir)
-  if (!token) return fail('Not signed in to GitHub. Sign in first.')
+  if (!token) return fail({ key: 'init.error.notSignedIn' })
 
   return withRunLock(async () => {
     // Step 1: create repo via API
@@ -300,8 +304,8 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
       opts.emitStep({ step: 'create-repo', status: 'done' })
     } catch (e) {
       const msg = (e as Error).message
-      opts.emitStep({ step: 'create-repo', status: 'failed', message: msg })
-      return fail(msg)
+      opts.emitStep({ step: 'create-repo', status: 'failed', message: { key: 'init.error.createRepoFailed', params: { reason: msg }, fallback: msg } })
+      return fail({ key: 'init.error.createRepoFailed', params: { reason: msg }, fallback: msg })
     }
 
     // Step 2: clone empty repo
@@ -318,7 +322,7 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
     )
     if (cloneResult.exitCode !== 0) {
       opts.emitStep({ step: 'clone', status: 'failed' })
-      return fail(`git clone failed (exit ${cloneResult.exitCode})`)
+      return failWithCode(cloneResult.exitCode, { key: 'init.error.cloneFailed', params: { code: cloneResult.exitCode } })
     }
     opts.emitStep({ step: 'clone', status: 'done' })
 
@@ -328,8 +332,9 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
       generateGlobalStructure(opts.rulesTarget, localPath)
       dropTemplatesFrom(opts.tplDir, localPath, { name: opts.name, owner: opts.ownerLogin })
     } catch (e) {
-      opts.emitStep({ step: 'generate', status: 'failed', message: (e as Error).message })
-      return fail((e as Error).message)
+      const msg = (e as Error).message
+      opts.emitStep({ step: 'generate', status: 'failed', message: { key: 'init.error.generic', params: { reason: msg }, fallback: msg } })
+      return fail({ key: 'init.error.generic', params: { reason: msg }, fallback: msg })
     }
     opts.emitStep({ step: 'generate', status: 'done' })
 
@@ -341,7 +346,7 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
     })
     if (addResult.exitCode !== 0) {
       opts.emitStep({ step: 'commit', status: 'failed' })
-      return fail('git add failed')
+      return fail({ key: 'init.error.commitFailed' })
     }
     const commitResult = await runCommand(
       'git',
@@ -360,7 +365,7 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
     )
     if (commitResult.exitCode !== 0) {
       opts.emitStep({ step: 'commit', status: 'failed' })
-      return fail('initial commit failed')
+      return fail({ key: 'init.error.commitFailed' })
     }
     opts.emitStep({ step: 'commit', status: 'done' })
 
@@ -373,10 +378,10 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
     )
     if (pushResult.exitCode !== 0) {
       opts.emitStep({ step: 'push', status: 'failed' })
-      return fail(`push failed (exit ${pushResult.exitCode})`)
+      return failWithCode(pushResult.exitCode, { key: 'init.error.pushFailed', params: { code: pushResult.exitCode } })
     }
     opts.emitStep({ step: 'push', status: 'done' })
 
     return { ok: true, exitCode: 0, repoUrl: cloneUrl, repoPath: localPath }
-  }).catch((e: Error) => fail(e.message))
+  }).catch((e: Error) => fail({ key: 'init.error.generic', params: { reason: e.message }, fallback: e.message }))
 }

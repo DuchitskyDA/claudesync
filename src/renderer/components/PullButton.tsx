@@ -1,4 +1,5 @@
 import React from 'react'
+import { useT } from '../i18n'
 
 type Props = {
   configComplete: boolean
@@ -7,11 +8,12 @@ type Props = {
 }
 
 export function PullButton({ configComplete, isRunning, onClick }: Props) {
+  const t = useT()
   const disabled = !configComplete || isRunning
   const reason = !configComplete
-    ? 'Pull requires Repo URL and Rules target in Settings'
+    ? t('pull.tooltip.notConfigured')
     : isRunning
-      ? 'Already running'
+      ? t('pull.tooltip.running')
       : ''
   return (
     <button
@@ -19,9 +21,9 @@ export function PullButton({ configComplete, isRunning, onClick }: Props) {
       onClick={onClick}
       disabled={disabled}
       title={reason}
-      className="rounded-md bg-blue-600 px-5 py-2 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 dark:disabled:bg-neutral-700"
+      className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none dark:disabled:bg-neutral-700"
     >
-      {isRunning ? 'Pulling…' : 'Pull & Install'}
+      {isRunning ? t('pull.button.running') : t('pull.button')}
     </button>
   )
 }
