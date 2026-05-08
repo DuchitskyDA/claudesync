@@ -88,6 +88,25 @@ describe('exportRulesToRepo', () => {
     expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'session.jsonl'))).toBe(false)
   })
 
+  it('skips .backup.<ts> artifacts in src and removes them from dst', () => {
+    mkdirSync(join(rulesTarget, 'commands'))
+    writeFileSync(join(rulesTarget, 'commands', 'a.md'), 'A')
+    writeFileSync(join(rulesTarget, 'commands', 'a.md.backup.20260506-105039'), 'OLD-A')
+    mkdirSync(join(rulesTarget, 'skills', 'foo.backup.20260508-152134'), { recursive: true })
+    writeFileSync(join(rulesTarget, 'skills', 'foo.backup.20260508-152134', 'SKILL.md'), 'JUNK')
+
+    // Pre-populate dst with a stale backup that we should also clean up
+    mkdirSync(join(repoPath, 'global', 'commands'), { recursive: true })
+    writeFileSync(join(repoPath, 'global', 'commands', 'b.md.backup.20260101-000000'), 'STALE')
+
+    exportRulesToRepo(rulesTarget, repoPath)
+
+    expect(readFileSync(join(repoPath, 'global', 'commands', 'a.md'), 'utf8')).toBe('A')
+    expect(existsSync(join(repoPath, 'global', 'commands', 'a.md.backup.20260506-105039'))).toBe(false)
+    expect(existsSync(join(repoPath, 'global', 'skills', 'foo.backup.20260508-152134'))).toBe(false)
+    expect(existsSync(join(repoPath, 'global', 'commands', 'b.md.backup.20260101-000000'))).toBe(false)
+  })
+
   it('removes orphan project memory entries when source no longer has them', () => {
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'memory'), { recursive: true })
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'memory', 'new.md'), 'NEW')
@@ -252,7 +271,7 @@ describe('runPush', () => {
     loadTokenMock.mockReturnValue('tok')
     runCommandMock
       .mockResolvedValueOnce({ exitCode: 0, stdout: ' M file', stderr: '' }) // status (dirty)
-      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'CONFLICT' }) // pull --rebase fails
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'CONFLICT (content): Merge conflict in foo' }) // pull --rebase fails
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // rebase --abort
 
     const r = await runPush({
@@ -265,6 +284,83 @@ describe('runPush', () => {
     })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/conflict|resolve/i)
+  })
+
+  it('retries pull once on TLS error and succeeds', async () => {
+    loadTokenMock.mockReturnValue('tok')
+    runCommandMock
+      .mockResolvedValueOnce({ exitCode: 0, stdout: ' M file', stderr: '' }) // status
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: '',
+        stderr: 'fatal: unable to access ...: TLS connect error: SSL routines::unexpected eof',
+      }) // pull #1 (TLS)
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // rebase --abort
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // pull #2 (retry OK)
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // add
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // commit
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // push
+
+    writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'updated')
+
+    const r = await runPush({
+      configPath: join(dir, 'config.json'),
+      userDataDir: dir,
+      includeSecrets: false,
+      commitMessage: 'msg',
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(true)
+  })
+
+  it('reports network error after retry also fails', async () => {
+    loadTokenMock.mockReturnValue('tok')
+    const tls = {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'fatal: unable to access ...: TLS connect error: SSL routines::unexpected eof',
+    }
+    runCommandMock
+      .mockResolvedValueOnce({ exitCode: 0, stdout: ' M file', stderr: '' }) // status
+      .mockResolvedValueOnce(tls) // pull #1
+      .mockResolvedValueOnce({ exitCode: 128, stdout: '', stderr: 'no rebase in progress' }) // abort #1
+      .mockResolvedValueOnce(tls) // pull #2 (retry fails too)
+      .mockResolvedValueOnce({ exitCode: 128, stdout: '', stderr: 'no rebase in progress' }) // abort #2
+
+    const r = await runPush({
+      configPath: join(dir, 'config.json'),
+      userDataDir: dir,
+      includeSecrets: false,
+      commitMessage: 'msg',
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/network|TLS|connection/i)
+  })
+
+  it('classifies auth failure distinctly', async () => {
+    loadTokenMock.mockReturnValue('tok')
+    runCommandMock
+      .mockResolvedValueOnce({ exitCode: 0, stdout: ' M file', stderr: '' })
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: '',
+        stderr: 'fatal: Authentication failed for https://github.com/me/r.git/',
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+
+    const r = await runPush({
+      configPath: join(dir, 'config.json'),
+      userDataDir: dir,
+      includeSecrets: false,
+      commitMessage: 'msg',
+      emit: () => {},
+      emitStep: () => {},
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/auth/i)
   })
 
   it('strips secrets when includeSecrets=false', async () => {
@@ -308,6 +404,35 @@ describe('runPush', () => {
 
     const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
     expect(out.env).toEqual({ K: 'v' })
+  })
+})
+
+describe('classifyPullError', () => {
+  it('detects TLS as network', async () => {
+    const { classifyPullError } = await import('../../src/main/push')
+    expect(classifyPullError('fatal: unable to access: TLS connect error')).toBe('network')
+    expect(classifyPullError('SSL routines::unexpected eof while reading')).toBe('network')
+    expect(classifyPullError('Could not resolve host: github.com')).toBe('network')
+    expect(classifyPullError('Connection reset by peer')).toBe('network')
+  })
+
+  it('detects auth failures', async () => {
+    const { classifyPullError } = await import('../../src/main/push')
+    expect(classifyPullError('fatal: Authentication failed')).toBe('auth')
+    expect(classifyPullError('remote: Bad credentials')).toBe('auth')
+    expect(classifyPullError('error: 403 Forbidden')).toBe('auth')
+  })
+
+  it('detects merge conflicts', async () => {
+    const { classifyPullError } = await import('../../src/main/push')
+    expect(classifyPullError('CONFLICT (content): Merge conflict in foo')).toBe('conflict')
+    expect(classifyPullError('Automatic merge failed')).toBe('conflict')
+  })
+
+  it('falls through to other for unknown', async () => {
+    const { classifyPullError } = await import('../../src/main/push')
+    expect(classifyPullError('some unknown error')).toBe('other')
+    expect(classifyPullError('')).toBe('other')
   })
 })
 

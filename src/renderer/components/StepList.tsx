@@ -22,6 +22,15 @@ const statusColor = (s: StepStatus): string =>
         ? 'text-emerald-500'
         : 'text-red-500'
 
+const messageLabels: Record<string, string> = {
+  network: 'Сеть/TLS — повторите попытку',
+  auth: 'GitHub отклонил токен — войдите заново',
+  conflict: 'Конфликт — разрешите вручную',
+  other: 'Ошибка',
+}
+
+const formatMessage = (m: string): string => messageLabels[m] ?? m
+
 type StepInfo = { status: StepStatus; message?: string }
 
 type Props = {
@@ -44,7 +53,7 @@ export function StepList({ steps }: Props) {
             <div className="flex-1">
               <div className="text-sm">{labels[s]}</div>
               {info.message && info.status === 'failed' && (
-                <div className="text-xs text-red-500">{info.message}</div>
+                <div className="text-xs text-red-500">{formatMessage(info.message)}</div>
               )}
             </div>
           </div>

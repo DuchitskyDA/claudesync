@@ -45,6 +45,17 @@ function isSamePath(src: string, dst: string): boolean {
   }
 }
 
+/**
+ * Names we never want to mirror into the repo:
+ * - `.backup.<timestamp>` artifacts left by install.ps1
+ * - common dev/cache junk (.DS_Store, Thumbs.db)
+ */
+const IGNORED_NAME = /\.backup\.\d|^\.DS_Store$|^Thumbs\.db$/i
+
+function isIgnored(name: string): boolean {
+  return IGNORED_NAME.test(name)
+}
+
 function syncFile(src: string, dst: string): void {
   if (!existsSync(src)) return
   if (isSamePath(src, dst)) return // already pointing at same file (junction/symlink)
@@ -60,16 +71,17 @@ function syncDirMirror(src: string, dst: string): void {
   // If src and dst resolve to the same dir (junction case) — content is already there, skip.
   if (isSamePath(src, dst)) return
 
-  // Remove dst entries that don't exist in src (mirror semantics)
+  // Remove dst entries that don't exist in src OR that are ignored garbage
   if (existsSync(dst)) {
     for (const entry of readdirSync(dst)) {
-      if (!existsSync(join(src, entry))) {
+      if (isIgnored(entry) || !existsSync(join(src, entry))) {
         rmSync(join(dst, entry), { recursive: true, force: true })
       }
     }
   }
   mkdirSync(dst, { recursive: true })
   for (const entry of readdirSync(src)) {
+    if (isIgnored(entry)) continue
     const s = join(src, entry)
     const d = join(dst, entry)
     if (isSamePath(s, d)) continue
@@ -124,12 +136,60 @@ export function stripSecretsInRepo(repoPath: string): void {
   }
 }
 
+/**
+ * GitHub git-over-HTTPS rejects `Authorization: Bearer <token>` with
+ * "remote: invalid credentials" even though the same token works for the REST API.
+ * Use HTTP Basic with x-access-token (the documented form for OAuth tokens).
+ */
 function authArgs(token: string): string[] {
-  return ['-c', `http.extraheader=Authorization: Bearer ${token}`]
+  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+  return ['-c', `http.extraheader=Authorization: Basic ${basic}`]
 }
 
 function failResult(error: string): RunResult {
   return { ok: false, exitCode: -1, error }
+}
+
+export type PullErrorKind = 'network' | 'auth' | 'conflict' | 'other'
+
+export function classifyPullError(stderr: string): PullErrorKind {
+  const s = stderr.toLowerCase()
+  if (
+    /tls|ssl|unexpected eof|could not resolve host|connection (reset|refused|timed out)|network is unreachable|operation timed out|proxy|the requested url returned error: 5\d\d/.test(
+      s,
+    )
+  ) {
+    return 'network'
+  }
+  if (
+    /authentication failed|401|403|invalid username or password|bad credentials|terminal prompts disabled/.test(
+      s,
+    )
+  ) {
+    return 'auth'
+  }
+  if (/conflict|merge|cannot pull with rebase|automatic merge failed|needs merge/.test(s)) {
+    return 'conflict'
+  }
+  return 'other'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function pullErrorMessage(kind: PullErrorKind, repoPath: string, stderr: string): string {
+  const tail = stderr.trim().split(/\r?\n/).filter(Boolean).slice(-2).join(' | ')
+  switch (kind) {
+    case 'network':
+      return `Network error talking to GitHub (TLS/connection). Check VPN/proxy and click Push to retry.${tail ? ` — ${tail}` : ''}`
+    case 'auth':
+      return `GitHub auth rejected. Sign out and sign in again, then retry.${tail ? ` — ${tail}` : ''}`
+    case 'conflict':
+      return `Merge conflict during rebase. Resolve manually in ${repoPath}, then click Push again.`
+    default:
+      return `git pull --rebase failed${tail ? `: ${tail}` : ''}. See log above.`
+  }
 }
 
 export type RunPushOpts = {
@@ -183,22 +243,40 @@ export async function runPush(opts: RunPushOpts): Promise<RunResult> {
       return { ok: true, exitCode: 0, error: 'Nothing to push — local config matches repo' }
     }
 
-    // 3. Pull-rebase
+    // 3. Pull-rebase (with one auto-retry on transient network errors)
     opts.emitStep({ step: 'pull', status: 'running' })
-    const rebase = await runCommand(
-      'git',
-      [...authArgs(token), '-C', repoPath, 'pull', '--rebase', '--autostash'],
-      { cwd: repoPath, onLine: opts.emit },
-    )
+    const pullArgs = [...authArgs(token), '-C', repoPath, 'pull', '--rebase', '--autostash']
+    let rebase = await runCommand('git', pullArgs, { cwd: repoPath, onLine: opts.emit })
     if (rebase.exitCode !== 0) {
+      const kind = classifyPullError(rebase.stderr)
+      // Make sure we never leave a half-applied rebase behind. Errors are silenced —
+      // "no rebase in progress" is expected when fetch failed before rebase started.
       await runCommand('git', ['-C', repoPath, 'rebase', '--abort'], {
         cwd: repoPath,
-        onLine: opts.emit,
+        onLine: () => {},
       }).catch(() => {})
-      opts.emitStep({ step: 'pull', status: 'failed', message: 'conflict' })
-      return failResult(
-        `Conflict during rebase. Resolve manually in ${repoPath}, then push again.`,
-      )
+
+      if (kind === 'network') {
+        opts.emit({
+          time: new Date().toTimeString().slice(0, 8),
+          text: 'Network glitch — retrying pull in 2s…',
+          level: 'info',
+        })
+        await delay(2000)
+        rebase = await runCommand('git', pullArgs, { cwd: repoPath, onLine: opts.emit })
+        if (rebase.exitCode !== 0) {
+          const kind2 = classifyPullError(rebase.stderr)
+          await runCommand('git', ['-C', repoPath, 'rebase', '--abort'], {
+            cwd: repoPath,
+            onLine: () => {},
+          }).catch(() => {})
+          opts.emitStep({ step: 'pull', status: 'failed', message: kind2 })
+          return failResult(pullErrorMessage(kind2, repoPath, rebase.stderr))
+        }
+      } else {
+        opts.emitStep({ step: 'pull', status: 'failed', message: kind })
+        return failResult(pullErrorMessage(kind, repoPath, rebase.stderr))
+      }
     }
     opts.emitStep({ step: 'pull', status: 'done' })
 

@@ -251,7 +251,9 @@ function defaultManagedRepoPath(url: string, userDataDir: string): string {
 }
 
 function authArgs(token: string): string[] {
-  return ['-c', `http.extraheader=Authorization: Bearer ${token}`]
+  // GitHub git-over-HTTPS requires Basic auth with x-access-token; Bearer is rejected.
+  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+  return ['-c', `http.extraheader=Authorization: Basic ${basic}`]
 }
 
 function nowHHMMSS(): string {
