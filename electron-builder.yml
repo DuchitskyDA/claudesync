@@ -5,6 +5,10 @@ directories:
 files:
   - 'out/**/*'
   - 'package.json'
+extraResources:
+  - from: src/main/templates
+    to: templates
+    filter: ['**/*']
 asar: true
 afterPack: scripts/afterPack.cjs
 mac:

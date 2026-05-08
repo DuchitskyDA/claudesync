@@ -1,0 +1,13 @@
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+**/.credentials.json
+**/history.jsonl
+**/sessions/
+**/cache/
+**/plugins/cache/
+**/plugins/data/
+**/projects/*/sessions/
+**/projects/*/*.jsonl
+**/settings.local.json

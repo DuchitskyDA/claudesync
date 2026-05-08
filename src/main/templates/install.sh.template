@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Разворачивает конфиги Claude Code через симлинки на файлы из этого репо.
+# Запускать из корня репо:  ./install.sh
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLAUDE_DIR="${RULES_TARGET:-$HOME/.claude}"
+
+echo "Repo:   $REPO_ROOT"
+echo "Target: $CLAUDE_DIR"
+echo
+
+mkdir -p "$CLAUDE_DIR/commands" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/projects"
+
+backup_if_real() {
+  local path="$1"
+  if [[ -e "$path" && ! -L "$path" ]]; then
+    local bak="${path}.backup.$(date +%Y%m%d-%H%M%S)"
+    echo "  backup: $path -> $bak"
+    mv "$path" "$bak"
+  elif [[ -L "$path" ]]; then
+    rm "$path"
+  fi
+}
+
+link() {
+  local src="$1"
+  local dst="$2"
+  backup_if_real "$dst"
+  ln -s "$src" "$dst"
+  echo "  link:   $dst -> $src"
+}
+
+echo "== global =="
+link "$REPO_ROOT/global/settings.json" "$CLAUDE_DIR/settings.json"
+link "$REPO_ROOT/global/CLAUDE.md"     "$CLAUDE_DIR/CLAUDE.md"
+
+for f in "$REPO_ROOT"/global/commands/*.md; do
+  [[ -f "$f" ]] || continue
+  link "$f" "$CLAUDE_DIR/commands/$(basename "$f")"
+done
+
+for d in "$REPO_ROOT"/global/skills/*/; do
+  [[ -d "$d" ]] || continue
+  link "${d%/}" "$CLAUDE_DIR/skills/$(basename "${d%/}")"
+done
+
+echo
+echo "== projects memory =="
+for d in "$REPO_ROOT"/global/projects/*/; do
+  [[ -d "$d" ]] || continue
+  name=$(basename "${d%/}")
+  target_dir="$CLAUDE_DIR/projects/$name"
+  mkdir -p "$target_dir"
+  backup_if_real "$target_dir/memory"
+  ln -s "${d%/}/memory" "$target_dir/memory"
+  echo "  link:   $target_dir/memory -> ${d%/}/memory"
+done
+
+echo
+echo "== projects (local) =="
+echo "Для каждого проекта в projects/<Name>/ симлинки в <PROJECT_DIR>/.claude/"
+echo "нужно ставить вручную — этот скрипт не знает путь к чужой репе."
+echo "Пример для ERP-Front:"
+echo "  ln -sfn $REPO_ROOT/projects/ERP-Front/CLAUDE.md /path/to/ERP-Front/.claude/CLAUDE.md"
+echo "settings.local.json в репо НЕ хранится — нарастает локально на каждой машине."
+
+echo
+echo "Done."

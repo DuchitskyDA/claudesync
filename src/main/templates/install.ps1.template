@@ -1,0 +1,93 @@
+﻿# Разворачивает конфиги Claude Code через симлинки/джанкшены на файлы из этого репо.
+# Запуск из корня репо:  powershell -ExecutionPolicy Bypass -File .\install.ps1
+#
+# Требования:
+#   - Для файловых симлинков: Developer Mode (Settings → For developers → Developer Mode)
+#     либо запуск от админа. Папки линкуются через Junction — прав не требуют.
+
+$ErrorActionPreference = 'Stop'
+
+$RepoRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ClaudeDir = if ($env:RULES_TARGET) { $env:RULES_TARGET } else { Join-Path $HOME '.claude' }
+
+Write-Host "Repo:   $RepoRoot"
+Write-Host "Target: $ClaudeDir"
+Write-Host ''
+
+New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir 'commands') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir 'skills')   | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir 'projects') | Out-Null
+
+function Backup-IfReal {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.LinkType) {
+        Remove-Item -LiteralPath $Path -Force -Recurse
+        return
+    }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $bak = "$Path.backup.$stamp"
+    Write-Host "  backup: $Path -> $bak"
+    Move-Item -LiteralPath $Path -Destination $bak
+}
+
+function Link-File {
+    param([string]$Src, [string]$Dst)
+    Backup-IfReal -Path $Dst
+    try {
+        New-Item -ItemType SymbolicLink -Path $Dst -Target $Src | Out-Null
+        Write-Host "  link:   $Dst -> $Src"
+    } catch {
+        Write-Warning "Не удалось создать SymbolicLink для $Dst. Включите Developer Mode или запустите от админа. Копирую файл."
+        Copy-Item -LiteralPath $Src -Destination $Dst -Force
+        Write-Host "  copy:   $Src -> $Dst"
+    }
+}
+
+function Link-Dir {
+    # Junction работает без прав админа и для большинства случаев эквивалентен симлинку.
+    param([string]$Src, [string]$Dst)
+    Backup-IfReal -Path $Dst
+    New-Item -ItemType Junction -Path $Dst -Target $Src | Out-Null
+    Write-Host "  junction: $Dst -> $Src"
+}
+
+Write-Host '== global =='
+Link-File -Src (Join-Path $RepoRoot 'global\settings.json') -Dst (Join-Path $ClaudeDir 'settings.json')
+Link-File -Src (Join-Path $RepoRoot 'global\CLAUDE.md')     -Dst (Join-Path $ClaudeDir 'CLAUDE.md')
+
+Get-ChildItem -Path (Join-Path $RepoRoot 'global\commands') -Filter '*.md' -File | ForEach-Object {
+    Link-File -Src $_.FullName -Dst (Join-Path $ClaudeDir "commands\$($_.Name)")
+}
+
+Get-ChildItem -Path (Join-Path $RepoRoot 'global\skills') -Directory | ForEach-Object {
+    Link-Dir -Src $_.FullName -Dst (Join-Path $ClaudeDir "skills\$($_.Name)")
+}
+
+Write-Host ''
+Write-Host '== projects memory =='
+Get-ChildItem -Path (Join-Path $RepoRoot 'global\projects') -Directory | ForEach-Object {
+    $name = $_.Name
+    $targetDir = Join-Path $ClaudeDir "projects\$name"
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    $memorySrc = Join-Path $_.FullName 'memory'
+    $memoryDst = Join-Path $targetDir 'memory'
+    if (Test-Path -LiteralPath $memorySrc) {
+        Link-Dir -Src $memorySrc -Dst $memoryDst
+    }
+}
+
+Write-Host ''
+Write-Host '== projects (local) =='
+Write-Host 'Для каждого проекта в projects/<Name>/ симлинки в <PROJECT_DIR>\.claude\'
+Write-Host 'нужно ставить вручную — пути к проектам на винде индивидуальные.'
+Write-Host 'Пример для ERP-Front (поменяй путь под себя):'
+Write-Host "  `$REPO = 'C:\Users\<you>\work\ERP-Front'"
+Write-Host "  `$AI   = '$RepoRoot'"
+Write-Host "  New-Item -ItemType Directory -Force -Path `"`$REPO\.claude`" | Out-Null"
+Write-Host "  New-Item -ItemType SymbolicLink -Force -Path `"`$REPO\.claude\CLAUDE.md`" -Target `"`$AI\projects\ERP-Front\CLAUDE.md`""
+Write-Host 'settings.local.json в репо НЕ хранится — нарастает локально на каждой машине.'
+
+Write-Host ''
+Write-Host 'Done.'

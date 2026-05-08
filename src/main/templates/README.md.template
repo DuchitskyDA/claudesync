@@ -1,0 +1,24 @@
+# {{name}}
+
+AI tool config repo, managed by [claudesync](https://github.com/DuchitskyDA/claudesync).
+
+## Install on a new machine
+
+1. Install [claudesync](https://github.com/DuchitskyDA/claudesync/releases)
+2. Open it and configure:
+   - Repo URL: `https://github.com/{{owner}}/{{name}}`
+   - Rules target: `~/.claude` (auto-detected)
+3. Click **Pull & Install**
+
+Or manually:
+
+```bash
+git clone https://github.com/{{owner}}/{{name}}.git ~/Documents/{{name}}
+cd ~/Documents/{{name}}
+RULES_TARGET=~/.claude ./install.sh    # macOS / Linux
+# Windows: powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+## License
+
+MIT

@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { scanLocalConfig, generateGlobalStructure } from '../../src/main/init-wizard'
+import { scanLocalConfig, generateGlobalStructure, dropTemplatesFrom } from '../../src/main/init-wizard'
 
 let dir: string
 let rulesTarget: string
@@ -143,5 +143,40 @@ describe('generateGlobalStructure', () => {
     expect(() => generateGlobalStructure(rulesTarget, repoPath)).not.toThrow()
     const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
     expect(out).toEqual({})
+  })
+})
+
+describe('dropTemplatesFrom', () => {
+  it('writes install.sh, install.ps1, README, LICENSE, .gitignore with substitutions', () => {
+    const tplDir = join(dir, 'templates-fake')
+    mkdirSync(tplDir, { recursive: true })
+    writeFileSync(join(tplDir, 'install.sh.template'), '#!/usr/bin/env bash\n# {{name}}\n')
+    writeFileSync(join(tplDir, 'install.ps1.template'), '# {{name}} on Windows')
+    writeFileSync(join(tplDir, 'README.md.template'), '# {{name}}\nby {{owner}}')
+    writeFileSync(join(tplDir, 'LICENSE.template'), 'MIT {{year}} {{owner}}')
+    writeFileSync(join(tplDir, 'gitignore.template'), 'node_modules\n')
+
+    dropTemplatesFrom(tplDir, repoPath, { name: 'my-repo', owner: 'dan' })
+
+    expect(readFileSync(join(repoPath, 'install.sh'), 'utf8')).toBe('#!/usr/bin/env bash\n# my-repo\n')
+    expect(readFileSync(join(repoPath, 'install.ps1'), 'utf8')).toBe('# my-repo on Windows')
+    expect(readFileSync(join(repoPath, 'README.md'), 'utf8')).toBe('# my-repo\nby dan')
+    expect(readFileSync(join(repoPath, 'LICENSE'), 'utf8')).toMatch(/MIT \d{4} dan/)
+    expect(readFileSync(join(repoPath, '.gitignore'), 'utf8')).toBe('node_modules\n')
+  })
+
+  it('skips missing template files without error', () => {
+    const tplDir = join(dir, 'empty')
+    mkdirSync(tplDir)
+    expect(() => dropTemplatesFrom(tplDir, repoPath, { name: 'x', owner: 'y' })).not.toThrow()
+  })
+
+  it('substitutes {{year}} with current year', () => {
+    const tplDir = join(dir, 'tpl')
+    mkdirSync(tplDir)
+    writeFileSync(join(tplDir, 'LICENSE.template'), 'year={{year}}')
+    dropTemplatesFrom(tplDir, repoPath, { name: 'r', owner: 'o' })
+    const out = readFileSync(join(repoPath, 'LICENSE'), 'utf8')
+    expect(out).toMatch(/^year=\d{4}$/)
   })
 })

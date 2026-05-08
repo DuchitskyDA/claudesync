@@ -6,8 +6,10 @@ import {
   readdirSync,
   statSync,
   cpSync,
+  chmodSync,
 } from 'node:fs'
-import { join, sep, posix } from 'node:path'
+import { join, sep, posix, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { ScanResult } from '@shared/api'
 
 const RUNTIME_TOP_DIRS = [
@@ -158,4 +160,78 @@ export function generateGlobalStructure(rulesTarget: string, repoPath: string): 
       copyDirIfExists(src, dst)
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Embedded templates
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _app: any = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('electron').app
+  } catch {
+    return undefined
+  }
+})()
+
+const _moduleDir = (() => {
+  try {
+    return dirname(fileURLToPath(import.meta.url))
+  } catch {
+    return ''
+  }
+})()
+
+export function templatesDir(): string {
+  if (_app && _app.isPackaged) {
+    return join(process.resourcesPath, 'templates')
+  }
+  return join(_moduleDir, '../../src/main/templates')
+}
+
+export type TemplateContext = {
+  name: string
+  owner: string
+}
+
+export function dropTemplatesFrom(
+  tplDir: string,
+  repoPath: string,
+  ctx: TemplateContext,
+): void {
+  const year = String(new Date().getFullYear())
+  const tplFiles: { src: string; dst: string }[] = [
+    { src: 'install.sh.template', dst: 'install.sh' },
+    { src: 'install.ps1.template', dst: 'install.ps1' },
+    { src: 'README.md.template', dst: 'README.md' },
+    { src: 'LICENSE.template', dst: 'LICENSE' },
+    { src: 'gitignore.template', dst: '.gitignore' },
+  ]
+
+  for (const t of tplFiles) {
+    const srcPath = join(tplDir, t.src)
+    if (!existsSync(srcPath)) continue
+    let content = readFileSync(srcPath, 'utf8')
+    content = content
+      .replace(/\{\{name\}\}/g, ctx.name)
+      .replace(/\{\{owner\}\}/g, ctx.owner)
+      .replace(/\{\{year\}\}/g, year)
+    writeFileSync(join(repoPath, t.dst), content, 'utf8')
+  }
+
+  // Make install.sh executable on Unix
+  const installSh = join(repoPath, 'install.sh')
+  if (existsSync(installSh)) {
+    try {
+      chmodSync(installSh, 0o755)
+    } catch {
+      // ignore on Windows where chmod is no-op
+    }
+  }
+}
+
+export function dropTemplates(repoPath: string, ctx: TemplateContext): void {
+  return dropTemplatesFrom(templatesDir(), repoPath, ctx)
 }
