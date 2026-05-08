@@ -10,6 +10,8 @@ type Props = {
 type State =
   | { phase: 'starting' }
   | { phase: 'waiting'; challenge: DeviceFlowChallenge }
+  | { phase: 'verifying' }
+  | { phase: 'success' }
   | { phase: 'error'; error: string }
 
 const MIN_POLL_INTERVAL_SEC = 3
@@ -21,6 +23,7 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
   const pollingRef = useRef(false)
   const intervalRef = useRef(MIN_POLL_INTERVAL_SEC)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastChallengeRef = useRef<DeviceFlowChallenge | null>(null)
 
   const cancelTimer = () => {
     if (timerRef.current) {
@@ -31,19 +34,28 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
 
   const doPoll = async (manual = false): Promise<void> => {
     if (!pollingRef.current) return
-    if (manual) setChecking(true)
+    if (manual) {
+      setChecking(true)
+      setState({ phase: 'verifying' })
+    }
     try {
       const result = await window.api.pollDeviceFlow()
       if (!pollingRef.current) return
       if (result.ok) {
         cancelTimer()
         pollingRef.current = false
-        onSuccess()
+        setState({ phase: 'success' })
+        // brief success flash then close
+        setTimeout(() => onSuccess(), 600)
         return
       }
       if (result.error === 'authorization_pending' || result.error === 'slow_down') {
         if (result.error === 'slow_down') intervalRef.current += 5
         cancelTimer()
+        // If we showed verifying state for a manual click — return to waiting view with the saved challenge
+        if (manual && lastChallengeRef.current) {
+          setState({ phase: 'waiting', challenge: lastChallengeRef.current })
+        }
         timerRef.current = setTimeout(() => void doPoll(false), intervalRef.current * 1000)
       } else {
         setState({ phase: 'error', error: `Authorization failed: ${result.error}` })
@@ -67,6 +79,7 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
       .then((challenge) => {
         if (!pollingRef.current) return
         intervalRef.current = Math.max(challenge.interval, MIN_POLL_INTERVAL_SEC)
+        lastChallengeRef.current = challenge
         setState({ phase: 'waiting', challenge })
         timerRef.current = setTimeout(() => void doPoll(false), intervalRef.current * 1000)
       })
@@ -101,7 +114,25 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
         <h2 className="mb-3 text-base font-semibold">Sign in to GitHub</h2>
 
         {state.phase === 'starting' && (
-          <div className="text-sm text-neutral-500">Requesting code…</div>
+          <div className="flex items-center gap-2 text-sm text-neutral-500">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-blue-500" />
+            Requesting code from GitHub…
+          </div>
+        )}
+
+        {state.phase === 'verifying' && (
+          <div className="flex flex-col items-center gap-3 py-6 text-sm text-neutral-600 dark:text-neutral-300">
+            <span className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-neutral-200 border-t-blue-500 dark:border-neutral-700" />
+            <div>Verifying with GitHub…</div>
+            <div className="text-xs text-neutral-500">This usually takes 2-4 seconds</div>
+          </div>
+        )}
+
+        {state.phase === 'success' && (
+          <div className="flex flex-col items-center gap-2 py-6 text-emerald-500">
+            <span className="text-3xl">✓</span>
+            <div className="text-sm font-medium">Signed in</div>
+          </div>
         )}
 
         {state.phase === 'waiting' && (
