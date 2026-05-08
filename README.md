@@ -57,10 +57,36 @@ chmod +x claudesync-*.AppImage
 3. **Repo URL** is optional — only needed if you want Sync (clone+install your config repo). For plugin-only usage you can leave it empty.
 4. Click **Save**.
 
-### To sync a config repo
-- Fill **Repo URL** (HTTPS or SSH).
-- Local repo path is auto-managed (hidden under `▸ Advanced` if you want to override).
-- Switch to **Sync** tab → **Sync now**.
+### Quick start with GitHub (v0.4+)
+
+claudesync can create a config repo for you using GitHub OAuth — no `gh` CLI needed.
+
+#### First machine — push your config to a new repo
+
+1. Open claudesync. If `~/.claude` exists, Rules target auto-fills.
+2. Sync tab shows **Initialize new repo from current config** button. Click it.
+3. Wizard step 1: **Sign in with GitHub** → enter the device code shown in your browser.
+4. Wizard step 2: pick a repo name + visibility (Private recommended for personal configs).
+5. Wizard step 3: review what will be uploaded. `env` block in settings.json is stripped automatically.
+6. Click **Create & Push** — claudesync creates the repo via GitHub API, generates `global/` structure + install scripts, and pushes the initial commit.
+
+#### Other machines — pull the config
+
+1. Open claudesync. Sign in to GitHub (Settings → GitHub → Sign in).
+2. Set Repo URL to your repo (Settings → Repo URL).
+3. Sync tab → **Pull & Install**.
+
+#### Push local changes back
+
+When you edit `~/.claude/CLAUDE.md` or add a skill on any machine:
+- Sync tab → **Push Local Changes**
+- Add a commit message
+- API keys in `env` block are stripped by default. Toggle "Include API keys" only for PRIVATE repos.
+
+### To sync from existing repo (without OAuth)
+- Fill **Repo URL** in Settings (HTTPS or SSH).
+- Local repo path is auto-managed (hidden under `▸ Advanced`).
+- Switch to **Sync** tab → **Pull & Install**.
 
 ### To manage plugins
 - Switch to **Plugins** tab.

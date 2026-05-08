@@ -1,11 +1,13 @@
 import React from 'react'
+import type { GitHubAuthState } from '@shared/api'
 
 type Props = {
   repoPath: string | null
+  authState: GitHubAuthState | null
   onOpenSettings: () => void
 }
 
-export function Header({ repoPath, onOpenSettings }: Props) {
+export function Header({ repoPath, authState, onOpenSettings }: Props) {
   return (
     <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-700">
       <div className="flex items-center gap-3">
@@ -18,13 +20,22 @@ export function Header({ repoPath, onOpenSettings }: Props) {
           {repoPath ?? 'no repo configured'}
         </button>
       </div>
-      <button
-        onClick={onOpenSettings}
-        aria-label="Settings"
-        className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-      >
-        ⚙
-      </button>
+      <div className="flex items-center gap-2">
+        {authState?.authenticated ? (
+          <span className="text-xs text-neutral-500">@{authState.login}</span>
+        ) : (
+          <button onClick={onOpenSettings} className="text-xs text-blue-500 hover:underline">
+            Sign in
+          </button>
+        )}
+        <button
+          onClick={onOpenSettings}
+          aria-label="Settings"
+          className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+        >
+          ⚙
+        </button>
+      </div>
     </header>
   )
 }

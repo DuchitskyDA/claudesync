@@ -27,7 +27,14 @@ type Action =
   | { type: 'set-step'; step: StepName; status: StepStatus; message?: string }
   | { type: 'set-auth'; auth: GitHubAuthState }
 
-const initialSteps: Steps = { fetch: { status: 'idle' }, install: { status: 'idle' } }
+const initialSteps: Steps = {
+  fetch: { status: 'idle' },
+  install: { status: 'idle' },
+  export: { status: 'idle' },
+  pull: { status: 'idle' },
+  commit: { status: 'idle' },
+  push: { status: 'idle' },
+}
 
 const initial: AppState = {
   repoPath: null,
@@ -92,9 +99,17 @@ export function useAppState() {
     const unsubStep = window.api.onStep((e) =>
       dispatch({ type: 'set-step', step: e.step, status: e.status, message: e.message }),
     )
+    const unsubInitStep = window.api.onInitStep(() => {
+      // Init wizard has its own ProgressStep modal — no need to mirror in main StepList
+    })
+    const unsubPushStep = window.api.onPushStep((e) => {
+      dispatch({ type: 'set-step', step: e.step as StepName, status: e.status, message: e.message })
+    })
     return () => {
       unsub()
       unsubStep()
+      unsubInitStep()
+      unsubPushStep()
     }
   }, [])
 
@@ -102,6 +117,22 @@ export function useAppState() {
     dispatch({ type: 'run-start' })
     try {
       const r = await window.api.runSync()
+      if (!r.ok && r.error) {
+        dispatch({
+          type: 'append-log',
+          line: { time: now(), text: r.error, level: 'error' },
+        })
+      }
+      return r
+    } finally {
+      dispatch({ type: 'run-end' })
+    }
+  }
+
+  const runPush = async (commitMessage: string, includeSecrets: boolean) => {
+    dispatch({ type: 'run-start' })
+    try {
+      const r = await window.api.runPush({ commitMessage, includeSecrets })
       if (!r.ok && r.error) {
         dispatch({
           type: 'append-log',
@@ -127,6 +158,7 @@ export function useAppState() {
   return {
     state,
     syncNow,
+    runPush,
     clearLog: () => dispatch({ type: 'clear-log' }),
     openSettings: () => dispatch({ type: 'open-settings' }),
     closeSettings: () => dispatch({ type: 'close-settings' }),

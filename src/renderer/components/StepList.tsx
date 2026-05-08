@@ -4,6 +4,10 @@ import type { StepName, StepStatus } from '@shared/api'
 const labels: Record<StepName, string> = {
   fetch: 'Получаю репозиторий',
   install: 'Устанавливаю правила',
+  export: 'Готовлю изменения',
+  pull: 'Синхронизирую с удалённым',
+  commit: 'Commit',
+  push: 'Пушу',
 }
 
 const statusIcon = (s: StepStatus): string =>
@@ -25,7 +29,7 @@ type Props = {
 }
 
 export function StepList({ steps }: Props) {
-  const order: StepName[] = ['fetch', 'install']
+  const order: StepName[] = ['fetch', 'install', 'export', 'pull', 'commit', 'push']
   return (
     <div className="space-y-2 px-4 py-3">
       {order.map((s) => {

@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from 'react'
+import type { GitHubAuthState } from '@shared/api'
+import { DeviceFlowModal } from './DeviceFlowModal'
 
 type Props = {
   open: boolean
   initial: { repoUrl: string | null; repoPath: string | null; rulesTarget: string | null }
+  authState: GitHubAuthState | null
   onClose: () => void
   onSaved: (cfg: { repoUrl: string | null; repoPath: string | null; rulesTarget: string }) => void
+  onSignOut: () => Promise<void>
+  onSignedIn: () => void
 }
 
-export function Settings({ open, initial, onClose, onSaved }: Props) {
+export function Settings({ open, initial, authState, onClose, onSaved, onSignOut, onSignedIn }: Props) {
   const [url, setUrl] = useState(initial.repoUrl ?? '')
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
@@ -15,6 +20,7 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
   const [busy, setBusy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [placeholderTarget, setPlaceholderTarget] = useState('')
+  const [deviceFlowOpen, setDeviceFlowOpen] = useState(false)
 
   // Reset fields when modal re-opens with new initials
   useEffect(() => {
@@ -156,6 +162,30 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
 
         {error && <div className="mb-2 text-sm text-red-500">{error}</div>}
 
+        <div className="my-4 border-t border-neutral-200 pt-4 dark:border-neutral-700">
+          <h3 className="mb-2 text-xs uppercase text-neutral-500">GitHub</h3>
+          {authState?.authenticated ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span>
+                Signed in as <strong>@{authState.login}</strong>
+              </span>
+              <button
+                onClick={() => void onSignOut()}
+                className="text-xs text-neutral-500 hover:underline"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setDeviceFlowOpen(true)}
+              className="rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-700"
+            >
+              Sign in with GitHub
+            </button>
+          )}
+        </div>
+
         <div className="mt-2 flex justify-end gap-2">
           <button
             onClick={onClose}
@@ -172,6 +202,14 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
           </button>
         </div>
       </div>
+      <DeviceFlowModal
+        open={deviceFlowOpen}
+        onClose={() => setDeviceFlowOpen(false)}
+        onSuccess={() => {
+          setDeviceFlowOpen(false)
+          onSignedIn()
+        }}
+      />
     </div>
   )
 }
