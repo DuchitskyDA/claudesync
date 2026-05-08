@@ -74,6 +74,18 @@ export function SyncStatusChip({ status, checking, onRefresh }: Props) {
         tooltip: lastChecked,
       }
     }
+    if (status.state === 'local-changes') {
+      return {
+        label: (
+          <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+            <span aria-hidden>●</span>
+            <span className="tabular-nums">{status.localChanges}</span>
+          </span>
+        ),
+        tone: 'info',
+        tooltip: `${t('sync.status.localChanges', { count: status.localChanges })} · ${lastChecked}`,
+      }
+    }
     if (status.state === 'behind') {
       return {
         label: (
@@ -87,18 +99,27 @@ export function SyncStatusChip({ status, checking, onRefresh }: Props) {
       }
     }
     if (status.state === 'ahead') {
+      const dirty = status.localChanges > 0 ? '*' : ''
       return {
         label: (
           <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
             <span aria-hidden>↑</span>
-            <span className="tabular-nums">{status.ahead}</span>
+            <span className="tabular-nums">
+              {status.ahead}
+              {dirty}
+            </span>
           </span>
         ),
         tone: 'info',
-        tooltip: `${t('sync.status.ahead', { count: status.ahead })} · ${lastChecked}`,
+        tooltip: `${t('sync.status.ahead', { count: status.ahead })}${
+          status.localChanges > 0
+            ? ` + ${t('sync.status.localChanges', { count: status.localChanges })}`
+            : ''
+        } · ${lastChecked}`,
       }
     }
     // diverged
+    const dirtyMark = status.localChanges > 0 ? '*' : ''
     return {
       label: (
         <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
@@ -106,11 +127,18 @@ export function SyncStatusChip({ status, checking, onRefresh }: Props) {
           <span className="tabular-nums">{status.behind}</span>
           <span aria-hidden className="opacity-50">·</span>
           <span aria-hidden>↑</span>
-          <span className="tabular-nums">{status.ahead}</span>
+          <span className="tabular-nums">
+            {status.ahead}
+            {dirtyMark}
+          </span>
         </span>
       ),
       tone: 'danger',
-      tooltip: `${t('sync.status.divergedTooltip', { behind: status.behind, ahead: status.ahead })} · ${lastChecked}`,
+      tooltip: `${t('sync.status.divergedTooltip', { behind: status.behind, ahead: status.ahead })}${
+        status.localChanges > 0
+          ? ` + ${t('sync.status.localChanges', { count: status.localChanges })}`
+          : ''
+      } · ${lastChecked}`,
     }
   }
 

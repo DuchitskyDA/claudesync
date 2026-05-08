@@ -32,6 +32,10 @@
     "other": "{{count}} commits ahead of remote"
   },
   "sync.status.divergedTooltip": "Diverged: {{behind}} behind, {{ahead}} ahead",
+  "sync.status.localChanges": {
+    "one": "{{count}} uncommitted file",
+    "other": "{{count}} uncommitted files"
+  },
   "settings.title": "Settings",
   "settings.repoUrl.label": "Repo URL",
   "settings.repoUrl.optionalHint": "(optional — only for Sync)",

@@ -309,6 +309,7 @@ export function registerIpc(window: BrowserWindow): void {
     state: 'unknown',
     behind: 0,
     ahead: 0,
+    localChanges: 0,
     fetchedAt: null,
   }
   ipcMain.handle('get-sync-status', async () => {

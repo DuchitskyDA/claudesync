@@ -60,6 +60,7 @@ describe('getSyncStatus', () => {
     expect(s.state).toBe('no-remote')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(0)
+    expect(s.localChanges).toBe(0)
   })
 
   it('returns no-remote when path is not a git repo', async () => {
@@ -75,6 +76,27 @@ describe('getSyncStatus', () => {
     expect(s.state).toBe('in-sync')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(0)
+    expect(s.localChanges).toBe(0)
+  })
+
+  it('reports local-changes when working tree has uncommitted edits', async () => {
+    setupRemoteAndClone()
+    writeFileSync(join(local, 'fresh.txt'), 'untracked')
+    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    expect(s.state).toBe('local-changes')
+    expect(s.behind).toBe(0)
+    expect(s.ahead).toBe(0)
+    expect(s.localChanges).toBe(1)
+  })
+
+  it('counts modified + untracked files together in localChanges', async () => {
+    setupRemoteAndClone()
+    writeFileSync(join(local, 'README.md'), 'modified\n')
+    writeFileSync(join(local, 'newfile1.txt'), 'a')
+    writeFileSync(join(local, 'newfile2.txt'), 'b')
+    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    expect(s.state).toBe('local-changes')
+    expect(s.localChanges).toBe(3)
   })
 
   it('reports ahead after a local commit', async () => {
@@ -106,6 +128,28 @@ describe('getSyncStatus', () => {
     expect(s.behind).toBe(1)
     expect(s.ahead).toBe(0)
     expect(s.fetchedAt).toBeTypeOf('number')
+  })
+
+  it('reports diverged when remote moved AND working tree is dirty (with fetch)', async () => {
+    setupRemoteAndClone()
+    // remote-side commit
+    const sibling = join(dir, 'sibling-dirty')
+    git(`clone -q "${remote.replace(/\\/g, '/')}" "${sibling.replace(/\\/g, '/')}"`, dir)
+    git('config user.email t@e.com', sibling)
+    git('config user.name t', sibling)
+    git('config commit.gpgsign false', sibling)
+    writeFileSync(join(sibling, 'rr.txt'), 'R')
+    git('add rr.txt', sibling)
+    git('commit -q -m remote', sibling)
+    git('push -q origin main', sibling)
+    // local: only working-tree dirt, no commits
+    writeFileSync(join(local, 'wt.txt'), 'wt')
+    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: true })
+    // behind > 0 + uncommitted local work → diverged (potential conflict on pull)
+    expect(s.state).toBe('diverged')
+    expect(s.behind).toBe(1)
+    expect(s.ahead).toBe(0)
+    expect(s.localChanges).toBe(1)
   })
 
   it('reports diverged when both sides have commits (with fetch)', async () => {
