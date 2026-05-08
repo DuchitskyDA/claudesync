@@ -37,6 +37,14 @@ export function App() {
                 isRunning={state.isRunning}
                 onClick={() => void syncNow()}
               />
+              {!configComplete && (
+                <button
+                  onClick={openSettings}
+                  className="text-xs text-blue-500 hover:underline"
+                >
+                  Configure repo URL →
+                </button>
+              )}
             </div>
             <div className="border-t border-neutral-200 dark:border-neutral-700">
               <StepList steps={state.steps} />

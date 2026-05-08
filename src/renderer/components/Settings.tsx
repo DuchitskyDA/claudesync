@@ -4,7 +4,7 @@ type Props = {
   open: boolean
   initial: { repoUrl: string | null; repoPath: string | null; rulesTarget: string | null }
   onClose: () => void
-  onSaved: (cfg: { repoUrl: string; repoPath: string; rulesTarget: string }) => void
+  onSaved: (cfg: { repoUrl: string | null; repoPath: string | null; rulesTarget: string }) => void
 }
 
 export function Settings({ open, initial, onClose, onSaved }: Props) {
@@ -58,34 +58,41 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
     setError(null)
     setBusy(true)
     try {
-      let finalPath = path.trim()
-      if (!finalPath) {
-        finalPath = await window.api.suggestRepoPath(url)
+      const trimmedUrl = url.trim()
+      const trimmedTarget = target.trim()
+      let finalPath: string | null = path.trim() || null
+      if (trimmedUrl && !finalPath) {
+        finalPath = await window.api.suggestRepoPath(trimmedUrl)
       }
+      // If no URL — sync isn't needed; clear repoPath so we don't pin it to a fake suggestion
+      if (!trimmedUrl) finalPath = null
       const r = await window.api.setConfig({
-        repoUrl: url,
+        repoUrl: trimmedUrl || null,
         repoPath: finalPath,
-        rulesTarget: target,
+        rulesTarget: trimmedTarget || null,
       })
       if (!r.ok) {
         setError(r.error ?? 'Unknown error')
         return
       }
-      onSaved({ repoUrl: url, repoPath: finalPath, rulesTarget: target })
+      onSaved({ repoUrl: trimmedUrl || null, repoPath: finalPath, rulesTarget: trimmedTarget })
       onClose()
     } finally {
       setBusy(false)
     }
   }
 
-  const allFilled = url.trim() !== '' && target.trim() !== ''
+  // Rules target is required (for both sync and plugins). URL is optional — only needed for sync.
+  const canSave = target.trim() !== ''
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40">
       <div className="w-[540px] rounded-lg bg-white p-5 shadow-lg dark:bg-neutral-800">
         <h2 className="mb-4 text-base font-semibold">Settings</h2>
 
-        <label className="mb-1 block text-xs text-neutral-500">Repo URL (https or git@)</label>
+        <label className="mb-1 block text-xs text-neutral-500">
+          Repo URL <span className="text-neutral-400">(optional — only for Sync)</span>
+        </label>
         <input
           type="text"
           value={url}
@@ -94,7 +101,9 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
           className="mb-3 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
         />
 
-        <label className="mb-1 block text-xs text-neutral-500">Rules target folder</label>
+        <label className="mb-1 block text-xs text-neutral-500">
+          Rules target folder <span className="text-neutral-400">(required)</span>
+        </label>
         <div className="mb-3 flex gap-2">
           <input
             type="text"
@@ -155,7 +164,7 @@ export function Settings({ open, initial, onClose, onSaved }: Props) {
           </button>
           <button
             onClick={save}
-            disabled={busy || !allFilled}
+            disabled={busy || !canSave}
             className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:bg-neutral-400"
           >
             Save

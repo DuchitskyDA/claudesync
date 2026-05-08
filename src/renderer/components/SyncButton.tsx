@@ -9,7 +9,7 @@ type Props = {
 export function SyncButton({ configComplete, isRunning, onClick }: Props) {
   const disabled = !configComplete || isRunning
   const reason = !configComplete
-    ? 'Configure repo URL, local path, and rules folder in Settings'
+    ? 'Sync requires Repo URL and Rules target in Settings'
     : isRunning
       ? 'Already running'
       : ''

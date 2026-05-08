@@ -79,8 +79,8 @@ export function useAppState() {
         repoUrl: c.repoUrl,
         rulesTarget: c.rulesTarget,
       })
-      const incomplete = !c.repoUrl || !c.repoPath || !c.rulesTarget
-      if (incomplete) dispatch({ type: 'open-settings' })
+      // Open Settings on first run only if rulesTarget missing — URL is optional now.
+      if (!c.rulesTarget) dispatch({ type: 'open-settings' })
     })
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
     const unsubStep = window.api.onStep((e) =>
