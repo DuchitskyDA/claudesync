@@ -364,19 +364,17 @@ function UpdatesPanel({
           </span>
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
         </button>
-        {renderLastChecked() && (
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{renderLastChecked()}</span>
-            <button
-              type="button"
-              onClick={() => void handleCheck()}
-              disabled={checking}
-              className="text-xs text-muted-foreground transition hover:text-foreground disabled:opacity-60"
-            >
-              {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
-            </button>
-          </div>
-        )}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{renderLastChecked() ?? ' '}</span>
+          <button
+            type="button"
+            onClick={() => void handleCheck()}
+            disabled={checking}
+            className="text-xs text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+          >
+            {checking ? t('settings.updates.checking') : t('settings.updates.checkNow')}
+          </button>
+        </div>
       </div>
     )
   }

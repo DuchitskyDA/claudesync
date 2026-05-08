@@ -72,15 +72,18 @@ export async function getUpdateInfo(opts: CheckOpts): Promise<UpdateInfo> {
 
   const release = await fetchLatestRelease()
   if (!release) {
-    // Network hiccup — keep returning cached info if we have it; otherwise empty.
-    if (cached) return { ...cached, current }
+    // Network hiccup — keep returning cached info if we have it; otherwise
+    // empty. Bump `checkedAt` either way so the UI gets visible feedback
+    // ("Last checked just now") on every click, even when the network is
+    // offline and the rest of the payload is reused from cache.
+    if (cached) return { ...cached, current, checkedAt: Date.now() }
     return {
       current,
       latest: null,
       available: false,
       releaseUrl: null,
       releaseNotes: null,
-      checkedAt: null,
+      checkedAt: Date.now(),
     }
   }
 

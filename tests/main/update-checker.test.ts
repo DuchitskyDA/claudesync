@@ -103,16 +103,23 @@ describe('getUpdateInfo', () => {
     const info = await getUpdateInfo({ current: '0.6.2', doFetch: true })
     expect(info.latest).toBeNull()
     expect(info.available).toBe(false)
-    expect(info.checkedAt).toBeNull()
+    // checkedAt always reflects the latest attempt so the UI can show
+    // "Last checked just now" feedback even when the network is down.
+    expect(info.checkedAt).toBeTypeOf('number')
   })
 
-  it('reuses cache when network fails on subsequent forced refresh', async () => {
+  it('reuses cache when network fails on subsequent forced refresh, and bumps checkedAt', async () => {
     mockFetchOnce({ tag_name: 'v0.6.3', html_url: 'u', body: '' })
-    await getUpdateInfo({ current: '0.6.2', doFetch: true })
+    const first = await getUpdateInfo({ current: '0.6.2', doFetch: true })
+    const firstCheckedAt = first.checkedAt!
+    // Wait one tick so Date.now() advances even on fast machines.
+    await new Promise((r) => setTimeout(r, 5))
     mockFetchFail()
     const info = await getUpdateInfo({ current: '0.6.2', doFetch: true })
     expect(info.latest).toBe('0.6.3')
     expect(info.available).toBe(true)
+    expect(info.checkedAt).toBeTypeOf('number')
+    expect(info.checkedAt!).toBeGreaterThan(firstCheckedAt)
   })
 
   it('updates `current` from caller even when returning cached info', async () => {
