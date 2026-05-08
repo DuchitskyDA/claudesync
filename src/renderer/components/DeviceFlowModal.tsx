@@ -77,7 +77,6 @@ export function DeviceFlowModal({ open, onClose, onSuccess }: Props) {
       cancelTimer()
       void window.api.cancelDeviceFlow()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   if (!open) return null
