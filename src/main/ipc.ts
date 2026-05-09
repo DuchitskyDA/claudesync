@@ -390,39 +390,42 @@ export function registerIpc(window: BrowserWindow): void {
     if (!window.isDestroyed()) window.webContents.send('push-step', e)
   }
 
+  /** Runs all enabled exporters into the working tree. Idempotent — safe to
+   *  call from any read-only-feeling operation (chip refresh, push preview).
+   *  Errors are swallowed; the real push surfaces them. */
+  function runEnabledExporters(cfg: AppConfig, silent = true): void {
+    if (!cfg.repoPath) return
+    if (cfg.claude.enabled && cfg.claude.path) {
+      try {
+        if (detectClaudeInstallMode(cfg.claude.path) === 'copy') {
+          exportClaude(cfg.claude.path, cfg.repoPath)
+        }
+        if (!cfg.includeSecretsInPush) stripSecretsInClaudeRepo(cfg.repoPath)
+      } catch {
+        /* surfaced on real push */
+      }
+    }
+    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
+      try {
+        exportCursorProjects(cfg.cursor.projects, cfg.repoPath, silent ? undefined : emit)
+      } catch {
+        /* surfaced on real push */
+      }
+    }
+  }
+
   ipcMain.handle('get-repo-status', () => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
+    runEnabledExporters(cfg)
     return getRepoStatus(cfg.repoPath)
   })
 
   ipcMain.handle('preview-push-status', async () => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
-    const repoPath = cfg.repoPath
-    // Run all enabled exporters into the working tree so git status reflects
-    // what would actually be committed. Side effect: files appear in repo even
-    // if user cancels — they'll be picked up by the next push or can be reset
-    // with `git checkout`.
-    if (cfg.claude.enabled && cfg.claude.path) {
-      const claudePath = cfg.claude.path
-      try {
-        if (detectClaudeInstallMode(claudePath) === 'copy') {
-          exportClaude(claudePath, repoPath)
-        }
-        if (!cfg.includeSecretsInPush) stripSecretsInClaudeRepo(repoPath)
-      } catch {
-        // Surface via getRepoStatus output; runPush will report the real error.
-      }
-    }
-    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
-      try {
-        exportCursorProjects(cfg.cursor.projects, repoPath, emit)
-      } catch {
-        /* same — surfaced on real push */
-      }
-    }
-    return getRepoStatus(repoPath)
+    runEnabledExporters(cfg, false)
+    return getRepoStatus(cfg.repoPath)
   })
 
   // Sync status — cached; refresh re-runs `git fetch`.
@@ -435,6 +438,7 @@ export function registerIpc(window: BrowserWindow): void {
   }
   ipcMain.handle('get-sync-status', async () => {
     const cfg = readConfig(configPath)
+    runEnabledExporters(cfg)
     if (cachedSyncStatus.fetchedAt !== null) {
       // Cache hit — recount with current local commits but skip network.
       const fresh = await getSyncStatus({
@@ -455,6 +459,7 @@ export function registerIpc(window: BrowserWindow): void {
   })
   ipcMain.handle('refresh-sync-status', async () => {
     const cfg = readConfig(configPath)
+    runEnabledExporters(cfg)
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
       userDataDir,
