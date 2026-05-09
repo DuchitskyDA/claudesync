@@ -37,7 +37,7 @@ beforeEach(() => {
   rulesTarget = join(dir, 'claude')
   repoPath = join(dir, 'repo')
   mkdirSync(rulesTarget)
-  mkdirSync(join(repoPath, 'global'), { recursive: true })
+  mkdirSync(join(repoPath, 'claude'), { recursive: true })
 })
 
 afterEach(() => {
@@ -48,32 +48,32 @@ describe('exportRulesToRepo', () => {
   it('mirrors CLAUDE.md from rulesTarget to global/CLAUDE.md', () => {
     writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'updated rules')
     exportRulesToRepo(rulesTarget, repoPath)
-    expect(readFileSync(join(repoPath, 'global', 'CLAUDE.md'), 'utf8')).toBe('updated rules')
+    expect(readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')).toBe('updated rules')
   })
 
   it('mirrors settings.json with env preserved (strip happens later)', () => {
     writeFileSync(join(rulesTarget, 'settings.json'), '{"env":{"K":"v"},"x":1}')
     exportRulesToRepo(rulesTarget, repoPath)
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out.env).toEqual({ K: 'v' })
   })
 
   it('mirrors commands directory and removes deleted entries', () => {
     mkdirSync(join(rulesTarget, 'commands'))
     writeFileSync(join(rulesTarget, 'commands', 'a.md'), 'A')
-    mkdirSync(join(repoPath, 'global', 'commands'))
-    writeFileSync(join(repoPath, 'global', 'commands', 'old.md'), 'OLD')
+    mkdirSync(join(repoPath, 'claude', 'commands'))
+    writeFileSync(join(repoPath, 'claude', 'commands', 'old.md'), 'OLD')
 
     exportRulesToRepo(rulesTarget, repoPath)
-    expect(readFileSync(join(repoPath, 'global', 'commands', 'a.md'), 'utf8')).toBe('A')
-    expect(existsSync(join(repoPath, 'global', 'commands', 'old.md'))).toBe(false)
+    expect(readFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'utf8')).toBe('A')
+    expect(existsSync(join(repoPath, 'claude', 'commands', 'old.md'))).toBe(false)
   })
 
   it('mirrors skills/<dir>/ recursively', () => {
     mkdirSync(join(rulesTarget, 'skills', 's1'), { recursive: true })
     writeFileSync(join(rulesTarget, 'skills', 's1', 'SKILL.md'), 'X')
     exportRulesToRepo(rulesTarget, repoPath)
-    expect(readFileSync(join(repoPath, 'global', 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('X')
+    expect(readFileSync(join(repoPath, 'claude', 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('X')
   })
 
   it('mirrors only memory subdirs from projects/, ignores sessions and *.jsonl', () => {
@@ -83,9 +83,9 @@ describe('exportRulesToRepo', () => {
 
     exportRulesToRepo(rulesTarget, repoPath)
     expect(
-      readFileSync(join(repoPath, 'global', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
+      readFileSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
     ).toBe('M')
-    expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'session.jsonl'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'session.jsonl'))).toBe(false)
   })
 
   it('skips .backup.<ts> artifacts in src and removes them from dst', () => {
@@ -96,37 +96,37 @@ describe('exportRulesToRepo', () => {
     writeFileSync(join(rulesTarget, 'skills', 'foo.backup.20260508-152134', 'SKILL.md'), 'JUNK')
 
     // Pre-populate dst with a stale backup that we should also clean up
-    mkdirSync(join(repoPath, 'global', 'commands'), { recursive: true })
-    writeFileSync(join(repoPath, 'global', 'commands', 'b.md.backup.20260101-000000'), 'STALE')
+    mkdirSync(join(repoPath, 'claude', 'commands'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'commands', 'b.md.backup.20260101-000000'), 'STALE')
 
     exportRulesToRepo(rulesTarget, repoPath)
 
-    expect(readFileSync(join(repoPath, 'global', 'commands', 'a.md'), 'utf8')).toBe('A')
-    expect(existsSync(join(repoPath, 'global', 'commands', 'a.md.backup.20260506-105039'))).toBe(false)
-    expect(existsSync(join(repoPath, 'global', 'skills', 'foo.backup.20260508-152134'))).toBe(false)
-    expect(existsSync(join(repoPath, 'global', 'commands', 'b.md.backup.20260101-000000'))).toBe(false)
+    expect(readFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'utf8')).toBe('A')
+    expect(existsSync(join(repoPath, 'claude', 'commands', 'a.md.backup.20260506-105039'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'skills', 'foo.backup.20260508-152134'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'commands', 'b.md.backup.20260101-000000'))).toBe(false)
   })
 
   it('removes orphan project memory entries when source no longer has them', () => {
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'memory'), { recursive: true })
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'memory', 'new.md'), 'NEW')
-    mkdirSync(join(repoPath, 'global', 'projects', '-p1', 'memory'), { recursive: true })
-    writeFileSync(join(repoPath, 'global', 'projects', '-p1', 'memory', 'old.md'), 'OLD')
+    mkdirSync(join(repoPath, 'claude', 'projects', '-p1', 'memory'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'old.md'), 'OLD')
 
     exportRulesToRepo(rulesTarget, repoPath)
-    expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'memory', 'new.md'))).toBe(true)
-    expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'memory', 'old.md'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'new.md'))).toBe(true)
+    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'old.md'))).toBe(false)
   })
 })
 
 describe('stripSecretsInRepo', () => {
   it('removes env block from global/settings.json', () => {
     writeFileSync(
-      join(repoPath, 'global', 'settings.json'),
+      join(repoPath, 'claude', 'settings.json'),
       JSON.stringify({ env: { K: 'v' }, x: 1 }),
     )
     stripSecretsInRepo(repoPath)
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out.env).toBeUndefined()
     expect(out.x).toBe(1)
   })
@@ -136,14 +136,14 @@ describe('stripSecretsInRepo', () => {
   })
 
   it('throws on invalid JSON', () => {
-    writeFileSync(join(repoPath, 'global', 'settings.json'), '{not json')
+    writeFileSync(join(repoPath, 'claude', 'settings.json'), '{not json')
     expect(() => stripSecretsInRepo(repoPath)).toThrow(/invalid/i)
   })
 
   it('preserves settings.json when no env block present', () => {
-    writeFileSync(join(repoPath, 'global', 'settings.json'), JSON.stringify({ x: 1 }))
+    writeFileSync(join(repoPath, 'claude', 'settings.json'), JSON.stringify({ x: 1 }))
     stripSecretsInRepo(repoPath)
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out).toEqual({ x: 1 })
   })
 })
@@ -151,7 +151,7 @@ describe('stripSecretsInRepo', () => {
 describe('detectInstallMode', () => {
   it('returns symlink when probe is symlink', () => {
     if (process.platform === 'win32') return // skip on Win — symlink test needs admin
-    const target = join(repoPath, 'global', 'CLAUDE.md')
+    const target = join(repoPath, 'claude', 'CLAUDE.md')
     writeFileSync(target, 'rules')
     symlinkSync(target, join(rulesTarget, 'CLAUDE.md'))
     expect(detectInstallMode(rulesTarget, repoPath)).toBe('symlink')
@@ -159,7 +159,7 @@ describe('detectInstallMode', () => {
 
   it('returns copy when probe is regular file', () => {
     writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
-    writeFileSync(join(repoPath, 'global', 'CLAUDE.md'), 'rules')
+    writeFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'rules')
     expect(detectInstallMode(rulesTarget, repoPath)).toBe('copy')
   })
 
@@ -386,7 +386,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
 
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out.env).toBeUndefined()
     expect(out.x).toBe(1)
   })
@@ -408,7 +408,7 @@ describe('runPush', () => {
       emitStep: () => {},
     })
 
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out.env).toEqual({ K: 'v' })
   })
 })
@@ -455,12 +455,12 @@ describe('getRepoStatus', () => {
   it('parses changed files', async () => {
     runCommandMock.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: ' M global/CLAUDE.md\n?? global/skills/new/\n',
+      stdout: ' M claude/CLAUDE.md\n?? claude/skills/new/\n',
       stderr: '',
     })
     const r = await getRepoStatus(repoPath)
     expect(r.clean).toBe(false)
-    expect(r.changedFiles).toContain('global/CLAUDE.md')
-    expect(r.changedFiles).toContain('global/skills/new/')
+    expect(r.changedFiles).toContain('claude/CLAUDE.md')
+    expect(r.changedFiles).toContain('claude/skills/new/')
   })
 })

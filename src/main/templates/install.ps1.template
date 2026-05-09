@@ -53,21 +53,21 @@ function Link-Dir {
     Write-Host "  junction: $Dst -> $Src"
 }
 
-Write-Host '== global =='
-Link-File -Src (Join-Path $RepoRoot 'global\settings.json') -Dst (Join-Path $ClaudeDir 'settings.json')
-Link-File -Src (Join-Path $RepoRoot 'global\CLAUDE.md')     -Dst (Join-Path $ClaudeDir 'CLAUDE.md')
+Write-Host '== claude =='
+Link-File -Src (Join-Path $RepoRoot 'claude\settings.json') -Dst (Join-Path $ClaudeDir 'settings.json')
+Link-File -Src (Join-Path $RepoRoot 'claude\CLAUDE.md')     -Dst (Join-Path $ClaudeDir 'CLAUDE.md')
 
-Get-ChildItem -Path (Join-Path $RepoRoot 'global\commands') -Filter '*.md' -File | ForEach-Object {
+Get-ChildItem -Path (Join-Path $RepoRoot 'claude\commands') -Filter '*.md' -File | ForEach-Object {
     Link-File -Src $_.FullName -Dst (Join-Path $ClaudeDir "commands\$($_.Name)")
 }
 
-Get-ChildItem -Path (Join-Path $RepoRoot 'global\skills') -Directory | ForEach-Object {
+Get-ChildItem -Path (Join-Path $RepoRoot 'claude\skills') -Directory | ForEach-Object {
     Link-Dir -Src $_.FullName -Dst (Join-Path $ClaudeDir "skills\$($_.Name)")
 }
 
 Write-Host ''
 Write-Host '== projects memory =='
-Get-ChildItem -Path (Join-Path $RepoRoot 'global\projects') -Directory | ForEach-Object {
+Get-ChildItem -Path (Join-Path $RepoRoot 'claude\projects') -Directory | ForEach-Object {
     $name = $_.Name
     $targetDir = Join-Path $ClaudeDir "projects\$name"
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null

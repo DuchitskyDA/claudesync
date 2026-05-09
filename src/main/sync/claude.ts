@@ -98,11 +98,11 @@ export function detectClaudeInstallMode(claudePath: string): ClaudeInstallMode {
 }
 
 /**
- * Mirror Claude's user-global config tree into <repoPath>/global/.
+ * Mirror Claude's user-global config tree into <repoPath>/claude/.
  * Used by the push pipeline (after a target already exists in the repo).
  */
 export function exportClaude(claudePath: string, repoPath: string): void {
-  const dest = join(repoPath, 'global')
+  const dest = join(repoPath, 'claude')
   mkdirSync(dest, { recursive: true })
 
   syncFile(join(claudePath, 'CLAUDE.md'), join(dest, 'CLAUDE.md'))
@@ -125,12 +125,12 @@ function copyDirIfExists(src: string, dst: string): void {
 }
 
 /**
- * Init-wizard variant: writes the initial Claude tree into <repoPath>/global/
+ * Init-wizard variant: writes the initial Claude tree into <repoPath>/claude/
  * with `env` stripped from settings.json. Differs from exportClaude in that
  * it does not perform mirror-style cleanup (the destination is fresh).
  */
 export function generateClaudeStructure(claudePath: string, repoPath: string): void {
-  const globalDir = join(repoPath, 'global')
+  const globalDir = join(repoPath, 'claude')
   mkdirSync(globalDir, { recursive: true })
 
   copyFileIfExists(join(claudePath, 'CLAUDE.md'), join(globalDir, 'CLAUDE.md'))
@@ -162,13 +162,13 @@ export function generateClaudeStructure(claudePath: string, repoPath: string): v
 }
 
 export function stripSecretsInClaudeRepo(repoPath: string): void {
-  const settingsPath = join(repoPath, 'global', 'settings.json')
+  const settingsPath = join(repoPath, 'claude', 'settings.json')
   if (!existsSync(settingsPath)) return
   let parsed: Record<string, unknown>
   try {
     parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>
   } catch {
-    throw new Error('Invalid JSON in global/settings.json — fix it before push')
+    throw new Error('Invalid JSON in claude/settings.json — fix it before push')
   }
   if ('env' in parsed) {
     delete parsed.env

@@ -36,10 +36,10 @@ describe('exportClaude', () => {
 
     exportClaude(claudePath, repoPath)
 
-    expect(readFileSync(join(repoPath, 'global', 'CLAUDE.md'), 'utf8')).toBe('hello')
-    expect(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8')).toBe('{"k":1}')
-    expect(readFileSync(join(repoPath, 'global', 'commands', 'a.md'), 'utf8')).toBe('A')
-    expect(readFileSync(join(repoPath, 'global', 'skills', 's', 'SKILL.md'), 'utf8')).toBe('S')
+    expect(readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')).toBe('hello')
+    expect(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8')).toBe('{"k":1}')
+    expect(readFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'utf8')).toBe('A')
+    expect(readFileSync(join(repoPath, 'claude', 'skills', 's', 'SKILL.md'), 'utf8')).toBe('S')
   })
 
   it('mirrors only memory subdir under projects/', () => {
@@ -50,8 +50,8 @@ describe('exportClaude', () => {
 
     exportClaude(claudePath, repoPath)
 
-    expect(existsSync(join(repoPath, 'global', 'projects', 'p1', 'memory', 'note.md'))).toBe(true)
-    expect(existsSync(join(repoPath, 'global', 'projects', 'p1', 'sessions'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', 'p1', 'memory', 'note.md'))).toBe(true)
+    expect(existsSync(join(repoPath, 'claude', 'projects', 'p1', 'sessions'))).toBe(false)
   })
 
   it('removes files from destination when removed from source on second push', () => {
@@ -61,8 +61,8 @@ describe('exportClaude', () => {
     exportClaude(claudePath, repoPath)
     rmSync(join(claudePath, 'commands', 'b.md'))
     exportClaude(claudePath, repoPath)
-    expect(existsSync(join(repoPath, 'global', 'commands', 'a.md'))).toBe(true)
-    expect(existsSync(join(repoPath, 'global', 'commands', 'b.md'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'commands', 'a.md'))).toBe(true)
+    expect(existsSync(join(repoPath, 'claude', 'commands', 'b.md'))).toBe(false)
   })
 })
 
@@ -74,7 +74,7 @@ describe('generateClaudeStructure', () => {
     )
     generateClaudeStructure(claudePath, repoPath)
     const written = JSON.parse(
-      readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'),
+      readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'),
     ) as Record<string, unknown>
     expect(written.env).toBeUndefined()
     expect(written.theme).toBe('dark')
@@ -85,29 +85,29 @@ describe('generateClaudeStructure', () => {
     writeFileSync(join(claudePath, 'projects', 'enc', 'memory', 'a.md'), 'A')
     generateClaudeStructure(claudePath, repoPath)
     expect(
-      existsSync(join(repoPath, 'global', 'projects', 'enc', 'memory', 'a.md')),
+      existsSync(join(repoPath, 'claude', 'projects', 'enc', 'memory', 'a.md')),
     ).toBe(true)
   })
 })
 
 describe('stripSecretsInClaudeRepo', () => {
   it('removes env block from <repo>/global/settings.json', () => {
-    mkdirSync(join(repoPath, 'global'), { recursive: true })
+    mkdirSync(join(repoPath, 'claude'), { recursive: true })
     writeFileSync(
-      join(repoPath, 'global', 'settings.json'),
+      join(repoPath, 'claude', 'settings.json'),
       JSON.stringify({ env: { S: 'x' }, k: 1 }),
     )
     stripSecretsInClaudeRepo(repoPath)
     const written = JSON.parse(
-      readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'),
+      readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'),
     ) as Record<string, unknown>
     expect(written.env).toBeUndefined()
     expect(written.k).toBe(1)
   })
 
   it('throws on invalid JSON', () => {
-    mkdirSync(join(repoPath, 'global'), { recursive: true })
-    writeFileSync(join(repoPath, 'global', 'settings.json'), '{not json')
+    mkdirSync(join(repoPath, 'claude'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'settings.json'), '{not json')
     expect(() => stripSecretsInClaudeRepo(repoPath)).toThrow(/Invalid JSON/)
   })
 })

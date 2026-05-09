@@ -32,23 +32,23 @@ link() {
   echo "  link:   $dst -> $src"
 }
 
-echo "== global =="
-link "$REPO_ROOT/global/settings.json" "$CLAUDE_DIR/settings.json"
-link "$REPO_ROOT/global/CLAUDE.md"     "$CLAUDE_DIR/CLAUDE.md"
+echo "== claude =="
+link "$REPO_ROOT/claude/settings.json" "$CLAUDE_DIR/settings.json"
+link "$REPO_ROOT/claude/CLAUDE.md"     "$CLAUDE_DIR/CLAUDE.md"
 
-for f in "$REPO_ROOT"/global/commands/*.md; do
+for f in "$REPO_ROOT"/claude/commands/*.md; do
   [[ -f "$f" ]] || continue
   link "$f" "$CLAUDE_DIR/commands/$(basename "$f")"
 done
 
-for d in "$REPO_ROOT"/global/skills/*/; do
+for d in "$REPO_ROOT"/claude/skills/*/; do
   [[ -d "$d" ]] || continue
   link "${d%/}" "$CLAUDE_DIR/skills/$(basename "${d%/}")"
 done
 
 echo
 echo "== projects memory =="
-for d in "$REPO_ROOT"/global/projects/*/; do
+for d in "$REPO_ROOT"/claude/projects/*/; do
   [[ -d "$d" ]] || continue
   name=$(basename "${d%/}")
   target_dir="$CLAUDE_DIR/projects/$name"

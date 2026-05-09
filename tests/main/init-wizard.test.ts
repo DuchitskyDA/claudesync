@@ -118,8 +118,8 @@ describe('generateGlobalStructure', () => {
 
     generateGlobalStructure(rulesTarget, repoPath)
 
-    expect(readFileSync(join(repoPath, 'global', 'CLAUDE.md'), 'utf8')).toBe('rules')
-    expect(readFileSync(join(repoPath, 'global', 'commands', 'a.md'), 'utf8')).toBe('A')
+    expect(readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')).toBe('rules')
+    expect(readFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'utf8')).toBe('A')
   })
 
   it('strips env block from settings.json', () => {
@@ -128,7 +128,7 @@ describe('generateGlobalStructure', () => {
       JSON.stringify({ env: { K: 'v' }, effortLevel: 'high' }),
     )
     generateGlobalStructure(rulesTarget, repoPath)
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out.env).toBeUndefined()
     expect(out.effortLevel).toBe('high')
   })
@@ -137,7 +137,7 @@ describe('generateGlobalStructure', () => {
     mkdirSync(join(rulesTarget, 'skills', 's1'), { recursive: true })
     writeFileSync(join(rulesTarget, 'skills', 's1', 'SKILL.md'), 'X')
     generateGlobalStructure(rulesTarget, repoPath)
-    expect(readFileSync(join(repoPath, 'global', 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('X')
+    expect(readFileSync(join(repoPath, 'claude', 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('X')
   })
 
   it('copies only memory dirs from projects/, skips sessions/jsonl', () => {
@@ -149,21 +149,21 @@ describe('generateGlobalStructure', () => {
 
     generateGlobalStructure(rulesTarget, repoPath)
     expect(
-      readFileSync(join(repoPath, 'global', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
+      readFileSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
     ).toBe('M')
-    expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'session.jsonl'))).toBe(false)
-    expect(existsSync(join(repoPath, 'global', 'projects', '-p1', 'sessions'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'session.jsonl'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'sessions'))).toBe(false)
   })
 
   it('handles missing source files gracefully', () => {
     expect(() => generateGlobalStructure(rulesTarget, repoPath)).not.toThrow()
-    expect(existsSync(join(repoPath, 'global'))).toBe(true)
+    expect(existsSync(join(repoPath, 'claude'))).toBe(true)
   })
 
   it('handles invalid settings.json by writing empty object minus env', () => {
     writeFileSync(join(rulesTarget, 'settings.json'), '{not json')
     expect(() => generateGlobalStructure(rulesTarget, repoPath)).not.toThrow()
-    const out = JSON.parse(readFileSync(join(repoPath, 'global', 'settings.json'), 'utf8'))
+    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
     expect(out).toEqual({})
   })
 })
