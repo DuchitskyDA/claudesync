@@ -142,6 +142,8 @@
   "settings.cursor.add.name": "Имя (используется как имя папки в репо)",
   "settings.cursor.add.path": "Путь к корню проекта",
   "settings.cursor.add.submit": "Добавить",
+  "settings.cursor.add.linkExisting": "Связать с папкой из репо",
+  "settings.cursor.add.linkHint": "Нашёл эти папки в sync-репо. Кликни — имя подставится, останется только указать путь к локальному проекту.",
   "cursor.error.nameRequired": "Имя обязательно",
   "cursor.error.nameReserved": "Имя не может быть \".\" или \"..\"",
   "cursor.error.nameInvalid": "Имя содержит недопустимые символы или пробелы",

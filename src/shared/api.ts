@@ -121,6 +121,11 @@ export interface AppApi {
    *  button on cold start / after a config change (e.g. adding a Cursor
    *  project on a freshly-cloned machine). */
   checkInstallNeeded(): Promise<boolean>
+  /** Names of subdirs under <repo>/cursor/projects/. Used by the Add Cursor
+   *  Project dialog to suggest "link to existing repo folder" — a project
+   *  registered on machine A can be picked up on machine B by name without
+   *  having to remember it. */
+  listRepoCursorSubdirs(): Promise<string[]>
   /** Discard all local changes in the sync repo (modified + untracked).
    *  Equivalent to `git checkout -- . && git clean -fd`. Destructive. */
   discardLocalChanges(): Promise<RunResult>

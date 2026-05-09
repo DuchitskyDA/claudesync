@@ -542,6 +542,21 @@ export function registerIpc(window: BrowserWindow): void {
     await shell.openPath(join(cfg.repoPath, cleaned))
   })
 
+  ipcMain.handle('list-repo-cursor-subdirs', (): string[] => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return []
+    const dir = join(cfg.repoPath, 'cursor', 'projects')
+    if (!existsSync(dir)) return []
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name !== '.gitkeep')
+        .map((e) => e.name)
+        .sort()
+    } catch {
+      return []
+    }
+  })
+
   ipcMain.handle('check-install-needed', (): boolean => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return false

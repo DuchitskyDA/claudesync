@@ -15,6 +15,7 @@ import { Label } from './ui/label'
 import { Separator } from './ui/separator'
 import { Tabs as UITabs, TabsList, TabsTrigger } from './ui/tabs'
 import { DeviceFlowModal } from './DeviceFlowModal'
+import { cn } from '@/lib/utils'
 import { useT, useLocale, SUPPORTED, tMessage } from '../i18n'
 
 type Props = {
@@ -368,14 +369,20 @@ function AddCursorProjectDialog({
   const [path, setPath] = useState('')
   const [error, setError] = useState<LocalizedMessage | null>(null)
   const [busy, setBusy] = useState(false)
+  const [unlinkedRepoSubdirs, setUnlinkedRepoSubdirs] = useState<string[]>([])
 
   useEffect(() => {
     if (!open) {
       setName('')
       setPath('')
       setError(null)
+      setUnlinkedRepoSubdirs([])
+      return
     }
-  }, [open])
+    void window.api.listRepoCursorSubdirs().then((all) => {
+      setUnlinkedRepoSubdirs(all.filter((n) => !existingNames.includes(n)))
+    })
+  }, [open, existingNames])
 
   const browse = async () => {
     const p = await window.api.pickCursorProjectPath()
@@ -430,6 +437,32 @@ function AddCursorProjectDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {unlinkedRepoSubdirs.length > 0 && (
+            <div className="space-y-1.5 rounded-md border border-dashed border-sky-500/40 bg-sky-500/5 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-400">
+                {t('settings.cursor.add.linkExisting')}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('settings.cursor.add.linkHint')}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {unlinkedRepoSubdirs.map((sub) => (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => setName(sub)}
+                    className={cn(
+                      'rounded-full border px-2.5 py-0.5 font-mono text-xs transition',
+                      name === sub
+                        ? 'border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                        : 'border-border hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>{t('settings.cursor.add.name')}</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="myapp" />

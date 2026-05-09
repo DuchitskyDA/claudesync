@@ -130,6 +130,8 @@
   "settings.cursor.add.name": "Name (used as repo subfolder)",
   "settings.cursor.add.path": "Project root path",
   "settings.cursor.add.submit": "Add",
+  "settings.cursor.add.linkExisting": "Link to existing repo folder",
+  "settings.cursor.add.linkHint": "Found these in the sync repo. Click to use that name and just pick the local project path.",
   "cursor.error.nameRequired": "Name is required",
   "cursor.error.nameReserved": "Name cannot be \".\" or \"..\"",
   "cursor.error.nameInvalid": "Name contains invalid characters or whitespace",
