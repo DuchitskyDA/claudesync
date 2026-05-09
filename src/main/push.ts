@@ -1,140 +1,19 @@
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  cpSync,
-} from 'node:fs'
-import { join, resolve as resolvePath } from 'node:path'
+import { join } from 'node:path'
 import type { LogLine, RunResult, StepStatus, PushStep, RepoStatus, LocalizedMessage } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import { readConfig } from './config'
 import { loadToken } from './safe-storage'
+import {
+  detectClaudeInstallMode,
+  exportClaude,
+  stripSecretsInClaudeRepo,
+} from './sync/claude'
 
+// Re-exports kept for backwards-compat with existing IPC handlers and tests.
+export { detectClaudeInstallMode as detectInstallMode } from './sync/claude'
+export { exportClaude as exportRulesToRepo } from './sync/claude'
+export { stripSecretsInClaudeRepo as stripSecretsInRepo } from './sync/claude'
 export type InstallMode = 'symlink' | 'copy'
-
-export function detectInstallMode(rulesTarget: string, _repoPath: string): InstallMode {
-  const probe = join(rulesTarget, 'CLAUDE.md')
-  if (!existsSync(probe)) return 'copy'
-  try {
-    const stat = lstatSync(probe)
-    if (stat.isSymbolicLink()) return 'symlink'
-  } catch {
-    // ignore
-  }
-  return 'copy'
-}
-
-/**
- * Returns true if src and dst resolve to the same filesystem entry.
- * Handles symlinks/junctions (common on Windows when install.ps1 uses Junction
- * for directories and falls back to copy for files — mixed mode).
- */
-function isSamePath(src: string, dst: string): boolean {
-  try {
-    const realSrc = realpathSync(src)
-    const realDst = existsSync(dst) ? realpathSync(dst) : resolvePath(dst)
-    return realSrc === realDst
-  } catch {
-    return false
-  }
-}
-
-/**
- * Names we never want to mirror into the repo:
- * - `.backup.<timestamp>` artifacts left by install.ps1
- * - common dev/cache junk (.DS_Store, Thumbs.db)
- */
-const IGNORED_NAME = /\.backup\.\d|^\.DS_Store$|^Thumbs\.db$/i
-
-function isIgnored(name: string): boolean {
-  return IGNORED_NAME.test(name)
-}
-
-function syncFile(src: string, dst: string): void {
-  if (!existsSync(src)) return
-  if (isSamePath(src, dst)) return // already pointing at same file (junction/symlink)
-  mkdirSync(join(dst, '..'), { recursive: true })
-  cpSync(src, dst)
-}
-
-function syncDirMirror(src: string, dst: string): void {
-  if (!existsSync(src)) {
-    if (existsSync(dst)) rmSync(dst, { recursive: true, force: true })
-    return
-  }
-  // If src and dst resolve to the same dir (junction case) — content is already there, skip.
-  if (isSamePath(src, dst)) return
-
-  // Remove dst entries that don't exist in src OR that are ignored garbage
-  if (existsSync(dst)) {
-    for (const entry of readdirSync(dst)) {
-      if (isIgnored(entry) || !existsSync(join(src, entry))) {
-        rmSync(join(dst, entry), { recursive: true, force: true })
-      }
-    }
-  }
-  mkdirSync(dst, { recursive: true })
-  for (const entry of readdirSync(src)) {
-    if (isIgnored(entry)) continue
-    const s = join(src, entry)
-    const d = join(dst, entry)
-    if (isSamePath(s, d)) continue
-    const stat = statSync(s)
-    if (stat.isDirectory()) {
-      syncDirMirror(s, d)
-    } else {
-      cpSync(s, d)
-    }
-  }
-}
-
-function syncProjectsMemoryOnly(src: string, dst: string): void {
-  if (!existsSync(src)) return
-  for (const projectDir of readdirSync(src)) {
-    const projectMemorySrc = join(src, projectDir, 'memory')
-    const projectMemoryDst = join(dst, projectDir, 'memory')
-    if (existsSync(projectMemorySrc)) {
-      syncDirMirror(projectMemorySrc, projectMemoryDst)
-    }
-  }
-}
-
-export function exportRulesToRepo(rulesTarget: string, repoPath: string): void {
-  const globalDir = join(repoPath, 'global')
-  mkdirSync(globalDir, { recursive: true })
-
-  // file mirror
-  syncFile(join(rulesTarget, 'CLAUDE.md'), join(globalDir, 'CLAUDE.md'))
-  syncFile(join(rulesTarget, 'settings.json'), join(globalDir, 'settings.json'))
-
-  // dir mirror
-  syncDirMirror(join(rulesTarget, 'commands'), join(globalDir, 'commands'))
-  syncDirMirror(join(rulesTarget, 'skills'), join(globalDir, 'skills'))
-
-  // projects — only memory subdirs (mirror within memory/, leave rest alone)
-  syncProjectsMemoryOnly(join(rulesTarget, 'projects'), join(globalDir, 'projects'))
-}
-
-export function stripSecretsInRepo(repoPath: string): void {
-  const settingsPath = join(repoPath, 'global', 'settings.json')
-  if (!existsSync(settingsPath)) return
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(readFileSync(settingsPath, 'utf8'))
-  } catch {
-    throw new Error('Invalid JSON in global/settings.json — fix it before push')
-  }
-  if ('env' in parsed) {
-    delete parsed.env
-    writeFileSync(settingsPath, JSON.stringify(parsed, null, 2), 'utf8')
-  }
-}
 
 /**
  * GitHub git-over-HTTPS rejects `Authorization: Bearer <token>` with
@@ -204,21 +83,24 @@ export type RunPushOpts = {
 
 export async function runPush(opts: RunPushOpts): Promise<RunResult> {
   const cfg = readConfig(opts.configPath)
-  if (!cfg.repoUrl || !cfg.repoPath || !cfg.rulesTarget) {
+  if (!cfg.repoUrl || !cfg.repoPath) {
+    return failResult({ key: 'push.error.notConfigured' })
+  }
+  if (!cfg.claude.enabled || !cfg.claude.path) {
     return failResult({ key: 'push.error.notConfigured' })
   }
   const token = loadToken(opts.userDataDir)
   if (!token) return failResult({ key: 'push.error.notSignedIn' })
 
   const repoPath = cfg.repoPath
-  const rulesTarget = cfg.rulesTarget
+  const claudePath = cfg.claude.path
 
   return withRunLock(async () => {
     // 1. Export (only in copy mode; symlinks already reflect changes)
     opts.emitStep({ step: 'export', status: 'running' })
-    if (detectInstallMode(rulesTarget, repoPath) === 'copy') {
+    if (detectClaudeInstallMode(claudePath) === 'copy') {
       try {
-        exportRulesToRepo(rulesTarget, repoPath)
+        exportClaude(claudePath, repoPath)
       } catch (e) {
         opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
         return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
@@ -226,7 +108,7 @@ export async function runPush(opts: RunPushOpts): Promise<RunResult> {
     }
     if (!opts.includeSecrets) {
       try {
-        stripSecretsInRepo(repoPath)
+        stripSecretsInClaudeRepo(repoPath)
       } catch (e) {
         opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
         return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })

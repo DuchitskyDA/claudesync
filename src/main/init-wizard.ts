@@ -5,7 +5,6 @@ import {
   writeFileSync,
   readdirSync,
   statSync,
-  cpSync,
   chmodSync,
 } from 'node:fs'
 import { join, sep, posix, dirname } from 'node:path'
@@ -16,6 +15,7 @@ import { runCommand, withRunLock } from './runner'
 import { createRepo as ghCreateRepo } from './github-api'
 import { loadToken } from './safe-storage'
 import type { ScanResult } from '@shared/api'
+import { generateClaudeStructure } from './sync/claude'
 
 const RUNTIME_TOP_DIRS = [
   'sessions',
@@ -119,53 +119,8 @@ export function scanLocalConfig(rulesTarget: string): ScanResult {
   }
 }
 
-function copyFileIfExists(src: string, dst: string): void {
-  if (!existsSync(src)) return
-  mkdirSync(join(dst, '..'), { recursive: true })
-  cpSync(src, dst)
-}
-
-function copyDirIfExists(src: string, dst: string): void {
-  if (!existsSync(src)) return
-  mkdirSync(dst, { recursive: true })
-  cpSync(src, dst, { recursive: true })
-}
-
-export function generateGlobalStructure(rulesTarget: string, repoPath: string): void {
-  const globalDir = join(repoPath, 'global')
-  mkdirSync(globalDir, { recursive: true })
-
-  // CLAUDE.md
-  copyFileIfExists(join(rulesTarget, 'CLAUDE.md'), join(globalDir, 'CLAUDE.md'))
-
-  // settings.json — strip env
-  const settingsSrc = join(rulesTarget, 'settings.json')
-  if (existsSync(settingsSrc)) {
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(readFileSync(settingsSrc, 'utf8'))
-    } catch {
-      parsed = {}
-    }
-    delete parsed.env
-    writeFileSync(join(globalDir, 'settings.json'), JSON.stringify(parsed, null, 2), 'utf8')
-  }
-
-  // commands, skills — full mirror
-  copyDirIfExists(join(rulesTarget, 'commands'), join(globalDir, 'commands'))
-  copyDirIfExists(join(rulesTarget, 'skills'), join(globalDir, 'skills'))
-
-  // projects/<encoded>/memory — only memory subdir
-  const projectsSrc = join(rulesTarget, 'projects')
-  const projectsDst = join(globalDir, 'projects')
-  if (existsSync(projectsSrc)) {
-    for (const dir of readdirSync(projectsSrc)) {
-      const src = join(projectsSrc, dir, 'memory')
-      const dst = join(projectsDst, dir, 'memory')
-      copyDirIfExists(src, dst)
-    }
-  }
-}
+/** Backwards-compat re-export. Logic moved to src/main/sync/claude.ts. */
+export const generateGlobalStructure = generateClaudeStructure
 
 // ---------------------------------------------------------------------------
 // Embedded templates
