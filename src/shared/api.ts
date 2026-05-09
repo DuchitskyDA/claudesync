@@ -130,8 +130,13 @@ export interface AppApi {
    *  registered on machine A can be picked up on machine B by name without
    *  having to remember it. */
   listRepoCursorSubdirs(): Promise<string[]>
-  /** Discard all local changes in the sync repo (modified + untracked).
-   *  Equivalent to `git checkout -- . && git clean -fd`. Destructive. */
+  /** Discard tracked changes in the sync repo: revert modified files to HEAD
+   *  and reverse-mirror the result back into the user's source dirs (Claude
+   *  + Cursor projects). Untracked files are left in place — they may be
+   *  the symlink targets of files the user is actively using, or local-only
+   *  additions not yet pushed. The user can always Push to commit them or
+   *  manually delete them. Reverse-mirror is additive: never deletes
+   *  local-only files. */
   discardLocalChanges(): Promise<RunResult>
   /** Open a file in the user's default app, given a path relative to the
    *  sync repo root. Used to inspect a single changed file from the

@@ -88,6 +88,47 @@ function syncDirMirror(src: string, dst: string): void {
   }
 }
 
+/**
+ * Additive variant of `syncDirMirror`: copy `src/*` into `dst/*`, overwriting
+ * files that exist on both sides, but **never** removing entries from `dst`
+ * that aren't present in `src`.
+ *
+ * Used by the reverse-mirror path (repo HEAD → user's source dir) so we never
+ * silently destroy a user's local-only file just because the repo doesn't
+ * have it. The destructive forward-mirror (`exportClaude` → repo) keeps using
+ * `syncDirMirror`, which is correct: source dirs are the source of truth on
+ * push, so removed entries should propagate into the repo.
+ */
+function syncDirCopy(src: string, dst: string): void {
+  if (!existsSync(src)) return
+  if (isSamePath(src, dst)) return
+  mkdirSync(dst, { recursive: true })
+  for (const entry of readdirSync(src)) {
+    if (isIgnored(entry)) continue
+    const s = join(src, entry)
+    const d = join(dst, entry)
+    if (isSamePath(s, d)) continue
+    let lst
+    try {
+      lst = lstatSync(s)
+    } catch {
+      continue
+    }
+    if (lst.isSymbolicLink() && !existsSync(s)) continue
+    let stat
+    try {
+      stat = statSync(s)
+    } catch {
+      continue
+    }
+    if (stat.isDirectory()) {
+      syncDirCopy(s, d)
+    } else {
+      cpSync(s, d)
+    }
+  }
+}
+
 function syncProjectsMemoryOnly(src: string, dst: string): void {
   if (!existsSync(src)) return
   for (const projectDir of readdirSync(src)) {
@@ -210,9 +251,24 @@ export function installClaude(repoPath: string, claudePath: string): void {
 
   syncFile(join(src, 'CLAUDE.md'), join(claudePath, 'CLAUDE.md'))
   installClaudeSettings(join(src, 'settings.json'), join(claudePath, 'settings.json'))
-  syncDirMirror(join(src, 'commands'), join(claudePath, 'commands'))
-  syncDirMirror(join(src, 'skills'), join(claudePath, 'skills'))
-  syncProjectsMemoryOnly(join(src, 'projects'), join(claudePath, 'projects'))
+  // Additive copy: never delete a user's local-only command/skill just because
+  // the repo doesn't have it. That's how Discard managed to make files
+  // "disappear" before this fix — the destructive `syncDirMirror` removed
+  // local files whose repo counterparts had been cleaned by `git clean -fd`.
+  syncDirCopy(join(src, 'commands'), join(claudePath, 'commands'))
+  syncDirCopy(join(src, 'skills'), join(claudePath, 'skills'))
+  installClaudeProjectsAdditive(join(src, 'projects'), join(claudePath, 'projects'))
+}
+
+function installClaudeProjectsAdditive(src: string, dst: string): void {
+  if (!existsSync(src)) return
+  for (const projectDir of readdirSync(src)) {
+    const projectMemorySrc = join(src, projectDir, 'memory')
+    const projectMemoryDst = join(dst, projectDir, 'memory')
+    if (existsSync(projectMemorySrc)) {
+      syncDirCopy(projectMemorySrc, projectMemoryDst)
+    }
+  }
 }
 
 function readUserEnv(claudeSettingsPath: string): Record<string, unknown> | null {

@@ -626,6 +626,33 @@ export function registerIpc(window: BrowserWindow): void {
         error: { key: 'pull.error.failed', fallback: r.stderr.trim().split(/\r?\n/).slice(-2).join(' | ') },
       }
     }
+    // Reverse-mirror the freshly-pulled repo HEAD into the user's source
+    // dirs so files that landed in HEAD via the pull (e.g. a teammate's
+    // new skill or rule) appear in `~/.claude` / Cursor projects without
+    // the user having to click "Install" separately. Additive semantics:
+    // never delete a local-only file because it isn't in repo HEAD.
+    if (cfg.claude.enabled && cfg.claude.path) {
+      try {
+        installClaude(repoPath, cfg.claude.path)
+      } catch (e) {
+        emit({
+          time: nowHHMMSS(),
+          text: `claude post-pull install failed: ${(e as Error).message}`,
+          level: 'error',
+        })
+      }
+    }
+    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
+      try {
+        installCursorProjects(repoPath, cfg.cursor.projects, emit)
+      } catch (e) {
+        emit({
+          time: nowHHMMSS(),
+          text: `cursor post-pull install failed: ${(e as Error).message}`,
+          level: 'error',
+        })
+      }
+    }
     emit({ time: nowHHMMSS(), text: '✓ Pull done', level: 'success' })
     return { ok: true, exitCode: 0 }
   })
@@ -644,21 +671,22 @@ export function registerIpc(window: BrowserWindow): void {
     if (checkout.exitCode !== 0) {
       return { ok: false, exitCode: checkout.exitCode, error: { key: 'discard.error.failed', fallback: 'git checkout failed' } }
     }
-    emit({ time: nowHHMMSS(), text: '$ git clean -fd', level: 'info' })
-    const clean = await runCommand('git', ['-C', repoPath, 'clean', '-fd'], {
-      cwd: repoPath,
-      onLine: emit,
-    })
-    if (clean.exitCode !== 0) {
-      return { ok: false, exitCode: clean.exitCode, error: { key: 'discard.error.failed', fallback: 'git clean failed' } }
-    }
+    // Note: we deliberately do NOT run `git clean -fd` here. In symlink
+    // install mode the user's `~/.claude/<file>` is a symlink whose target
+    // is `<repo>/claude/<file>`; if that target was untracked, `git clean`
+    // would remove it and break the symlink, making the file appear to
+    // "disappear" from the user's claude path. The `installClaude` /
+    // `installCursorProjects` calls below reverse-mirror the repo's
+    // tracked HEAD back into source dirs, which is what Discard actually
+    // means. Untracked files in the repo working tree are left alone —
+    // the next exportClaude pass will reconcile them, and the user can
+    // always Push or manually delete them.
     // Reverse-mirror repo HEAD back into source dirs so the very next
     // get-repo-status / refresh-sync-status — which always re-runs
     // `runEnabledExporters` — produces no diff. Without this step a still-
     // modified Cursor project source would be re-exported into the repo
     // immediately after `git checkout`, making Discard appear to do
-    // nothing. Discard semantics: "throw away ALL local edits, align
-    // source dirs with repo HEAD".
+    // nothing.
     if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
       try {
         installCursorProjects(repoPath, cfg.cursor.projects, emit)

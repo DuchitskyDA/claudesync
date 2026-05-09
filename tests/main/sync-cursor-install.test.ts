@@ -50,28 +50,38 @@ describe('installCursorProject', () => {
     expect(after(join(projectPath, '.cursor', 'rules')).filter((n) => n.includes('.backup'))).toEqual([])
   })
 
-  it('removes files in destination that are absent in source', () => {
+  it('preserves local-only files in destination (additive semantics)', () => {
+    // Reverse-mirror must never delete a user's local-only rule just
+    // because the repo doesn't have it — that turned Discard into a
+    // data-loss action before v0.9.6. The destructive forward-mirror
+    // (push pipeline) still removes orphans on the way out, since source
+    // dirs are the source of truth on push.
     const src = join(repoPath, 'cursor', 'projects', 'app')
     mkdirSync(join(src, 'rules'), { recursive: true })
     writeFileSync(join(src, 'rules', 'keep.mdc'), 'K')
 
     mkdirSync(join(projectPath, '.cursor', 'rules'), { recursive: true })
     writeFileSync(join(projectPath, '.cursor', 'rules', 'keep.mdc'), 'OLD')
-    writeFileSync(join(projectPath, '.cursor', 'rules', 'gone.mdc'), 'X')
+    writeFileSync(join(projectPath, '.cursor', 'rules', 'local-only.mdc'), 'KEEP-ME')
 
     installCursorProject(repoPath, { name: 'app', path: projectPath })
 
-    expect(existsSync(join(projectPath, '.cursor', 'rules', 'keep.mdc'))).toBe(true)
-    expect(existsSync(join(projectPath, '.cursor', 'rules', 'gone.mdc'))).toBe(false)
+    // Repo wins on shared file (overwrite).
+    expect(readFileSync(join(projectPath, '.cursor', 'rules', 'keep.mdc'), 'utf8')).toBe('K')
+    // Local-only file survives.
+    expect(readFileSync(join(projectPath, '.cursor', 'rules', 'local-only.mdc'), 'utf8')).toBe(
+      'KEEP-ME',
+    )
   })
 
-  it('removes legacy .cursorrules from project when source no longer has it', () => {
+  it('preserves a legacy local .cursorrules when source no longer has it', () => {
     mkdirSync(join(repoPath, 'cursor', 'projects', 'app'), { recursive: true })
-    writeFileSync(join(projectPath, '.cursorrules'), 'old')
+    writeFileSync(join(projectPath, '.cursorrules'), 'local-legacy')
 
     installCursorProject(repoPath, { name: 'app', path: projectPath })
 
-    expect(existsSync(join(projectPath, '.cursorrules'))).toBe(false)
+    // Same rule as above: reverse-mirror is additive only, never destructive.
+    expect(readFileSync(join(projectPath, '.cursorrules'), 'utf8')).toBe('local-legacy')
   })
 
   it('skips with warning when project path is missing', () => {

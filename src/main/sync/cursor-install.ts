@@ -1,37 +1,30 @@
-import { existsSync, mkdirSync, statSync, readdirSync, rmSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync, readdirSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CursorProject, LogLine } from '@shared/api'
 
 const IGNORED_NAME = /^\.DS_Store$|^Thumbs\.db$/i
 
-function syncDirMirror(src: string, dst: string): void {
-  if (!existsSync(src)) {
-    if (existsSync(dst)) rmSync(dst, { recursive: true, force: true })
-    return
-  }
-  if (existsSync(dst)) {
-    for (const entry of readdirSync(dst)) {
-      if (IGNORED_NAME.test(entry) || !existsSync(join(src, entry))) {
-        rmSync(join(dst, entry), { recursive: true, force: true })
-      }
-    }
-  }
+/**
+ * Additive copy: overwrite files that exist on both sides, but **never**
+ * remove entries from `dst` that aren't present in `src`. Reverse-mirror
+ * (repo → project) must not destroy the user's local-only files; that's
+ * what made Discard turn into a data-loss action before this fix.
+ */
+function syncDirCopy(src: string, dst: string): void {
+  if (!existsSync(src)) return
   mkdirSync(dst, { recursive: true })
   for (const entry of readdirSync(src)) {
     if (IGNORED_NAME.test(entry)) continue
     const s = join(src, entry)
     const d = join(dst, entry)
     const stat = statSync(s)
-    if (stat.isDirectory()) syncDirMirror(s, d)
+    if (stat.isDirectory()) syncDirCopy(s, d)
     else cpSync(s, d)
   }
 }
 
 function copyFileIfExists(src: string, dst: string): void {
-  if (!existsSync(src)) {
-    if (existsSync(dst)) rmSync(dst, { force: true })
-    return
-  }
+  if (!existsSync(src)) return
   mkdirSync(join(dst, '..'), { recursive: true })
   cpSync(src, dst)
 }
@@ -76,8 +69,8 @@ export function installCursorProject(
     return
   }
   const destDotCursor = join(project.path, '.cursor')
-  syncDirMirror(join(src, 'rules'), join(destDotCursor, 'rules'))
-  syncDirMirror(join(src, 'skills'), join(destDotCursor, 'skills'))
+  syncDirCopy(join(src, 'rules'), join(destDotCursor, 'rules'))
+  syncDirCopy(join(src, 'skills'), join(destDotCursor, 'skills'))
   copyFileIfExists(join(src, '.cursorrules'), join(project.path, '.cursorrules'))
   emit?.({
     time: nowHHMMSS(),

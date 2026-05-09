@@ -190,15 +190,34 @@ describe('installClaude (reverse-mirror after Discard)', () => {
     expect(readFileSync(join(claudePath, 'settings.json'), 'utf8')).toBe('{not json')
   })
 
-  it('removes claudePath files that no longer exist in repo (mirror semantics)', () => {
+  it('preserves local-only files in claudePath (additive semantics)', () => {
+    // The whole point of this fix: Discard must never silently delete a
+    // user's local-only file just because the repo working tree doesn't
+    // mirror it. Before, syncDirMirror in reverse direction wiped them.
     seedRepo()
     mkdirSync(join(claudePath, 'commands'), { recursive: true })
-    writeFileSync(join(claudePath, 'commands', 'gone.md'), 'orphan')
+    writeFileSync(join(claudePath, 'commands', 'local-only.md'), 'KEEP-ME')
 
     installClaude(repoPath, claudePath)
 
-    expect(existsSync(join(claudePath, 'commands', 'gone.md'))).toBe(false)
-    expect(existsSync(join(claudePath, 'commands', 'a.md'))).toBe(true)
+    expect(readFileSync(join(claudePath, 'commands', 'local-only.md'), 'utf8')).toBe('KEEP-ME')
+    // Repo's commands also got installed alongside.
+    expect(readFileSync(join(claudePath, 'commands', 'a.md'), 'utf8')).toBe('REPO-A')
+  })
+
+  it('restores files that exist in repo HEAD but missing locally (post-pull case)', () => {
+    seedRepo()
+    // claudePath starts empty — simulate a teammate's new skill arriving
+    // via `git pull` into the repo, with the user not yet having it
+    // locally. installClaude should make the file appear without any
+    // explicit "Install" click.
+    expect(existsSync(join(claudePath, 'CLAUDE.md'))).toBe(false)
+    expect(existsSync(join(claudePath, 'skills', 's1', 'SKILL.md'))).toBe(false)
+
+    installClaude(repoPath, claudePath)
+
+    expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('REPO-CLAUDE')
+    expect(readFileSync(join(claudePath, 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('REPO-S')
   })
 
   it('is a no-op in symlink install mode', () => {
