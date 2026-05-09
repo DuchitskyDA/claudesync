@@ -184,6 +184,70 @@ export function generateClaudeStructure(claudePath: string, repoPath: string): v
   }
 }
 
+/**
+ * Reverse of `exportClaude`: mirror `<repoPath>/claude/...` back into the
+ * user's claudePath. Used by Discard to align the working tree with the
+ * repo HEAD — without this step the next `runEnabledExporters` pass would
+ * re-export the still-modified source dir and the popover would keep
+ * showing "1 local change" forever.
+ *
+ * `symlink` install mode is a no-op: `git checkout -- .` already updated
+ * the file inodes that the user's path symlinks to, so there's nothing
+ * left to do (and overwriting would clobber the symlinks).
+ *
+ * In `copy` mode `settings.json` gets a special merge: keys come from the
+ * repo file, but the user's local `env` block is preserved. The push
+ * pipeline strips `env` before committing (see `stripSecretsInClaudeRepo`),
+ * so the repo HEAD never has the user's API keys — a naive overwrite
+ * would silently delete them on every Discard.
+ */
+export function installClaude(repoPath: string, claudePath: string): void {
+  if (detectClaudeInstallMode(claudePath) === 'symlink') return
+
+  const src = join(repoPath, 'claude')
+  if (!existsSync(src)) return
+  mkdirSync(claudePath, { recursive: true })
+
+  syncFile(join(src, 'CLAUDE.md'), join(claudePath, 'CLAUDE.md'))
+  installClaudeSettings(join(src, 'settings.json'), join(claudePath, 'settings.json'))
+  syncDirMirror(join(src, 'commands'), join(claudePath, 'commands'))
+  syncDirMirror(join(src, 'skills'), join(claudePath, 'skills'))
+  syncProjectsMemoryOnly(join(src, 'projects'), join(claudePath, 'projects'))
+}
+
+function readUserEnv(claudeSettingsPath: string): Record<string, unknown> | null {
+  if (!existsSync(claudeSettingsPath)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(claudeSettingsPath, 'utf8')) as Record<string, unknown>
+    const env = parsed.env
+    if (env && typeof env === 'object' && !Array.isArray(env)) {
+      return env as Record<string, unknown>
+    }
+  } catch {
+    /* file corrupt — caller proceeds without preservation */
+  }
+  return null
+}
+
+function installClaudeSettings(repoSettingsPath: string, claudeSettingsPath: string): void {
+  if (!existsSync(repoSettingsPath)) return
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(readFileSync(repoSettingsPath, 'utf8')) as Record<string, unknown>
+  } catch {
+    // Repo file unparseable — fall back to a plain copy and let the user
+    // fix the JSON manually. Better than throwing in the middle of Discard.
+    syncFile(repoSettingsPath, claudeSettingsPath)
+    return
+  }
+  const userEnv = readUserEnv(claudeSettingsPath)
+  if (userEnv && Object.keys(userEnv).length > 0) {
+    parsed.env = userEnv
+  }
+  mkdirSync(join(claudeSettingsPath, '..'), { recursive: true })
+  writeFileSync(claudeSettingsPath, JSON.stringify(parsed, null, 2), 'utf8')
+}
+
 export function stripSecretsInClaudeRepo(repoPath: string): void {
   const settingsPath = join(repoPath, 'claude', 'settings.json')
   if (!existsSync(settingsPath)) return

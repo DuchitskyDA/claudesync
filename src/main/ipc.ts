@@ -42,7 +42,7 @@ import {
 import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
-import { detectClaudeInstallMode, exportClaude, stripSecretsInClaudeRepo } from './sync/claude'
+import { detectClaudeInstallMode, exportClaude, installClaude, stripSecretsInClaudeRepo } from './sync/claude'
 import { exportCursorProjects } from './sync/cursor'
 import { installCursorProjects } from './sync/cursor-install'
 import { getSyncStatus } from './sync-status'
@@ -670,10 +670,22 @@ export function registerIpc(window: BrowserWindow): void {
         })
       }
     }
-    // TODO(claude): symmetric reverse-mirror for `cfg.claude.path` when
-    // detectClaudeInstallMode === 'copy'. Lower priority — Cursor is
-    // where the user hit this; Claude users in copy mode can re-run the
-    // bundled install script as a workaround.
+    // Claude in `copy` install mode has the same loop: a still-modified
+    // ~/.claude tree gets re-exported into the repo by the next
+    // `runEnabledExporters` pass and Discard appears to do nothing.
+    // `installClaude` is a no-op when the user is in symlink mode (git
+    // checkout already updated the underlying inodes via the symlinks).
+    if (cfg.claude.enabled && cfg.claude.path) {
+      try {
+        installClaude(repoPath, cfg.claude.path)
+      } catch (e) {
+        emit({
+          time: nowHHMMSS(),
+          text: `claude reverse-mirror failed: ${(e as Error).message}`,
+          level: 'error',
+        })
+      }
+    }
     emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
     return { ok: true, exitCode: 0 }
   })

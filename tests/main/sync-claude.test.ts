@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  symlinkSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   exportClaude,
   generateClaudeStructure,
+  installClaude,
   stripSecretsInClaudeRepo,
   detectClaudeInstallMode,
 } from '../../src/main/sync/claude'
@@ -120,5 +129,107 @@ describe('detectClaudeInstallMode', () => {
   it('returns "copy" when CLAUDE.md is a regular file', () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'hi')
     expect(detectClaudeInstallMode(claudePath)).toBe('copy')
+  })
+})
+
+describe('installClaude (reverse-mirror after Discard)', () => {
+  function seedRepo(): void {
+    mkdirSync(join(repoPath, 'claude', 'commands'), { recursive: true })
+    mkdirSync(join(repoPath, 'claude', 'skills', 's1'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'REPO-CLAUDE')
+    writeFileSync(
+      join(repoPath, 'claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { p: true }, theme: 'dark' }),
+    )
+    writeFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'REPO-A')
+    writeFileSync(join(repoPath, 'claude', 'skills', 's1', 'SKILL.md'), 'REPO-S')
+  }
+
+  it('mirrors repo back into claudePath in copy mode', () => {
+    seedRepo()
+    // Source has different / missing content — must be replaced.
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'LOCAL-OUTDATED')
+
+    installClaude(repoPath, claudePath)
+
+    expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('REPO-CLAUDE')
+    expect(readFileSync(join(claudePath, 'commands', 'a.md'), 'utf8')).toBe('REPO-A')
+    expect(readFileSync(join(claudePath, 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('REPO-S')
+  })
+
+  it('preserves local env block in settings.json (not present in repo HEAD)', () => {
+    seedRepo()
+    writeFileSync(
+      join(claudePath, 'settings.json'),
+      JSON.stringify({
+        enabledPlugins: { local: true },
+        theme: 'light',
+        env: { ANTHROPIC_API_KEY: 'sk-secret', OPENAI_API_KEY: 'sk-other' },
+      }),
+    )
+
+    installClaude(repoPath, claudePath)
+
+    const written = JSON.parse(
+      readFileSync(join(claudePath, 'settings.json'), 'utf8'),
+    ) as Record<string, unknown>
+    // Repo wins on regular keys ...
+    expect((written.enabledPlugins as Record<string, unknown>).p).toBe(true)
+    expect((written.enabledPlugins as Record<string, unknown>).local).toBeUndefined()
+    expect(written.theme).toBe('dark')
+    // ... but local env survives, since the repo never has it (stripped on push).
+    expect(written.env).toEqual({ ANTHROPIC_API_KEY: 'sk-secret', OPENAI_API_KEY: 'sk-other' })
+  })
+
+  it('falls back to plain copy when repo settings.json is unparseable', () => {
+    mkdirSync(join(repoPath, 'claude'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'settings.json'), '{not json')
+
+    installClaude(repoPath, claudePath)
+
+    expect(readFileSync(join(claudePath, 'settings.json'), 'utf8')).toBe('{not json')
+  })
+
+  it('removes claudePath files that no longer exist in repo (mirror semantics)', () => {
+    seedRepo()
+    mkdirSync(join(claudePath, 'commands'), { recursive: true })
+    writeFileSync(join(claudePath, 'commands', 'gone.md'), 'orphan')
+
+    installClaude(repoPath, claudePath)
+
+    expect(existsSync(join(claudePath, 'commands', 'gone.md'))).toBe(false)
+    expect(existsSync(join(claudePath, 'commands', 'a.md'))).toBe(true)
+  })
+
+  it('is a no-op in symlink install mode', () => {
+    // Make CLAUDE.md a symlink so detectClaudeInstallMode returns "symlink".
+    const target = join(dir, 'symlink-target.md')
+    writeFileSync(target, 'TARGET-CONTENT')
+    symlinkSync(target, join(claudePath, 'CLAUDE.md'))
+    expect(detectClaudeInstallMode(claudePath)).toBe('symlink')
+
+    // Repo has different content — installClaude must NOT touch it.
+    seedRepo()
+
+    installClaude(repoPath, claudePath)
+
+    // Symlink stayed pointing at original target — content unchanged.
+    expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('TARGET-CONTENT')
+    // And no settings.json was forcefully created in claudePath either.
+    expect(existsSync(join(claudePath, 'settings.json'))).toBe(false)
+  })
+
+  it('does not crash when repo has no claude/ subdir (fresh install)', () => {
+    expect(() => installClaude(repoPath, claudePath)).not.toThrow()
+    expect(existsSync(join(claudePath, 'CLAUDE.md'))).toBe(false)
+  })
+
+  it('does not write env when claudePath settings.json is missing', () => {
+    seedRepo()
+    installClaude(repoPath, claudePath)
+    const written = JSON.parse(
+      readFileSync(join(claudePath, 'settings.json'), 'utf8'),
+    ) as Record<string, unknown>
+    expect(written.env).toBeUndefined()
   })
 })
