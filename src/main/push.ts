@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import type { LogLine, RunResult, StepStatus, PushStep, RepoStatus, LocalizedMessage } from '@shared/api'
 import { runCommand, withRunLock } from './runner'
 import { readConfig } from './config'

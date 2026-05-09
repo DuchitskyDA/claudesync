@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import type { GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
-import { ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import type { CursorConfig, CursorProject, GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
+import { ArrowUp, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import type { UpdaterKind } from '../hooks/useAppState'
 import {
   Dialog,
@@ -36,11 +36,13 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   const [url, setUrl] = useState(initial.repoUrl ?? '')
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
+  const [cursor, setCursor] = useState<CursorConfig>({ enabled: false, projects: [] })
   const [error, setError] = useState<LocalizedMessage | null>(null)
   const [busy, setBusy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [placeholderTarget, setPlaceholderTarget] = useState('')
   const [deviceFlowOpen, setDeviceFlowOpen] = useState(false)
+  const [addProjectOpen, setAddProjectOpen] = useState(false)
   const t = useT()
   const { preference, setPreference } = useLocale()
 
@@ -51,11 +53,14 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       setTarget(initial.rulesTarget ?? '')
       setError(null)
       if (!initial.rulesTarget) {
-        void window.api.detectRulesTarget().then((detected) => {
+        void window.api.detectClaudePath().then((detected) => {
           if (detected) setTarget(detected)
         })
       }
-      void window.api.suggestRulesTarget().then(setPlaceholderTarget)
+      void window.api.suggestClaudePath().then(setPlaceholderTarget)
+      void window.api.getConfig().then((c) => {
+        setCursor(c.cursor)
+      })
     }
   }, [open, initial.repoUrl, initial.repoPath, initial.rulesTarget])
 
@@ -95,7 +100,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
         locale: preference,
         lastDismissedUpdate: existing.lastDismissedUpdate,
         claude: { enabled: !!trimmedTarget, path: trimmedTarget || null },
-        cursor: existing.cursor,
+        cursor,
       })
       if (!r.ok) {
         setError(r.error ?? { key: 'settings.error.unknown' })
@@ -108,7 +113,14 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
     }
   }
 
-  const canSave = target.trim() !== ''
+  const canSave = target.trim() !== '' || (cursor.enabled && cursor.projects.length > 0)
+
+  const removeProject = (idx: number) => {
+    setCursor((c) => ({ ...c, projects: c.projects.filter((_, i) => i !== idx) }))
+  }
+  const addProject = (p: CursorProject) => {
+    setCursor((c) => ({ ...c, enabled: true, projects: [...c.projects, p] }))
+  }
 
   return (
     <>
@@ -169,6 +181,52 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                 </div>
               )}
             </div>
+
+            <Section title={t('settings.cursor.title')}>
+              <label className="flex items-center gap-2 text-sm mb-2">
+                <input
+                  type="checkbox"
+                  checked={cursor.enabled}
+                  onChange={(e) => setCursor((c) => ({ ...c, enabled: e.target.checked }))}
+                  className="accent-primary"
+                />
+                {t('settings.cursor.enable')}
+              </label>
+              <div className={cursor.enabled ? '' : 'opacity-50 pointer-events-none'}>
+                {cursor.projects.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    {t('settings.cursor.empty')}
+                  </div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {cursor.projects.map((p, i) => (
+                      <li key={`${p.name}-${i}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                        <span className="font-medium shrink-0">{p.name}</span>
+                        <span className="font-mono text-xs text-muted-foreground truncate flex-1">{p.path}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeProject(i)}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label={t('settings.cursor.remove')}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setAddProjectOpen(true)}
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  {t('settings.cursor.addProject')}
+                </Button>
+              </div>
+            </Section>
 
             {error && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -247,7 +305,123 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
           onSignedIn()
         }}
       />
+
+      <AddCursorProjectDialog
+        open={addProjectOpen}
+        existingNames={cursor.projects.map((p) => p.name)}
+        existingPaths={cursor.projects.map((p) => p.path)}
+        onClose={() => setAddProjectOpen(false)}
+        onAdd={addProject}
+      />
     </>
+  )
+}
+
+function AddCursorProjectDialog({
+  open,
+  existingNames,
+  existingPaths,
+  onClose,
+  onAdd,
+}: {
+  open: boolean
+  existingNames: string[]
+  existingPaths: string[]
+  onClose: () => void
+  onAdd: (p: CursorProject) => void
+}) {
+  const t = useT()
+  const [name, setName] = useState('')
+  const [path, setPath] = useState('')
+  const [error, setError] = useState<LocalizedMessage | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setName('')
+      setPath('')
+      setError(null)
+    }
+  }, [open])
+
+  const browse = async () => {
+    const p = await window.api.pickCursorProjectPath()
+    if (p) {
+      setPath(p)
+      if (!name.trim()) {
+        const parts = p.split(/[\\/]/).filter(Boolean)
+        setName(parts[parts.length - 1] ?? '')
+      }
+    }
+  }
+
+  const submit = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      const trimmedName = name.trim()
+      const trimmedPath = path.trim()
+      if (existingNames.includes(trimmedName)) {
+        setError({ key: 'cursor.error.duplicateName', params: { name: trimmedName } })
+        return
+      }
+      if (existingPaths.includes(trimmedPath)) {
+        setError({ key: 'cursor.error.duplicatePath', params: { path: trimmedPath } })
+        return
+      }
+      const r = await window.api.validateCursorProject({ name: trimmedName, path: trimmedPath })
+      if (!r.ok) {
+        setError(r.error)
+        return
+      }
+      onAdd({ name: trimmedName, path: trimmedPath })
+      onClose()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{t('settings.cursor.add.title')}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>{t('settings.cursor.add.name')}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="myapp" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t('settings.cursor.add.path')}</Label>
+            <div className="flex gap-2">
+              <Input
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/path/to/project"
+                className="font-mono"
+              />
+              <Button type="button" variant="outline" onClick={browse}>
+                {t('settings.browse')}
+              </Button>
+            </div>
+          </div>
+          {error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {tMessage(t, error)}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-end">
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={submit} disabled={busy || !name.trim() || !path.trim()}>
+            {t('settings.cursor.add.submit')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

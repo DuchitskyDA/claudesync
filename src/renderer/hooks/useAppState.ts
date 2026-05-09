@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef } from 'react'
 import type {
+  CursorConfig,
   GitHubAuthState,
   LocalizedMessage,
   LogLine,
@@ -36,6 +37,7 @@ export type AppState = {
   repoPath: string | null
   repoUrl: string | null
   rulesTarget: string | null
+  cursor: CursorConfig
   platform: NodeJS.Platform | null
   arch: NodeJS.Architecture | null
   isRunning: boolean
@@ -54,7 +56,7 @@ export type AppState = {
 }
 
 type Action =
-  | { type: 'set-config'; repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }
+  | { type: 'set-config'; repoPath: string | null; repoUrl: string | null; rulesTarget: string | null; cursor: CursorConfig }
   | { type: 'set-platform'; platform: NodeJS.Platform }
   | { type: 'set-arch'; arch: NodeJS.Architecture }
   | { type: 'run-start' }
@@ -86,6 +88,7 @@ const initial: AppState = {
   repoPath: null,
   repoUrl: null,
   rulesTarget: null,
+  cursor: { enabled: false, projects: [] },
   platform: null,
   arch: null,
   isRunning: false,
@@ -105,7 +108,7 @@ const initial: AppState = {
 function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     case 'set-config':
-      return { ...s, repoPath: a.repoPath, repoUrl: a.repoUrl, rulesTarget: a.rulesTarget }
+      return { ...s, repoPath: a.repoPath, repoUrl: a.repoUrl, rulesTarget: a.rulesTarget, cursor: a.cursor }
     case 'set-platform':
       return { ...s, platform: a.platform }
     case 'set-arch':
@@ -206,6 +209,7 @@ export function useAppState() {
         repoPath: c.repoPath,
         repoUrl: c.repoUrl,
         rulesTarget: c.claude.path,
+        cursor: c.cursor,
       })
       dispatch({ type: 'set-dismissed-update', version: c.lastDismissedUpdate })
       if (!c.claude.path) dispatch({ type: 'open-settings' })
@@ -355,8 +359,14 @@ export function useAppState() {
     clearLog: () => dispatch({ type: 'clear-log' }),
     openSettings: () => dispatch({ type: 'open-settings' }),
     closeSettings: () => dispatch({ type: 'close-settings' }),
-    setConfigState: (c: { repoPath: string | null; repoUrl: string | null; rulesTarget: string | null }) => {
-      dispatch({ type: 'set-config', ...c })
+    setConfigState: (c: { repoPath: string | null; repoUrl: string | null; rulesTarget: string | null; cursor?: CursorConfig }) => {
+      dispatch({
+        type: 'set-config',
+        repoPath: c.repoPath,
+        repoUrl: c.repoUrl,
+        rulesTarget: c.rulesTarget,
+        cursor: c.cursor ?? state.cursor,
+      })
       void refreshSyncStatus(true)
     },
     refreshAuth,
