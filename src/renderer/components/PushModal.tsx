@@ -32,7 +32,7 @@ export function PushModal({ open, onClose, onConfirm }: Props) {
     setMessage('')
     setError(null)
     setBusy(false)
-    void window.api.getRepoStatus().then(setStatus)
+    void window.api.previewPushStatus().then(setStatus)
     void window.api.getConfig().then((cfg) => setIncludeSecrets(cfg.includeSecretsInPush))
   }, [open])
 

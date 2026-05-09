@@ -40,6 +40,8 @@ import {
 import { listOwners } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
+import { detectClaudeInstallMode, exportClaude, stripSecretsInClaudeRepo } from './sync/claude'
+import { exportCursorProjects } from './sync/cursor'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -376,6 +378,35 @@ export function registerIpc(window: BrowserWindow): void {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
     return getRepoStatus(cfg.repoPath)
+  })
+
+  ipcMain.handle('preview-push-status', async () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return { changedFiles: [], clean: true }
+    const repoPath = cfg.repoPath
+    // Run all enabled exporters into the working tree so git status reflects
+    // what would actually be committed. Side effect: files appear in repo even
+    // if user cancels — they'll be picked up by the next push or can be reset
+    // with `git checkout`.
+    if (cfg.claude.enabled && cfg.claude.path) {
+      const claudePath = cfg.claude.path
+      try {
+        if (detectClaudeInstallMode(claudePath) === 'copy') {
+          exportClaude(claudePath, repoPath)
+        }
+        if (!cfg.includeSecretsInPush) stripSecretsInClaudeRepo(repoPath)
+      } catch {
+        // Surface via getRepoStatus output; runPush will report the real error.
+      }
+    }
+    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
+      try {
+        exportCursorProjects(cfg.cursor.projects, repoPath, emit)
+      } catch {
+        /* same — surfaced on real push */
+      }
+    }
+    return getRepoStatus(repoPath)
   })
 
   // Sync status — cached; refresh re-runs `git fetch`.

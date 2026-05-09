@@ -96,6 +96,10 @@ export interface AppApi {
 
   // v0.4 — Push
   getRepoStatus(): Promise<RepoStatus>
+  /** Runs all enabled exporters into the repo, then returns git status.
+   *  Used by PushModal to show what WOULD be pushed; getRepoStatus alone
+   *  reports a clean repo because file changes only appear after export. */
+  previewPushStatus(): Promise<RepoStatus>
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
 
