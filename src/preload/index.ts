@@ -68,6 +68,8 @@ const api: AppApi = {
     ipcRenderer.invoke('pick-cursor-project-path'),
   validateCursorProject: (p: { name: string; path: string }) =>
     ipcRenderer.invoke('validate-cursor-project', p),
+  bootstrapCursorProject: (path: string): Promise<{ created: string[] }> =>
+    ipcRenderer.invoke('bootstrap-cursor-project', path),
   /** @deprecated use detectClaudePath */
   detectRulesTarget: (): Promise<string | null> =>
     ipcRenderer.invoke('detect-rules-target'),

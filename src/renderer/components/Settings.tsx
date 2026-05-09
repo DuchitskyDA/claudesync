@@ -396,6 +396,14 @@ function AddCursorProjectDialog({
         setError(r.error)
         return
       }
+      // Bootstrap empty .cursor/{rules,skills}/ in the project if missing — lets
+      // the user start syncing from scratch even when the project doesn't yet
+      // use Cursor.
+      try {
+        await window.api.bootstrapCursorProject(trimmedPath)
+      } catch {
+        /* non-fatal */
+      }
       onAdd({ name: trimmedName, path: trimmedPath })
       onClose()
     } finally {

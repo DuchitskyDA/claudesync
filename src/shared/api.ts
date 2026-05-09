@@ -73,6 +73,10 @@ export interface AppApi {
   suggestClaudePath(): Promise<string>
   pickCursorProjectPath(): Promise<string | null>
   validateCursorProject(p: { name: string; path: string }): Promise<{ ok: true } | { ok: false; error: LocalizedMessage }>
+  /** Creates .cursor/rules/ and .cursor/skills/ skeletons in the project
+   *  (with .gitkeep files) if they don't already exist. Lets a user register
+   *  a project that doesn't yet use Cursor and start syncing from scratch. */
+  bootstrapCursorProject(path: string): Promise<{ created: string[] }>
   /** @deprecated use detectClaudePath */
   detectRulesTarget(): Promise<string | null>
   /** @deprecated use suggestClaudePath */

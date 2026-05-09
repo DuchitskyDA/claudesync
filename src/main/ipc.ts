@@ -306,6 +306,20 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('validate-cursor-project', (_e, p: { name: string; path: string }) => {
     return validateCursorProject(p)
   })
+  ipcMain.handle('bootstrap-cursor-project', (_e, projectPath: string): { created: string[] } => {
+    const created: string[] = []
+    const expanded = expandTilde(projectPath)
+    const dotCursor = join(expanded, '.cursor')
+    for (const sub of ['rules', 'skills']) {
+      const dir = join(dotCursor, sub)
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, '.gitkeep'), '')
+        created.push(`.cursor/${sub}/`)
+      }
+    }
+    return { created }
+  })
 
   // Legacy channel names — kept for backwards compat, drop after renderer is migrated.
   ipcMain.handle('detect-rules-target', () => detectClaudeTarget())
