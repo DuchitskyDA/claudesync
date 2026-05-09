@@ -77,6 +77,8 @@
   "settings.language.en": "English",
   "settings.language.ru": "Русский",
   "push.error.notConfigured": "Sync not configured. Open Settings to set Repo URL.",
+  "push.error.nothingEnabled": "Nothing to sync — enable Claude or add a Cursor project in Settings.",
+  "push.error.cursorExport": "Cursor export failed: {{fallback}}",
   "push.error.notSignedIn": "Not signed in to GitHub.",
   "push.error.invalidJson": "Invalid JSON in global/settings.json — fix it before push.",
   "push.error.gitStatusFailed": "git status failed.",

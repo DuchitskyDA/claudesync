@@ -89,6 +89,8 @@
   "settings.language.en": "English",
   "settings.language.ru": "Русский",
   "push.error.notConfigured": "Синхронизация не настроена. Откройте «Настройки» и укажите URL репозитория.",
+  "push.error.nothingEnabled": "Нечего синхронизировать — включите Claude или добавьте проект Cursor в настройках.",
+  "push.error.cursorExport": "Экспорт Cursor не удался: {{fallback}}",
   "push.error.notSignedIn": "Вы не вошли в GitHub.",
   "push.error.invalidJson": "Невалидный JSON в global/settings.json — исправьте перед push.",
   "push.error.gitStatusFailed": "git status завершился с ошибкой.",

@@ -8,6 +8,7 @@ import {
   exportClaude,
   stripSecretsInClaudeRepo,
 } from './sync/claude'
+import { exportCursorProjects } from './sync/cursor'
 
 // Re-exports kept for backwards-compat with existing IPC handlers and tests.
 export { detectClaudeInstallMode as detectInstallMode } from './sync/claude'
@@ -86,32 +87,44 @@ export async function runPush(opts: RunPushOpts): Promise<RunResult> {
   if (!cfg.repoUrl || !cfg.repoPath) {
     return failResult({ key: 'push.error.notConfigured' })
   }
-  if (!cfg.claude.enabled || !cfg.claude.path) {
-    return failResult({ key: 'push.error.notConfigured' })
+  const claudeOk = cfg.claude.enabled && !!cfg.claude.path
+  const cursorOk = cfg.cursor.enabled && cfg.cursor.projects.length > 0
+  if (!claudeOk && !cursorOk) {
+    return failResult({ key: 'push.error.nothingEnabled' })
   }
   const token = loadToken(opts.userDataDir)
   if (!token) return failResult({ key: 'push.error.notSignedIn' })
 
   const repoPath = cfg.repoPath
-  const claudePath = cfg.claude.path
 
   return withRunLock(async () => {
     // 1. Export (only in copy mode; symlinks already reflect changes)
     opts.emitStep({ step: 'export', status: 'running' })
-    if (detectClaudeInstallMode(claudePath) === 'copy') {
-      try {
-        exportClaude(claudePath, repoPath)
-      } catch (e) {
-        opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
-        return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
+    if (claudeOk) {
+      const claudePath = cfg.claude.path as string
+      if (detectClaudeInstallMode(claudePath) === 'copy') {
+        try {
+          exportClaude(claudePath, repoPath)
+        } catch (e) {
+          opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
+          return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
+        }
+      }
+      if (!opts.includeSecrets) {
+        try {
+          stripSecretsInClaudeRepo(repoPath)
+        } catch (e) {
+          opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
+          return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
+        }
       }
     }
-    if (!opts.includeSecrets) {
+    if (cursorOk) {
       try {
-        stripSecretsInClaudeRepo(repoPath)
+        exportCursorProjects(cfg.cursor.projects, repoPath, opts.emit)
       } catch (e) {
-        opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
-        return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
+        opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.cursorExport', fallback: (e as Error).message } })
+        return failResult({ key: 'push.error.cursorExport', fallback: (e as Error).message })
       }
     }
     opts.emitStep({ step: 'export', status: 'done' })
