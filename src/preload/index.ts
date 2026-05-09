@@ -109,6 +109,8 @@ const api: AppApi = {
     ipcRenderer.invoke('get-repo-status'),
   previewPushStatus: (): Promise<RepoStatus> =>
     ipcRenderer.invoke('preview-push-status'),
+  runInstall: (opts: import('@shared/api').InstallOptions): Promise<RunResult> =>
+    ipcRenderer.invoke('run-install', opts),
   runPush: (opts: PushOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-push', opts),
   onPushStep: (callback: (e: PushStepEvent) => void): (() => void) => {

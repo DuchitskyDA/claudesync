@@ -100,6 +100,11 @@ export interface AppApi {
    *  Used by PushModal to show what WOULD be pushed; getRepoStatus alone
    *  reports a clean repo because file changes only appear after export. */
   previewPushStatus(): Promise<RepoStatus>
+  /** Reverse of push: takes content from sync-repo and writes it back to
+   *  the actual targets on disk. Claude install runs install.ps1/sh to
+   *  refresh symlinks. Cursor install copies <repo>/cursor/projects/<name>/
+   *  back into <project.path>/.cursor/ with overwrite (no backup). */
+  runInstall(opts: InstallOptions): Promise<RunResult>
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
 
@@ -231,6 +236,12 @@ export type InitWizardOptions = CreateRepoOptions
 export type PushOptions = {
   commitMessage: string
   includeSecrets: boolean
+}
+
+export type InstallOptions = {
+  installClaude: boolean
+  /** Names of registered Cursor projects to install (must match cfg.cursor.projects[].name). */
+  cursorProjectNames: string[]
 }
 
 export type PushStep = 'export' | 'pull' | 'commit' | 'push'

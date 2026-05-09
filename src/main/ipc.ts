@@ -9,6 +9,7 @@ import type {
   StepEvent,
   ApplyPluginChanges,
   InitStepEvent,
+  InstallOptions,
   PushStepEvent,
   PushOptions,
   InitWizardOptions,
@@ -42,6 +43,7 @@ import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
 import { detectClaudeInstallMode, exportClaude, stripSecretsInClaudeRepo } from './sync/claude'
 import { exportCursorProjects } from './sync/cursor'
+import { installCursorProjects } from './sync/cursor-install'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -490,6 +492,74 @@ export function registerIpc(window: BrowserWindow): void {
       emit,
       emitStep: emitPushStep,
     })
+  })
+
+  ipcMain.handle('run-install', async (_e, opts: InstallOptions): Promise<RunResult> => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) {
+      return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
+    }
+    const repoPath = cfg.repoPath
+    const isWin = process.platform === 'win32'
+
+    // Claude: run repo's install.ps1 / install.sh against cfg.claude.path.
+    if (opts.installClaude) {
+      if (!cfg.claude.path) {
+        return { ok: false, exitCode: -1, error: { key: 'config.error.targetRequired' } }
+      }
+      const scriptName = isWin ? 'install.ps1' : 'install.sh'
+      const scriptPath = join(repoPath, scriptName)
+      if (!existsSync(scriptPath)) {
+        return {
+          ok: false,
+          exitCode: -1,
+          error: {
+            key: 'sync.error.scriptNotFound',
+            params: { scriptName },
+            fallback: `${scriptName} not found in repo root`,
+          },
+        }
+      }
+      emit({ time: nowHHMMSS(), text: `$ ${scriptName} (RULES_TARGET=${cfg.claude.path})`, level: 'info' })
+      const env = { RULES_TARGET: cfg.claude.path }
+      const inst = isWin
+        ? await runCommand(
+            'powershell',
+            ['-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+            { cwd: repoPath, env, onLine: emit },
+          )
+        : await runCommand('bash', [scriptPath], { cwd: repoPath, env, onLine: emit })
+      if (inst.exitCode !== 0) {
+        return {
+          ok: false,
+          exitCode: inst.exitCode,
+          error: {
+            key: 'sync.error.installFailed',
+            params: { exitCode: inst.exitCode },
+            fallback: `install failed (exit ${inst.exitCode})`,
+          },
+        }
+      }
+    }
+
+    // Cursor: copy repo content back into each registered project.
+    if (opts.cursorProjectNames.length > 0) {
+      const selected = cfg.cursor.projects.filter((p) =>
+        opts.cursorProjectNames.includes(p.name),
+      )
+      try {
+        installCursorProjects(repoPath, selected, emit)
+      } catch (e) {
+        return {
+          ok: false,
+          exitCode: -1,
+          error: { key: 'install.error.cursorFailed', fallback: (e as Error).message },
+        }
+      }
+    }
+
+    emit({ time: nowHHMMSS(), text: '✓ Install done', level: 'success' })
+    return { ok: true, exitCode: 0 }
   })
 
   // Conflict resolution

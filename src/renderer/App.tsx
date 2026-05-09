@@ -3,6 +3,8 @@ import { useAppState } from './hooks/useAppState'
 import { PullButton } from './components/PullButton'
 import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
+import { InstallButton } from './components/InstallButton'
+import { InstallModal } from './components/InstallModal'
 import { ConflictModal } from './components/ConflictModal'
 import { UpdateProgressModal } from './components/UpdateProgressModal'
 import { InitWizard } from './components/InitWizard'
@@ -44,6 +46,7 @@ export function App() {
   const [showDetails, setShowDetails] = useState(false)
   const [initOpen, setInitOpen] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
+  const [installOpen, setInstallOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const t = useT()
 
@@ -57,6 +60,11 @@ export function App() {
   const handlePush = async (msg: string, includeSecrets: boolean) => {
     setPushOpen(false)
     await runPush(msg, includeSecrets)
+  }
+
+  const handleInstall = async (opts: { installClaude: boolean; cursorProjectNames: string[] }) => {
+    setInstallOpen(false)
+    await window.api.runInstall(opts)
   }
 
   return (
@@ -123,6 +131,11 @@ export function App() {
                     configComplete={configComplete}
                     isRunning={state.isRunning}
                     onClick={() => setPushOpen(true)}
+                  />
+                  <InstallButton
+                    configComplete={configComplete}
+                    isRunning={state.isRunning}
+                    onClick={() => setInstallOpen(true)}
                   />
                 </div>
                 <div className="flex-1 overflow-auto border-t">
@@ -207,6 +220,7 @@ export function App() {
       />
 
       <PushModal open={pushOpen} onClose={() => setPushOpen(false)} onConfirm={handlePush} />
+      <InstallModal open={installOpen} onClose={() => setInstallOpen(false)} onConfirm={handleInstall} />
 
       <ConflictModal
         open={conflictOpen}
