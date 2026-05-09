@@ -639,6 +639,28 @@ export function registerIpc(window: BrowserWindow): void {
     if (clean.exitCode !== 0) {
       return { ok: false, exitCode: clean.exitCode, error: { key: 'discard.error.failed', fallback: 'git clean failed' } }
     }
+    // Reverse-mirror repo HEAD back into source dirs so the very next
+    // get-repo-status / refresh-sync-status — which always re-runs
+    // `runEnabledExporters` — produces no diff. Without this step a still-
+    // modified Cursor project source would be re-exported into the repo
+    // immediately after `git checkout`, making Discard appear to do
+    // nothing. Discard semantics: "throw away ALL local edits, align
+    // source dirs with repo HEAD".
+    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
+      try {
+        installCursorProjects(repoPath, cfg.cursor.projects, emit)
+      } catch (e) {
+        emit({
+          time: nowHHMMSS(),
+          text: `cursor reverse-mirror failed: ${(e as Error).message}`,
+          level: 'error',
+        })
+      }
+    }
+    // TODO(claude): symmetric reverse-mirror for `cfg.claude.path` when
+    // detectClaudeInstallMode === 'copy'. Lower priority — Cursor is
+    // where the user hit this; Claude users in copy mode can re-run the
+    // bundled install script as a workaround.
     emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
     return { ok: true, exitCode: 0 }
   })
