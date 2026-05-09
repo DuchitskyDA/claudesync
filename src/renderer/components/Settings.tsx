@@ -13,6 +13,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Separator } from './ui/separator'
+import { Tabs as UITabs, TabsList, TabsTrigger } from './ui/tabs'
 import { DeviceFlowModal } from './DeviceFlowModal'
 import { useT, useLocale, SUPPORTED, tMessage } from '../i18n'
 
@@ -43,6 +44,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   const [placeholderTarget, setPlaceholderTarget] = useState('')
   const [deviceFlowOpen, setDeviceFlowOpen] = useState(false)
   const [addProjectOpen, setAddProjectOpen] = useState(false)
+  const [tab, setTab] = useState<'repo' | 'claude' | 'cursor'>('repo')
   const t = useT()
   const { preference, setPreference } = useLocale()
 
@@ -130,164 +132,184 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
             <DialogTitle>{t('settings.title')}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <Field label={t('settings.repoUrl.label')} hint={t('settings.repoUrl.optionalHint')}>
-              <Input
-                value={url}
-                onChange={(e) => { void onUrlChange(e.target.value) }}
-                placeholder={t('settings.repoUrl.placeholder')}
-                className="font-mono"
-              />
-            </Field>
+          <UITabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
+            <TabsList className="w-full">
+              <TabsTrigger value="repo" className="flex-1">{t('settings.tabs.repo')}</TabsTrigger>
+              <TabsTrigger value="claude" className="flex-1">{t('settings.tabs.claude')}</TabsTrigger>
+              <TabsTrigger value="cursor" className="flex-1">{t('settings.tabs.cursor')}</TabsTrigger>
+            </TabsList>
+          </UITabs>
 
-            <Field label={t('settings.target.label')} hint={t('settings.target.requiredHint')}>
-              <div className="flex gap-2">
-                <Input
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  placeholder={placeholderTarget || t('settings.target.placeholder')}
-                  className="font-mono"
-                />
-                <Button type="button" variant="outline" onClick={() => browse(setTarget)}>
-                  {t('settings.browse')}
-                </Button>
-              </div>
-            </Field>
+          <div className="space-y-4 pt-2">
+            {tab === 'repo' && (
+              <>
+                <Field label={t('settings.repoUrl.label')} hint={t('settings.repoUrl.optionalHint')}>
+                  <Input
+                    value={url}
+                    onChange={(e) => { void onUrlChange(e.target.value) }}
+                    placeholder={t('settings.repoUrl.placeholder')}
+                    className="font-mono"
+                  />
+                </Field>
 
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
-              >
-                {showAdvanced ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {t('settings.advanced.toggle')}
-              </button>
-              {showAdvanced && (
-                <div className="mt-2 rounded-md border p-3">
-                  <Field label={t('settings.localRepo.label')} hint={t('settings.localRepo.hint')}>
-                    <div className="flex gap-2">
-                      <Input
-                        value={path}
-                        onChange={(e) => setPath(e.target.value)}
-                        placeholder={t('settings.localRepo.placeholder')}
-                        className="font-mono"
-                      />
-                      <Button type="button" variant="outline" onClick={() => browse(setPath)}>
-                        {t('settings.browse')}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvanced((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    {showAdvanced ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    {t('settings.advanced.toggle')}
+                  </button>
+                  {showAdvanced && (
+                    <div className="mt-2 rounded-md border p-3">
+                      <Field label={t('settings.localRepo.label')} hint={t('settings.localRepo.hint')}>
+                        <div className="flex gap-2">
+                          <Input
+                            value={path}
+                            onChange={(e) => setPath(e.target.value)}
+                            placeholder={t('settings.localRepo.placeholder')}
+                            className="font-mono"
+                          />
+                          <Button type="button" variant="outline" onClick={() => browse(setPath)}>
+                            {t('settings.browse')}
+                          </Button>
+                        </div>
+                      </Field>
+                    </div>
+                  )}
+                </div>
+
+                <Section title={t('settings.github.title')}>
+                  {authState?.authenticated ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        {t('settings.github.signedInAs', { login: authState.login ?? '' })}
+                      </span>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void onSignOut()}>
+                        {t('settings.github.signOut')}
                       </Button>
                     </div>
-                  </Field>
-                </div>
-              )}
-            </div>
+                  ) : (
+                    <Button variant="outline" onClick={() => setDeviceFlowOpen(true)}>
+                      {t('settings.github.signIn')}
+                    </Button>
+                  )}
+                </Section>
 
-            <Section title={t('settings.cursor.title')}>
-              <label className="flex items-center gap-2 text-sm mb-2">
-                <input
-                  type="checkbox"
-                  checked={cursor.enabled}
-                  onChange={(e) => setCursor((c) => ({ ...c, enabled: e.target.checked }))}
-                  className="accent-primary"
-                />
-                {t('settings.cursor.enable')}
-              </label>
-              <div className={cursor.enabled ? '' : 'opacity-50 pointer-events-none'}>
-                {cursor.projects.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                    {t('settings.cursor.empty')}
-                  </div>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {cursor.projects.map((p, i) => (
-                      <li key={`${p.name}-${i}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                        <span className="font-medium shrink-0">{p.name}</span>
-                        <span className="font-mono text-xs text-muted-foreground truncate flex-1">{p.path}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeProject(i)}
-                          className="text-muted-foreground hover:text-destructive"
-                          aria-label={t('settings.cursor.remove')}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </li>
+                <Section title={t('settings.language.title')}>
+                  <div className="flex flex-col gap-1.5 text-sm">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="locale"
+                        checked={preference === null}
+                        onChange={() => void setPreference(null)}
+                        className="accent-primary"
+                      />
+                      {t('settings.language.system')}
+                    </label>
+                    {SUPPORTED.map((loc) => (
+                      <label key={loc} className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="locale"
+                          checked={preference === loc}
+                          onChange={() => void setPreference(loc)}
+                          className="accent-primary"
+                        />
+                        {t(`settings.language.${loc}`)}
+                      </label>
                     ))}
-                  </ul>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => setAddProjectOpen(true)}
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  {t('settings.cursor.addProject')}
-                </Button>
-              </div>
-            </Section>
+                  </div>
+                </Section>
+
+                <Section title={t('settings.updates.title')}>
+                  <UpdatesPanel
+                    info={updateInfo}
+                    platform={platform}
+                    arch={arch}
+                    updaterKind={updaterKind}
+                    onCheck={onCheckForUpdates}
+                    onStartUpdater={onStartUpdater}
+                  />
+                </Section>
+              </>
+            )}
+
+            {tab === 'claude' && (
+              <>
+                <p className="text-xs text-muted-foreground">{t('settings.claude.description')}</p>
+                <Field label={t('settings.claude.path.label')} hint={t('settings.claude.path.hint')}>
+                  <div className="flex gap-2">
+                    <Input
+                      value={target}
+                      onChange={(e) => setTarget(e.target.value)}
+                      placeholder={placeholderTarget || t('settings.target.placeholder')}
+                      className="font-mono"
+                    />
+                    <Button type="button" variant="outline" onClick={() => browse(setTarget)}>
+                      {t('settings.browse')}
+                    </Button>
+                  </div>
+                </Field>
+              </>
+            )}
+
+            {tab === 'cursor' && (
+              <>
+                <p className="text-xs text-muted-foreground">{t('settings.cursor.description')}</p>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={cursor.enabled}
+                    onChange={(e) => setCursor((c) => ({ ...c, enabled: e.target.checked }))}
+                    className="accent-primary"
+                  />
+                  {t('settings.cursor.enable')}
+                </label>
+                <div className={cursor.enabled ? '' : 'opacity-50 pointer-events-none'}>
+                  {cursor.projects.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                      {t('settings.cursor.empty')}
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {cursor.projects.map((p, i) => (
+                        <li key={`${p.name}-${i}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                          <span className="font-medium shrink-0">{p.name}</span>
+                          <span className="font-mono text-xs text-muted-foreground truncate flex-1">{p.path}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeProject(i)}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={t('settings.cursor.remove')}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setAddProjectOpen(true)}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    {t('settings.cursor.addProject')}
+                  </Button>
+                </div>
+              </>
+            )}
 
             {error && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {tMessage(t, error)}
               </div>
             )}
-
-            <Section title={t('settings.github.title')}>
-              {authState?.authenticated ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">
-                    {t('settings.github.signedInAs', { login: authState.login ?? '' })}
-                  </span>
-                  <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void onSignOut()}>
-                    {t('settings.github.signOut')}
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="outline" onClick={() => setDeviceFlowOpen(true)}>
-                  {t('settings.github.signIn')}
-                </Button>
-              )}
-            </Section>
-
-            <Section title={t('settings.language.title')}>
-              <div className="flex flex-col gap-1.5 text-sm">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="radio"
-                    name="locale"
-                    checked={preference === null}
-                    onChange={() => void setPreference(null)}
-                    className="accent-primary"
-                  />
-                  {t('settings.language.system')}
-                </label>
-                {SUPPORTED.map((loc) => (
-                  <label key={loc} className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="locale"
-                      checked={preference === loc}
-                      onChange={() => void setPreference(loc)}
-                      className="accent-primary"
-                    />
-                    {t(`settings.language.${loc}`)}
-                  </label>
-                ))}
-              </div>
-            </Section>
-
-            <Section title={t('settings.updates.title')}>
-              <UpdatesPanel
-                info={updateInfo}
-                platform={platform}
-                arch={arch}
-                updaterKind={updaterKind}
-                onCheck={onCheckForUpdates}
-                onStartUpdater={onStartUpdater}
-              />
-            </Section>
           </div>
 
           <DialogFooter className="gap-2 sm:justify-end">
