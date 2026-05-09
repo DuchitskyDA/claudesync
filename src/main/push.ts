@@ -105,8 +105,8 @@ export async function runPush(opts: RunPushOpts): Promise<RunResult> {
         try {
           exportClaude(claudePath, repoPath)
         } catch (e) {
-          opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.invalidJson', fallback: (e as Error).message } })
-          return failResult({ key: 'push.error.invalidJson', fallback: (e as Error).message })
+          opts.emitStep({ step: 'export', status: 'failed', message: { key: 'push.error.claudeExport', fallback: (e as Error).message } })
+          return failResult({ key: 'push.error.claudeExport', fallback: (e as Error).message })
         }
       }
       if (!opts.includeSecrets) {

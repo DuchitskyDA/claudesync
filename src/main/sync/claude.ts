@@ -64,7 +64,22 @@ function syncDirMirror(src: string, dst: string): void {
     const s = join(src, entry)
     const d = join(dst, entry)
     if (isSamePath(s, d)) continue
-    const stat = statSync(s)
+    // Use lstatSync first to detect dangling symlinks/junctions: a broken link
+    // makes statSync (which follows links) throw ENOENT and abort the entire
+    // export. Skip such entries — they're install-time leftovers, not data.
+    let lst
+    try {
+      lst = lstatSync(s)
+    } catch {
+      continue
+    }
+    if (lst.isSymbolicLink() && !existsSync(s)) continue
+    let stat
+    try {
+      stat = statSync(s)
+    } catch {
+      continue
+    }
     if (stat.isDirectory()) {
       syncDirMirror(s, d)
     } else {
