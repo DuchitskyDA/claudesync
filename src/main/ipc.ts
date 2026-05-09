@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app, shell, screen } from 'electron'
 import type {
@@ -540,6 +540,37 @@ export function registerIpc(window: BrowserWindow): void {
     // Strip trailing slash that `git status --porcelain` adds for untracked dirs.
     const cleaned = relPath.replace(/[/\\]+$/, '')
     await shell.openPath(join(cfg.repoPath, cleaned))
+  })
+
+  ipcMain.handle('check-install-needed', (): boolean => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return false
+    // Claude target: any visible content in <repo>/claude/ besides .gitkeep
+    if (cfg.claude.enabled && cfg.claude.path) {
+      const claudeRepo = join(cfg.repoPath, 'claude')
+      if (existsSync(claudeRepo)) {
+        try {
+          const entries = readdirSync(claudeRepo).filter((n) => n !== '.gitkeep')
+          if (entries.length > 0) return true
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    // Cursor: any registered project that has content in repo
+    if (cfg.cursor.enabled) {
+      for (const p of cfg.cursor.projects) {
+        const projDir = join(cfg.repoPath, 'cursor', 'projects', p.name)
+        if (!existsSync(projDir)) continue
+        try {
+          const entries = readdirSync(projDir).filter((n) => n !== '.gitkeep')
+          if (entries.length > 0) return true
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return false
   })
 
   ipcMain.handle('run-pull', async (): Promise<RunResult> => {

@@ -231,13 +231,19 @@ export function App() {
         onCheckForUpdates={checkForUpdates}
         onStartUpdater={() => void startUpdater()}
         onClose={closeSettings}
-        onSaved={(c) =>
+        onSaved={(c) => {
           setConfigState({
             repoUrl: c.repoUrl,
             repoPath: c.repoPath,
             rulesTarget: c.rulesTarget,
           })
-        }
+          // Newly registered Cursor project might already have content in
+          // the repo (cross-machine case: cloned repo, then added the project
+          // here) — re-check whether install is needed.
+          void window.api.checkInstallNeeded().then((needed) => {
+            if (needed) setInstallPending(true)
+          })
+        }}
         onSignOut={signOut}
         onSignedIn={() => void refreshAuth()}
       />

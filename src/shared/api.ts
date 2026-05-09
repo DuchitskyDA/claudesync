@@ -116,6 +116,11 @@ export interface AppApi {
   /** Pure `git pull --rebase --autostash` on the sync repo. No install
    *  scripts run — Install is a separate action. */
   runPull(): Promise<RunResult>
+  /** Returns true if the sync repo has content that hasn't been deployed
+   *  yet for any enabled target. Used to decide whether to show the Install
+   *  button on cold start / after a config change (e.g. adding a Cursor
+   *  project on a freshly-cloned machine). */
+  checkInstallNeeded(): Promise<boolean>
   /** Discard all local changes in the sync repo (modified + untracked).
    *  Equivalent to `git checkout -- . && git clean -fd`. Destructive. */
   discardLocalChanges(): Promise<RunResult>

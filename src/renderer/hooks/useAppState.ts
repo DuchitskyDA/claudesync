@@ -221,6 +221,11 @@ export function useAppState() {
       })
       dispatch({ type: 'set-dismissed-update', version: c.lastDismissedUpdate })
       if (!c.claude.path) dispatch({ type: 'open-settings' })
+      // Cold-start: if the repo already has content for any registered
+      // target, surface the Install button.
+      void window.api.checkInstallNeeded().then((needed) => {
+        if (needed) dispatch({ type: 'set-install-pending', pending: true })
+      })
       // Cold-start sync-status: cached count first, then network refresh.
       void refreshSyncStatus(false).then(() => {
         if (c.repoUrl && c.repoPath) void refreshSyncStatus(true)

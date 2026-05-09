@@ -117,6 +117,8 @@ const api: AppApi = {
     ipcRenderer.invoke('run-install', opts),
   runPull: (): Promise<RunResult> =>
     ipcRenderer.invoke('run-pull'),
+  checkInstallNeeded: (): Promise<boolean> =>
+    ipcRenderer.invoke('check-install-needed'),
   discardLocalChanges: (): Promise<RunResult> =>
     ipcRenderer.invoke('discard-local-changes'),
   openRepoFile: (relPath: string): Promise<void> =>
