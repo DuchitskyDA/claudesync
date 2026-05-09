@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { SyncStatus } from '@shared/api'
 import { Loader2, AlertTriangle, ArrowDown, ArrowUp, Check, Circle, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -103,11 +104,15 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
   }
 }
 
+const POPOVER_WIDTH = 256
+const POPOVER_GAP = 6
+
 export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPull }: Props) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const [coords, setCoords] = useState<{ left: number; bottom: number } | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -120,6 +125,19 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    // Anchor popover bottom-edge above the button, left-edge near the button
+    // but clamped to stay inside the viewport.
+    const viewportWidth = window.innerWidth
+    const desiredLeft = rect.left
+    const maxLeft = viewportWidth - POPOVER_WIDTH - 8
+    const left = Math.max(8, Math.min(desiredLeft, maxLeft))
+    const bottom = window.innerHeight - rect.top + POPOVER_GAP
+    setCoords({ left, bottom })
+  }, [open, status])
 
   if (status.state === 'no-remote') return null
 
@@ -156,48 +174,57 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
         {visual.text && <span className="tabular-nums">{visual.text}</span>}
       </button>
 
-      {open && visual.hasChanges && (
-        <div
-          ref={popoverRef}
-          className="absolute bottom-full right-0 z-50 mb-1 w-64 rounded-md border bg-popover p-3 text-popover-foreground shadow-md"
-        >
-          <StateSummary status={status} />
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button
-              onClick={() => {
-                onRefresh()
-                setOpen(false)
-              }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-            >
-              <RefreshCw className="h-3 w-3" />
-              {t('sync.popover.refresh')}
-            </button>
-            {showPullAction && (
+      {open && visual.hasChanges && coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{
+              position: 'fixed',
+              left: coords.left,
+              bottom: coords.bottom,
+              width: POPOVER_WIDTH,
+              zIndex: 50,
+            }}
+            className="rounded-md border bg-popover p-3 text-popover-foreground shadow-md"
+          >
+            <StateSummary status={status} />
+            <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 onClick={() => {
-                  onPull()
+                  onRefresh()
                   setOpen(false)
                 }}
-                className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
               >
-                {t('sync.popover.pull')}
+                <RefreshCw className="h-3 w-3" />
+                {t('sync.popover.refresh')}
               </button>
-            )}
-            {showPushAction && (
-              <button
-                onClick={() => {
-                  onPush()
-                  setOpen(false)
-                }}
-                className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
-              >
-                {t('sync.popover.push')}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+              {showPullAction && (
+                <button
+                  onClick={() => {
+                    onPull()
+                    setOpen(false)
+                  }}
+                  className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                >
+                  {t('sync.popover.pull')}
+                </button>
+              )}
+              {showPushAction && (
+                <button
+                  onClick={() => {
+                    onPush()
+                    setOpen(false)
+                  }}
+                  className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                >
+                  {t('sync.popover.push')}
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
