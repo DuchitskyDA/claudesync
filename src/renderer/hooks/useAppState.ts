@@ -205,10 +205,10 @@ export function useAppState() {
         type: 'set-config',
         repoPath: c.repoPath,
         repoUrl: c.repoUrl,
-        rulesTarget: c.rulesTarget,
+        rulesTarget: c.claude.path,
       })
       dispatch({ type: 'set-dismissed-update', version: c.lastDismissedUpdate })
-      if (!c.rulesTarget) dispatch({ type: 'open-settings' })
+      if (!c.claude.path) dispatch({ type: 'open-settings' })
       // Cold-start sync-status: cached count first, then network refresh.
       void refreshSyncStatus(false).then(() => {
         if (c.repoUrl && c.repoPath) void refreshSyncStatus(true)

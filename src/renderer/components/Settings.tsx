@@ -91,10 +91,11 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       const r = await window.api.setConfig({
         repoUrl: trimmedUrl || null,
         repoPath: finalPath,
-        rulesTarget: trimmedTarget || null,
         includeSecretsInPush: false,
         locale: preference,
         lastDismissedUpdate: existing.lastDismissedUpdate,
+        claude: { enabled: !!trimmedTarget, path: trimmedTarget || null },
+        cursor: existing.cursor,
       })
       if (!r.ok) {
         setError(r.error ?? { key: 'settings.error.unknown' })

@@ -200,7 +200,7 @@ export function App() {
             setConfigState({
               repoUrl: c.repoUrl,
               repoPath: c.repoPath,
-              rulesTarget: c.rulesTarget,
+              rulesTarget: c.claude.path,
             }),
           )
         }}

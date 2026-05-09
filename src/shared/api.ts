@@ -14,15 +14,35 @@ export type LocalizedMessage = {
   /** Optional english fallback used when key missing OR for raw external text (git stderr tail) */
   fallback?: string
 }
+export type CursorProject = {
+  /** User-visible label, used as repo subfolder under <repo>/cursor/projects/ */
+  name: string
+  /** Absolute path to the Cursor project root */
+  path: string
+}
+
+export type ClaudeConfig = {
+  enabled: boolean
+  path: string | null
+}
+
+export type CursorConfig = {
+  enabled: boolean
+  projects: CursorProject[]
+}
+
 export type AppConfig = {
   repoPath: string | null
   repoUrl: string | null
-  rulesTarget: string | null
   includeSecretsInPush: boolean
   locale: 'en' | 'ru' | null
   /** Latest version the user has dismissed; the settings-gear update dot stays
    *  hidden until GitHub publishes a tag newer than this. */
   lastDismissedUpdate: string | null
+  claude: ClaudeConfig
+  cursor: CursorConfig
+  /** Legacy field, migrated into `claude` on read, never written. */
+  rulesTarget?: string | null
 }
 export type SetConfigResult = { ok: boolean; error?: LocalizedMessage }
 

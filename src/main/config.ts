@@ -2,7 +2,13 @@ import { readFileSync, writeFileSync, renameSync, existsSync, statSync, readdirS
 import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
-import type { AppConfig, LocalizedMessage } from '@shared/api'
+import type {
+  AppConfig,
+  ClaudeConfig,
+  CursorConfig,
+  CursorProject,
+  LocalizedMessage,
+} from '@shared/api'
 
 /** Default rules target (~/.claude). Returns expanded path if dir exists; null otherwise. */
 export function detectClaudeTarget(): string | null {
@@ -27,37 +33,94 @@ export function expandTilde(p: string): string {
   return p
 }
 
-export function readConfig(filePath: string): AppConfig {
-  const fallback: AppConfig = {
+function defaultsBase(): AppConfig {
+  return {
     repoPath: null,
     repoUrl: null,
-    rulesTarget: null,
     includeSecretsInPush: false,
     locale: null,
     lastDismissedUpdate: null,
+    claude: { enabled: false, path: null },
+    cursor: { enabled: false, projects: [] },
+    rulesTarget: null,
   }
-  if (!existsSync(filePath)) return fallback
-  try {
-    const raw = readFileSync(filePath, 'utf8')
-    const parsed = JSON.parse(raw) as Partial<AppConfig>
-    const locale = parsed.locale === 'en' || parsed.locale === 'ru' ? parsed.locale : null
+}
+
+function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
+  const block = parsed.claude
+  if (block && typeof block === 'object' && 'enabled' in (block as object)) {
+    const b = block as Record<string, unknown>
     return {
-      repoPath: typeof parsed.repoPath === 'string' ? parsed.repoPath : null,
-      repoUrl: typeof parsed.repoUrl === 'string' ? parsed.repoUrl : null,
-      rulesTarget: typeof parsed.rulesTarget === 'string' ? parsed.rulesTarget : null,
-      includeSecretsInPush: parsed.includeSecretsInPush === true,
-      locale,
-      lastDismissedUpdate:
-        typeof parsed.lastDismissedUpdate === 'string' ? parsed.lastDismissedUpdate : null,
+      enabled: b.enabled === true,
+      path: typeof b.path === 'string' ? b.path : null,
     }
+  }
+  if (typeof parsed.rulesTarget === 'string') {
+    return { enabled: true, path: parsed.rulesTarget }
+  }
+  return { enabled: false, path: null }
+}
+
+function readCursorBlock(parsed: Record<string, unknown>): CursorConfig {
+  const block = parsed.cursor
+  if (block && typeof block === 'object' && 'enabled' in (block as object)) {
+    const b = block as Record<string, unknown>
+    const projects: CursorProject[] = Array.isArray(b.projects)
+      ? b.projects.flatMap((p): CursorProject[] => {
+          if (
+            p &&
+            typeof p === 'object' &&
+            typeof (p as { name?: unknown }).name === 'string' &&
+            typeof (p as { path?: unknown }).path === 'string'
+          ) {
+            return [{ name: (p as { name: string }).name, path: (p as { path: string }).path }]
+          }
+          return []
+        })
+      : []
+    return { enabled: b.enabled === true, projects }
+  }
+  return { enabled: false, projects: [] }
+}
+
+export function readConfig(filePath: string): AppConfig {
+  if (!existsSync(filePath)) return { ...defaultsBase() }
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>
   } catch {
-    return fallback
+    return { ...defaultsBase() }
+  }
+  const locale = parsed.locale === 'en' || parsed.locale === 'ru' ? parsed.locale : null
+  const claude = readClaudeBlock(parsed)
+  return {
+    repoPath: typeof parsed.repoPath === 'string' ? parsed.repoPath : null,
+    repoUrl: typeof parsed.repoUrl === 'string' ? parsed.repoUrl : null,
+    includeSecretsInPush: parsed.includeSecretsInPush === true,
+    locale,
+    lastDismissedUpdate:
+      typeof parsed.lastDismissedUpdate === 'string' ? parsed.lastDismissedUpdate : null,
+    claude,
+    cursor: readCursorBlock(parsed),
+    // Transitional shim: mirror claude.path into rulesTarget so callers that
+    // still read `cfg.rulesTarget` keep working until Tasks 2/4/5 land.
+    // writeConfig drops this on save.
+    rulesTarget: claude.path,
   }
 }
 
 export function writeConfig(filePath: string, cfg: AppConfig): void {
   const tmp = `${filePath}.tmp`
-  writeFileSync(tmp, JSON.stringify(cfg, null, 2), 'utf8')
+  const persisted: Omit<AppConfig, 'rulesTarget'> = {
+    repoPath: cfg.repoPath,
+    repoUrl: cfg.repoUrl,
+    includeSecretsInPush: cfg.includeSecretsInPush,
+    locale: cfg.locale,
+    lastDismissedUpdate: cfg.lastDismissedUpdate,
+    claude: cfg.claude,
+    cursor: cfg.cursor,
+  }
+  writeFileSync(tmp, JSON.stringify(persisted, null, 2), 'utf8')
   renameSync(tmp, filePath)
 }
 
@@ -86,9 +149,50 @@ export function validateRepoUrl(u: string): ValidationResult {
   return { ok: true }
 }
 
-export function validateRulesTarget(p: string): ValidationResult {
+export function validateClaudePath(p: string | null): ValidationResult {
   if (!p) return { ok: false, error: { key: 'config.error.targetRequired' } }
   const expanded = expandTilde(p)
   if (!isAbsolute(expanded)) return { ok: false, error: { key: 'config.error.targetAbsolute' } }
+  return { ok: true }
+}
+
+/** @deprecated use validateClaudePath. Kept for backwards-compat callers. */
+export const validateRulesTarget = (p: string): ValidationResult => validateClaudePath(p)
+
+const INVALID_NAME_CHARS = /[<>:"/\\|?*]/
+
+export function validateCursorProject(
+  p: { name: string; path: string },
+): ValidationResult {
+  const name = p.name
+  if (!name || !name.trim()) {
+    return { ok: false, error: { key: 'cursor.error.nameRequired' } }
+  }
+  if (name === '.' || name === '..') {
+    return { ok: false, error: { key: 'cursor.error.nameReserved' } }
+  }
+  if (INVALID_NAME_CHARS.test(name) || name.trim() !== name) {
+    return { ok: false, error: { key: 'cursor.error.nameInvalid' } }
+  }
+  if (!p.path) {
+    return { ok: false, error: { key: 'cursor.error.pathRequired' } }
+  }
+  const expanded = expandTilde(p.path)
+  if (!isAbsolute(expanded)) {
+    return { ok: false, error: { key: 'cursor.error.pathAbsolute' } }
+  }
+  if (!existsSync(expanded)) {
+    return { ok: false, error: { key: 'cursor.error.pathMissing' } }
+  }
+  try {
+    if (!statSync(expanded).isDirectory()) {
+      return { ok: false, error: { key: 'cursor.error.pathNotDir' } }
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: { key: 'cursor.error.pathStat', fallback: (e as Error).message },
+    }
+  }
   return { ok: true }
 }

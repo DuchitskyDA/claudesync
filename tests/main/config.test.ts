@@ -1,10 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readConfig, writeConfig, validateLocalRepo, validateRepoUrl, validateRulesTarget } from '../../src/main/config'
+import {
+  readConfig,
+  writeConfig,
+  validateLocalRepo,
+  validateRepoUrl,
+  validateClaudePath,
+  validateRulesTarget,
+  validateCursorProject,
+} from '../../src/main/config'
+import type { AppConfig } from '@shared/api'
 
 let dir: string
+
+// Includes the transitional `rulesTarget` shim that mirrors `claude.path`.
+// readConfig populates it; writeConfig drops it on save.
+const baseDefaults: AppConfig = {
+  repoPath: null,
+  repoUrl: null,
+  includeSecretsInPush: false,
+  locale: null,
+  lastDismissedUpdate: null,
+  claude: { enabled: false, path: null },
+  cursor: { enabled: false, projects: [] },
+  rulesTarget: null,
+}
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'claudesync-'))
@@ -15,38 +37,50 @@ afterEach(() => {
 })
 
 describe('readConfig', () => {
-  it('returns all-null when file does not exist', () => {
-    expect(readConfig(join(dir, 'config.json'))).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null, includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+  it('returns defaults when file does not exist', () => {
+    expect(readConfig(join(dir, 'config.json'))).toEqual({ ...baseDefaults })
   })
 
-  it('returns all-null on invalid JSON', () => {
+  it('returns defaults on invalid JSON', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, '{not json')
-    expect(readConfig(f)).toEqual({ repoPath: null, repoUrl: null, rulesTarget: null, includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+    expect(readConfig(f)).toEqual({ ...baseDefaults })
   })
 
-  it('reads valid config with all three fields', () => {
+  it('reads valid v0.9 config (claude/cursor blocks)', () => {
     const f = join(dir, 'config.json')
-    writeFileSync(f, JSON.stringify({ repoPath: '/some/path', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude' }))
-    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+    writeFileSync(
+      f,
+      JSON.stringify({
+        repoPath: '/some/path',
+        repoUrl: 'https://github.com/org/repo',
+        claude: { enabled: true, path: '/home/user/.claude' },
+        cursor: { enabled: false, projects: [] },
+      }),
+    )
+    expect(readConfig(f)).toEqual({
+      ...baseDefaults,
+      repoPath: '/some/path',
+      repoUrl: 'https://github.com/org/repo',
+      claude: { enabled: true, path: '/home/user/.claude' },
+      rulesTarget: '/home/user/.claude',
+    })
   })
 
   it('reads legacy config with only repoPath (backwards compat)', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, JSON.stringify({ repoPath: '/some/path' }))
-    expect(readConfig(f)).toEqual({ repoPath: '/some/path', repoUrl: null, rulesTarget: null, includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+    expect(readConfig(f)).toEqual({ ...baseDefaults, repoPath: '/some/path' })
   })
 
   it('reads includeSecretsInPush=true when set', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, JSON.stringify({ rulesTarget: '/x', includeSecretsInPush: true }))
     expect(readConfig(f)).toEqual({
-      repoPath: null,
-      repoUrl: null,
-      rulesTarget: '/x',
+      ...baseDefaults,
       includeSecretsInPush: true,
-      locale: null,
-      lastDismissedUpdate: null,
+      claude: { enabled: true, path: '/x' },
+      rulesTarget: '/x',
     })
   })
 
@@ -75,12 +109,99 @@ describe('readConfig', () => {
   })
 })
 
-describe('writeConfig', () => {
-  it('writes JSON atomically (round-trip with all fields)', () => {
+describe('readConfig migration to multi-target', () => {
+  it('migrates legacy rulesTarget into claude block', () => {
     const f = join(dir, 'config.json')
-    writeConfig(f, { repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+    writeFileSync(
+      f,
+      JSON.stringify({
+        repoPath: '/some/path',
+        repoUrl: 'https://github.com/org/repo',
+        rulesTarget: '/home/user/.claude',
+      }),
+    )
+    const cfg = readConfig(f)
+    expect(cfg.claude).toEqual({ enabled: true, path: '/home/user/.claude' })
+    expect(cfg.cursor).toEqual({ enabled: false, projects: [] })
+  })
+
+  it('uses claude/cursor blocks when present (no migration from rulesTarget)', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(
+      f,
+      JSON.stringify({
+        repoPath: '/p',
+        repoUrl: null,
+        rulesTarget: '/legacy',
+        claude: { enabled: false, path: '/x/.claude' },
+        cursor: { enabled: true, projects: [{ name: 'app', path: '/repos/app' }] },
+      }),
+    )
+    const cfg = readConfig(f)
+    expect(cfg.claude).toEqual({ enabled: false, path: '/x/.claude' })
+    expect(cfg.cursor.projects).toEqual([{ name: 'app', path: '/repos/app' }])
+    expect(cfg.rulesTarget).toBe('/x/.claude')
+  })
+
+  it('returns disabled defaults when no rulesTarget and no blocks', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(f, JSON.stringify({ repoPath: '/p' }))
+    const cfg = readConfig(f)
+    expect(cfg.claude).toEqual({ enabled: false, path: null })
+    expect(cfg.cursor).toEqual({ enabled: false, projects: [] })
+  })
+
+  it('drops invalid project entries silently', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(
+      f,
+      JSON.stringify({
+        cursor: {
+          enabled: true,
+          projects: [
+            { name: 'ok', path: '/a' },
+            { name: 123 },
+            'garbage',
+            { path: '/b' },
+            { name: 'also-ok', path: '/b' },
+          ],
+        },
+      }),
+    )
+    expect(readConfig(f).cursor.projects).toEqual([
+      { name: 'ok', path: '/a' },
+      { name: 'also-ok', path: '/b' },
+    ])
+  })
+
+  it('writeConfig drops rulesTarget from disk', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(f, JSON.stringify({ rulesTarget: '/legacy' }))
+    const cfg = readConfig(f)
+    writeConfig(f, cfg)
+    const raw = JSON.parse(readFileSync(f, 'utf8')) as Record<string, unknown>
+    expect(raw.rulesTarget).toBeUndefined()
+    expect(raw.claude).toEqual({ enabled: true, path: '/legacy' })
+  })
+})
+
+describe('writeConfig', () => {
+  it('writes JSON atomically (round-trip with claude/cursor blocks)', () => {
+    const f = join(dir, 'config.json')
+    writeConfig(f, {
+      ...baseDefaults,
+      repoPath: '/abc',
+      repoUrl: 'https://github.com/org/repo',
+      claude: { enabled: true, path: '/home/user/.claude' },
+    })
     expect(existsSync(f)).toBe(true)
-    expect(readConfig(f)).toEqual({ repoPath: '/abc', repoUrl: 'https://github.com/org/repo', rulesTarget: '/home/user/.claude', includeSecretsInPush: false, locale: null, lastDismissedUpdate: null })
+    expect(readConfig(f)).toEqual({
+      ...baseDefaults,
+      repoPath: '/abc',
+      repoUrl: 'https://github.com/org/repo',
+      claude: { enabled: true, path: '/home/user/.claude' },
+      rulesTarget: '/home/user/.claude',
+    })
   })
 })
 
@@ -150,29 +271,96 @@ describe('validateRepoUrl', () => {
   })
 })
 
-describe('validateRulesTarget', () => {
+describe('validateClaudePath', () => {
+  it('rejects null', () => {
+    const r = validateClaudePath(null)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error.key).toBe('config.error.targetRequired')
+  })
+
   it('rejects empty string', () => {
-    const r = validateRulesTarget('')
+    const r = validateClaudePath('')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.key).toBe('config.error.targetRequired')
   })
 
   it('rejects relative path', () => {
-    const r = validateRulesTarget('relative/path')
+    const r = validateClaudePath('relative/path')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.key).toBe('config.error.targetAbsolute')
   })
 
   it('accepts absolute path', () => {
-    expect(validateRulesTarget('/home/user/.claude')).toEqual({ ok: true })
+    expect(validateClaudePath('/home/user/.claude')).toEqual({ ok: true })
   })
 
   it('accepts absolute path that does not exist yet', () => {
-    expect(validateRulesTarget('/nonexistent/path/that/will/be/created')).toEqual({ ok: true })
+    expect(validateClaudePath('/nonexistent/path/that/will/be/created')).toEqual({ ok: true })
   })
 
   it('accepts ~/.claude (tilde expansion)', () => {
-    expect(validateRulesTarget('~/.claude')).toEqual({ ok: true })
+    expect(validateClaudePath('~/.claude')).toEqual({ ok: true })
+  })
+})
+
+describe('validateRulesTarget (legacy alias)', () => {
+  it('still accepts absolute paths', () => {
+    expect(validateRulesTarget('/x')).toEqual({ ok: true })
+  })
+})
+
+describe('validateCursorProject', () => {
+  let okPath: string
+
+  beforeEach(() => {
+    okPath = join(dir, 'app')
+    mkdirSync(okPath)
+  })
+
+  it('accepts valid project', () => {
+    expect(validateCursorProject({ name: 'app', path: okPath })).toEqual({ ok: true })
+  })
+
+  it('rejects empty name', () => {
+    expect(validateCursorProject({ name: '', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects name with forward slash', () => {
+    expect(validateCursorProject({ name: 'a/b', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects name with backslash', () => {
+    expect(validateCursorProject({ name: 'a\\b', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects reserved name "."', () => {
+    expect(validateCursorProject({ name: '.', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects reserved name ".."', () => {
+    expect(validateCursorProject({ name: '..', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects name with leading whitespace', () => {
+    expect(validateCursorProject({ name: ' app', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects name with trailing whitespace', () => {
+    expect(validateCursorProject({ name: 'app ', path: okPath }).ok).toBe(false)
+  })
+
+  it('rejects relative path', () => {
+    expect(validateCursorProject({ name: 'app', path: 'rel/path' }).ok).toBe(false)
+  })
+
+  it('rejects non-existent path', () => {
+    expect(validateCursorProject({ name: 'app', path: join(dir, 'missing') }).ok).toBe(false)
+  })
+
+  it('rejects path that is a file, not directory', () => {
+    const filePath = join(dir, 'file.txt')
+    writeFileSync(filePath, 'x')
+    expect(validateCursorProject({ name: 'app', path: filePath }).ok).toBe(false)
   })
 })
 
