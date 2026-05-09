@@ -109,6 +109,9 @@ export interface AppApi {
    *  refresh symlinks. Cursor install copies <repo>/cursor/projects/<name>/
    *  back into <project.path>/.cursor/ with overwrite (no backup). */
   runInstall(opts: InstallOptions): Promise<RunResult>
+  /** Discard all local changes in the sync repo (modified + untracked).
+   *  Equivalent to `git checkout -- . && git clean -fd`. Destructive. */
+  discardLocalChanges(): Promise<RunResult>
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { SyncStatus } from '@shared/api'
-import { Loader2, AlertTriangle, ArrowDown, ArrowUp, Check, Circle, RefreshCw } from 'lucide-react'
+import { Loader2, AlertTriangle, ArrowDown, ArrowUp, Check, Circle, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useT } from '../i18n'
 
@@ -11,6 +11,7 @@ type Props = {
   onRefresh: () => void
   onPush: () => void
   onPull: () => void
+  onDiscard: () => Promise<void> | void
 }
 
 function formatRelative(t: (k: string, p?: Record<string, string | number>) => string, ms: number | null): string {
@@ -104,15 +105,26 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
   }
 }
 
-const POPOVER_WIDTH = 256
+const POPOVER_WIDTH = 320
 const POPOVER_GAP = 6
 
-export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPull }: Props) {
+export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPull, onDiscard }: Props) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [coords, setCoords] = useState<{ left: number; bottom: number } | null>(null)
+  const [files, setFiles] = useState<string[]>([])
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setConfirmingDiscard(false)
+      return
+    }
+    void window.api.getRepoStatus().then((s) => setFiles(s.changedFiles))
+  }, [open, status])
 
   useEffect(() => {
     if (!open) return
@@ -188,40 +200,99 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
             className="rounded-md border bg-popover p-3 text-popover-foreground shadow-md"
           >
             <StateSummary status={status} />
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                onClick={() => {
-                  onRefresh()
-                  setOpen(false)
-                }}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-              >
-                <RefreshCw className="h-3 w-3" />
-                {t('sync.popover.refresh')}
-              </button>
-              {showPullAction && (
-                <button
-                  onClick={() => {
-                    onPull()
-                    setOpen(false)
-                  }}
-                  className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
-                >
-                  {t('sync.popover.pull')}
-                </button>
-              )}
-              {showPushAction && (
-                <button
-                  onClick={() => {
-                    onPush()
-                    setOpen(false)
-                  }}
-                  className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
-                >
-                  {t('sync.popover.push')}
-                </button>
-              )}
-            </div>
+
+            {files.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-background/50 p-1.5 font-mono text-[10px] leading-tight">
+                {files.slice(0, 50).map((f) => (
+                  <div key={f} className="truncate" title={f}>{f}</div>
+                ))}
+                {files.length > 50 && (
+                  <div className="text-muted-foreground">
+                    {t('sync.popover.moreFiles', { count: files.length - 50 })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {confirmingDiscard ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-foreground">{t('sync.popover.discardConfirm')}</p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmingDiscard(false)}
+                    disabled={discarding}
+                    className="rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setDiscarding(true)
+                      try {
+                        await onDiscard()
+                      } finally {
+                        setDiscarding(false)
+                        setConfirmingDiscard(false)
+                        setOpen(false)
+                      }
+                    }}
+                    disabled={discarding}
+                    className="rounded bg-destructive px-2 py-1 text-xs text-destructive-foreground transition hover:opacity-90 disabled:opacity-60"
+                  >
+                    {discarding ? t('sync.popover.discarding') : t('sync.popover.discardConfirmYes')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 flex items-center justify-between gap-2">
+                {status.localChanges > 0 ? (
+                  <button
+                    onClick={() => setConfirmingDiscard(true)}
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                    title={t('sync.popover.discardTitle')}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {t('sync.popover.discard')}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      onRefresh()
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {t('sync.popover.refresh')}
+                  </button>
+                  {showPullAction && (
+                    <button
+                      onClick={() => {
+                        onPull()
+                        setOpen(false)
+                      }}
+                      className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                    >
+                      {t('sync.popover.pull')}
+                    </button>
+                  )}
+                  {showPushAction && (
+                    <button
+                      onClick={() => {
+                        onPush()
+                        setOpen(false)
+                      }}
+                      className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                    >
+                      {t('sync.popover.push')}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>,
           document.body,
         )}

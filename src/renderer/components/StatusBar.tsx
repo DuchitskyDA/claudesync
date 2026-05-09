@@ -15,6 +15,7 @@ type Props = {
   onOpenSettings: () => void
   onPush: () => void
   onPull: () => void
+  onDiscard: () => Promise<void> | void
 }
 
 function shortPath(p: string): string {
@@ -34,6 +35,7 @@ export function StatusBar({
   onOpenSettings,
   onPush,
   onPull,
+  onDiscard,
 }: Props) {
   const t = useT()
 
@@ -66,6 +68,7 @@ export function StatusBar({
           onRefresh={onRefreshSync}
           onPush={onPush}
           onPull={onPull}
+          onDiscard={onDiscard}
         />
       </div>
 

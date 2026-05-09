@@ -113,6 +113,8 @@ const api: AppApi = {
     ipcRenderer.invoke('preview-push-status'),
   runInstall: (opts: import('@shared/api').InstallOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-install', opts),
+  discardLocalChanges: (): Promise<RunResult> =>
+    ipcRenderer.invoke('discard-local-changes'),
   runPush: (opts: PushOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-push', opts),
   onPushStep: (callback: (e: PushStepEvent) => void): (() => void) => {

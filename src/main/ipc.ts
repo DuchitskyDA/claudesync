@@ -529,6 +529,32 @@ export function registerIpc(window: BrowserWindow): void {
     })
   })
 
+  ipcMain.handle('discard-local-changes', async (): Promise<RunResult> => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) {
+      return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
+    }
+    const repoPath = cfg.repoPath
+    emit({ time: nowHHMMSS(), text: '$ git checkout -- .', level: 'info' })
+    const checkout = await runCommand('git', ['-C', repoPath, 'checkout', '--', '.'], {
+      cwd: repoPath,
+      onLine: emit,
+    })
+    if (checkout.exitCode !== 0) {
+      return { ok: false, exitCode: checkout.exitCode, error: { key: 'discard.error.failed', fallback: 'git checkout failed' } }
+    }
+    emit({ time: nowHHMMSS(), text: '$ git clean -fd', level: 'info' })
+    const clean = await runCommand('git', ['-C', repoPath, 'clean', '-fd'], {
+      cwd: repoPath,
+      onLine: emit,
+    })
+    if (clean.exitCode !== 0) {
+      return { ok: false, exitCode: clean.exitCode, error: { key: 'discard.error.failed', fallback: 'git clean failed' } }
+    }
+    emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
+    return { ok: true, exitCode: 0 }
+  })
+
   ipcMain.handle('run-install', async (_e, opts: InstallOptions): Promise<RunResult> => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) {

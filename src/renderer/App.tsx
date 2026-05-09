@@ -173,6 +173,10 @@ export function App() {
         onOpenSettings={openSettings}
         onPush={() => setPushOpen(true)}
         onPull={() => void syncNow()}
+        onDiscard={async () => {
+          await window.api.discardLocalChanges()
+          await refreshSyncStatus()
+        }}
       />
 
       <Settings
