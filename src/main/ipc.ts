@@ -20,12 +20,14 @@ import {
   writeConfig,
   validateLocalRepo,
   validateRepoUrl,
-  validateRulesTarget,
+  validateClaudePath,
+  validateCursorProject,
   expandTilde,
   detectClaudeTarget,
   suggestedClaudeTargetPath,
   defaultManagedRepoPath,
 } from './config'
+import { validateCursorProjects } from './sync/cursor-validation'
 import { fetchCatalog } from './catalog'
 import { getInstalled, applyChanges, settingsPathFor, validateClaudeTarget } from './plugins'
 import {
@@ -87,18 +89,18 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
   const cfg = readConfig(deps.configPath)
   if (!cfg.repoUrl) return fail({ key: 'config.error.urlRequired', fallback: 'Repo URL not configured. Open Settings.' })
   if (!cfg.repoPath) return fail({ key: 'config.error.localRepoRequired', fallback: 'Local repo path not configured. Open Settings.' })
-  if (!cfg.rulesTarget) return fail({ key: 'config.error.targetRequired', fallback: 'Rules target folder not configured. Open Settings.' })
+  if (!cfg.claude.enabled || !cfg.claude.path) return fail({ key: 'config.error.targetRequired', fallback: 'Claude config folder not configured. Open Settings.' })
 
   const u = validateRepoUrl(cfg.repoUrl)
   if (!u.ok) return fail(u.error)
   const p = validateLocalRepo(cfg.repoPath)
   if (!p.ok) return fail(p.error)
-  const t = validateRulesTarget(cfg.rulesTarget)
+  const t = validateClaudePath(cfg.claude.path)
   if (!t.ok) return fail(t.error)
 
   const repoUrl = cfg.repoUrl
   const repoPath = cfg.repoPath
-  const rulesTarget = cfg.rulesTarget
+  const rulesTarget = cfg.claude.path
   const isWin = deps.currentPlatform === 'win32'
 
   return withRunLock(async () => {
@@ -188,13 +190,24 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('get-config', (): AppConfig => readConfig(configPath))
 
   ipcMain.handle('set-config', (_e, cfg: AppConfig): SetConfigResult => {
+    const claudePath = cfg.claude?.path ? expandTilde(cfg.claude.path) : null
     const normalized: AppConfig = {
       repoUrl: cfg.repoUrl,
       repoPath: cfg.repoPath ? expandTilde(cfg.repoPath) : null,
-      rulesTarget: cfg.rulesTarget ? expandTilde(cfg.rulesTarget) : null,
       includeSecretsInPush: cfg.includeSecretsInPush ?? false,
       locale: cfg.locale ?? null,
       lastDismissedUpdate: cfg.lastDismissedUpdate ?? null,
+      claude: {
+        enabled: cfg.claude?.enabled ?? false,
+        path: claudePath,
+      },
+      cursor: {
+        enabled: cfg.cursor?.enabled ?? false,
+        projects: (cfg.cursor?.projects ?? []).map((p) => ({
+          name: p.name,
+          path: expandTilde(p.path),
+        })),
+      },
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)
@@ -204,9 +217,13 @@ export function registerIpc(window: BrowserWindow): void {
       const p = validateLocalRepo(normalized.repoPath)
       if (!p.ok) return { ok: false, error: p.error }
     }
-    if (normalized.rulesTarget) {
-      const t = validateRulesTarget(normalized.rulesTarget)
+    if (normalized.claude.path) {
+      const t = validateClaudePath(normalized.claude.path)
       if (!t.ok) return { ok: false, error: t.error }
+    }
+    if (normalized.cursor.projects.length > 0) {
+      const cv = validateCursorProjects(normalized.cursor.projects)
+      if (!cv.ok) return { ok: false, error: cv.error }
     }
     writeConfig(configPath, normalized)
     return { ok: true }
@@ -251,14 +268,14 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('get-installed-plugins', () => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { enabledIds: [], envSet: [], knownMarketplaces: [] }
-    return getInstalled(settingsPathFor(cfg.rulesTarget))
+    if (!cfg.claude.path) return { enabledIds: [], envSet: [], knownMarketplaces: [] }
+    return getInstalled(settingsPathFor(cfg.claude.path))
   })
 
   ipcMain.handle('apply-plugin-changes', (_e, changes: ApplyPluginChanges) => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { ok: false, error: { key: 'config.error.targetRequired' } as LocalizedMessage }
-    const settingsPath = settingsPathFor(cfg.rulesTarget)
+    if (!cfg.claude.path) return { ok: false, error: { key: 'config.error.targetRequired' } as LocalizedMessage }
+    const settingsPath = settingsPathFor(cfg.claude.path)
     try {
       return applyChanges(settingsPath, changes)
     } catch (e) {
@@ -268,11 +285,28 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('validate-claude-target', () => {
     const cfg = readConfig(configPath)
-    return validateClaudeTarget(cfg.rulesTarget)
+    return validateClaudeTarget(cfg.claude.path)
   })
 
+  // New canonical channel names for Phase A
+  ipcMain.handle('detect-claude-path', () => detectClaudeTarget())
+  ipcMain.handle('suggest-claude-path', () => suggestedClaudeTargetPath())
+  ipcMain.handle('pick-cursor-project-path', async (): Promise<string | null> => {
+    const r = await dialog.showOpenDialog(window, {
+      properties: ['openDirectory'],
+      title: 'Select Cursor project root',
+    })
+    if (r.canceled || r.filePaths.length === 0) return null
+    return r.filePaths[0] ?? null
+  })
+  ipcMain.handle('validate-cursor-project', (_e, p: { name: string; path: string }) => {
+    return validateCursorProject(p)
+  })
+
+  // Legacy channel names — kept for backwards compat, drop after renderer is migrated.
   ipcMain.handle('detect-rules-target', () => detectClaudeTarget())
   ipcMain.handle('suggest-rules-target', () => suggestedClaudeTargetPath())
+
   ipcMain.handle('suggest-repo-path', (_e, url: string) =>
     defaultManagedRepoPath(url, app.getPath('userData')),
   )
@@ -298,8 +332,14 @@ export function registerIpc(window: BrowserWindow): void {
   // Init wizard
   ipcMain.handle('scan-local-config', () => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { files: [], excluded: [], totalSize: 0 }
-    return scanLocalConfig(cfg.rulesTarget)
+    if (!cfg.claude.path) return { files: [], excluded: [], totalSize: 0 }
+    return scanLocalConfig(cfg.claude.path)
+  })
+  // Canonical alias
+  ipcMain.handle('scan-claude-config', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.claude.path) return { files: [], excluded: [], totalSize: 0 }
+    return scanLocalConfig(cfg.claude.path)
   })
 
   const emitInitStep = (e: InitStepEvent) => {
@@ -308,13 +348,13 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('init-repo', async (_e, opts: InitWizardOptions) => {
     const cfg = readConfig(configPath)
-    if (!cfg.rulesTarget) return { ok: false, exitCode: -1, error: { key: 'config.error.targetRequired', fallback: 'Rules target not set' } }
+    if (!cfg.claude.path) return { ok: false, exitCode: -1, error: { key: 'config.error.targetRequired', fallback: 'Claude config folder not set' } }
     const result = await initRepo({
       ownerLogin: opts.owner,
       name: opts.name,
       isPrivate: opts.isPrivate,
       description: opts.description,
-      rulesTarget: cfg.rulesTarget,
+      rulesTarget: cfg.claude.path,
       userDataDir,
       tplDir: templatesDir(),
       emit,

@@ -60,8 +60,18 @@ const api: AppApi = {
     ipcRenderer.invoke('apply-plugin-changes', c),
   validateClaudeTarget: (): Promise<ClaudeTargetCheck> =>
     ipcRenderer.invoke('validate-claude-target'),
+  detectClaudePath: (): Promise<string | null> =>
+    ipcRenderer.invoke('detect-claude-path'),
+  suggestClaudePath: (): Promise<string> =>
+    ipcRenderer.invoke('suggest-claude-path'),
+  pickCursorProjectPath: (): Promise<string | null> =>
+    ipcRenderer.invoke('pick-cursor-project-path'),
+  validateCursorProject: (p: { name: string; path: string }) =>
+    ipcRenderer.invoke('validate-cursor-project', p),
+  /** @deprecated use detectClaudePath */
   detectRulesTarget: (): Promise<string | null> =>
     ipcRenderer.invoke('detect-rules-target'),
+  /** @deprecated use suggestClaudePath */
   suggestRulesTarget: (): Promise<string> =>
     ipcRenderer.invoke('suggest-rules-target'),
   suggestRepoPath: (url: string): Promise<string> =>

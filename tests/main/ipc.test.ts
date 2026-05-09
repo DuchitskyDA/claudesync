@@ -5,7 +5,8 @@ const withRunLockMock = vi.hoisted(() => vi.fn(async (task: () => Promise<unknow
 const readConfigMock = vi.hoisted(() => vi.fn())
 const validateLocalRepoMock = vi.hoisted(() => vi.fn())
 const validateRepoUrlMock = vi.hoisted(() => vi.fn())
-const validateRulesTargetMock = vi.hoisted(() => vi.fn())
+const validateClaudePathMock = vi.hoisted(() => vi.fn())
+const validateCursorProjectMock = vi.hoisted(() => vi.fn())
 const existsSyncMock = vi.hoisted(() => vi.fn())
 const mkdirSyncMock = vi.hoisted(() => vi.fn())
 const fetchCatalogMock = vi.hoisted(() => vi.fn())
@@ -30,9 +31,17 @@ vi.mock('../../src/main/config', () => ({
   readConfig: readConfigMock,
   validateLocalRepo: validateLocalRepoMock,
   validateRepoUrl: validateRepoUrlMock,
-  validateRulesTarget: validateRulesTargetMock,
+  validateClaudePath: validateClaudePathMock,
+  validateCursorProject: validateCursorProjectMock,
   writeConfig: vi.fn(),
   expandTilde: vi.fn((p: string) => p),
+  detectClaudeTarget: vi.fn(() => null),
+  suggestedClaudeTargetPath: vi.fn(() => '/home/user/.claude'),
+  defaultManagedRepoPath: vi.fn((url: string) => `/managed/${url}`),
+}))
+vi.mock('../../src/main/sync/cursor-validation', () => ({
+  validateCursorProjects: vi.fn(() => ({ ok: true })),
+  validateCursorProject: validateCursorProjectMock,
 }))
 vi.mock('../../src/main/catalog', () => ({
   fetchCatalog: fetchCatalogMock,
@@ -80,11 +89,27 @@ import { runSyncHandler, registerIpc } from '../../src/main/ipc'
 
 const noop = () => {}
 
-const fullConfig = {
-  repoPath: '/repo',
-  repoUrl: 'https://github.com/org/repo',
-  rulesTarget: '/home/user/.claude',
+function makeConfig(overrides: {
+  repoPath?: string | null
+  repoUrl?: string | null
+  rulesTarget?: string | null
+} = {}): Record<string, unknown> {
+  const repoPath = 'repoPath' in overrides ? overrides.repoPath : '/repo'
+  const repoUrl = 'repoUrl' in overrides ? overrides.repoUrl : 'https://github.com/org/repo'
+  const rulesTarget = 'rulesTarget' in overrides ? overrides.rulesTarget : '/home/user/.claude'
+  return {
+    repoPath,
+    repoUrl,
+    includeSecretsInPush: false,
+    locale: null,
+    lastDismissedUpdate: null,
+    claude: { enabled: !!rulesTarget, path: rulesTarget },
+    cursor: { enabled: false, projects: [] },
+    rulesTarget, // transitional shim mirroring claude.path
+  }
 }
+
+const fullConfig = makeConfig()
 
 // Helper: register ipc handlers and retrieve a specific channel handler
 function getHandler(channel: string): (...args: unknown[]) => unknown {
@@ -104,7 +129,8 @@ beforeEach(() => {
   readConfigMock.mockReset()
   validateLocalRepoMock.mockReset()
   validateRepoUrlMock.mockReset()
-  validateRulesTargetMock.mockReset()
+  validateClaudePathMock.mockReset()
+  validateCursorProjectMock.mockReset()
   existsSyncMock.mockReset()
   mkdirSyncMock.mockReset()
   withRunLockMock.mockClear()
@@ -113,29 +139,30 @@ beforeEach(() => {
   // default: all validators pass
   validateRepoUrlMock.mockReturnValue({ ok: true })
   validateLocalRepoMock.mockReturnValue({ ok: true })
-  validateRulesTargetMock.mockReturnValue({ ok: true })
+  validateClaudePathMock.mockReturnValue({ ok: true })
+  validateCursorProjectMock.mockReturnValue({ ok: true })
 })
 
 describe('runSyncHandler', () => {
   it('fails when repoUrl is missing', async () => {
-    readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: null, rulesTarget: '/target' })
+    readConfigMock.mockReturnValue(makeConfig({ repoUrl: null, rulesTarget: '/target' }))
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error?.fallback).toMatch(/repo url/i)
   })
 
   it('fails when repoPath is missing', async () => {
-    readConfigMock.mockReturnValue({ repoPath: null, repoUrl: 'https://github.com/org/repo', rulesTarget: '/target' })
+    readConfigMock.mockReturnValue(makeConfig({ repoPath: null, rulesTarget: '/target' }))
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
     expect(r.error?.fallback).toMatch(/local repo path/i)
   })
 
-  it('fails when rulesTarget is missing', async () => {
-    readConfigMock.mockReturnValue({ repoPath: '/repo', repoUrl: 'https://github.com/org/repo', rulesTarget: null })
+  it('fails when claude.path is missing', async () => {
+    readConfigMock.mockReturnValue(makeConfig({ rulesTarget: null }))
     const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
     expect(r.ok).toBe(false)
-    expect(r.error?.fallback).toMatch(/rules target/i)
+    expect(r.error?.fallback).toMatch(/claude/i)
   })
 
   it('fails when URL validation fails', async () => {
@@ -278,7 +305,7 @@ describe('registerIpc plugin handlers', () => {
 
   describe('get-installed-plugins', () => {
     it('returns empty state when rulesTarget is null', () => {
-      readConfigMock.mockReturnValue({ repoPath: null, repoUrl: null, rulesTarget: null })
+      readConfigMock.mockReturnValue(makeConfig({ repoPath: null, repoUrl: null, rulesTarget: null }))
       const handler = getHandler('get-installed-plugins')
       const result = handler({})
       expect(result).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [] })
@@ -300,7 +327,7 @@ describe('registerIpc plugin handlers', () => {
 
   describe('apply-plugin-changes', () => {
     it('returns error when rulesTarget is null', () => {
-      readConfigMock.mockReturnValue({ repoPath: null, repoUrl: null, rulesTarget: null })
+      readConfigMock.mockReturnValue(makeConfig({ repoPath: null, repoUrl: null, rulesTarget: null }))
       const handler = getHandler('apply-plugin-changes')
       const result = handler({}, { enable: [], disable: [], envValues: {} })
       expect(result).toEqual({ ok: false, error: { key: 'config.error.targetRequired' } })
@@ -331,7 +358,7 @@ describe('registerIpc plugin handlers', () => {
     })
 
     it('returns ok:false when rulesTarget is null', () => {
-      readConfigMock.mockReturnValue({ repoPath: null, repoUrl: null, rulesTarget: null })
+      readConfigMock.mockReturnValue(makeConfig({ repoPath: null, repoUrl: null, rulesTarget: null }))
       validateClaudeTargetMock.mockReturnValue({ ok: false, reason: 'Rules target not configured' })
       const handler = getHandler('validate-claude-target')
       handler({})

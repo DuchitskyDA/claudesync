@@ -69,7 +69,13 @@ export interface AppApi {
   getInstalledPlugins(): Promise<InstalledPluginsState>
   applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }>
   validateClaudeTarget(): Promise<ClaudeTargetCheck>
+  detectClaudePath(): Promise<string | null>
+  suggestClaudePath(): Promise<string>
+  pickCursorProjectPath(): Promise<string | null>
+  validateCursorProject(p: { name: string; path: string }): Promise<{ ok: true } | { ok: false; error: LocalizedMessage }>
+  /** @deprecated use detectClaudePath */
   detectRulesTarget(): Promise<string | null>
+  /** @deprecated use suggestClaudePath */
   suggestRulesTarget(): Promise<string>
   suggestRepoPath(url: string): Promise<string>
 
