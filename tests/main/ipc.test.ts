@@ -93,10 +93,12 @@ function makeConfig(overrides: {
   repoPath?: string | null
   repoUrl?: string | null
   rulesTarget?: string | null
+  catalogUrl?: string | null
 } = {}): Record<string, unknown> {
   const repoPath = 'repoPath' in overrides ? overrides.repoPath : '/repo'
   const repoUrl = 'repoUrl' in overrides ? overrides.repoUrl : 'https://github.com/org/repo'
   const rulesTarget = 'rulesTarget' in overrides ? overrides.rulesTarget : '/home/user/.claude'
+  const catalogUrl = 'catalogUrl' in overrides ? overrides.catalogUrl : null
   return {
     repoPath,
     repoUrl,
@@ -105,6 +107,7 @@ function makeConfig(overrides: {
     lastDismissedUpdate: null,
     claude: { enabled: !!rulesTarget, path: rulesTarget },
     cursor: { enabled: false, projects: [] },
+    catalogUrl,
     rulesTarget, // transitional shim mirroring claude.path
   }
 }
@@ -285,21 +288,37 @@ describe('registerIpc plugin handlers', () => {
   })
 
   describe('get-plugin-catalog', () => {
-    it('calls fetchCatalog without force by default', async () => {
+    it('calls fetchCatalog without force and with null catalogUrl by default', async () => {
+      readConfigMock.mockReturnValue(makeConfig())
       const mockCatalog = { version: 1 as const, plugins: [], presets: [] }
       fetchCatalogMock.mockResolvedValueOnce(mockCatalog)
       const handler = getHandler('get-plugin-catalog')
       const result = await handler({} /* event */)
-      expect(fetchCatalogMock).toHaveBeenCalledWith({ force: undefined })
+      expect(fetchCatalogMock).toHaveBeenCalledWith({ force: undefined, catalogUrl: null })
       expect(result).toEqual(mockCatalog)
     })
 
     it('passes force=true to fetchCatalog', async () => {
+      readConfigMock.mockReturnValue(makeConfig())
       const mockCatalog = { version: 1 as const, plugins: [], presets: [] }
       fetchCatalogMock.mockResolvedValueOnce(mockCatalog)
       const handler = getHandler('get-plugin-catalog')
       await handler({} /* event */, true)
-      expect(fetchCatalogMock).toHaveBeenCalledWith({ force: true })
+      expect(fetchCatalogMock).toHaveBeenCalledWith({ force: true, catalogUrl: null })
+    })
+
+    it('forwards a user-configured catalogUrl override', async () => {
+      readConfigMock.mockReturnValue(
+        makeConfig({ catalogUrl: 'https://example.com/catalog.json' }),
+      )
+      const mockCatalog = { version: 1 as const, plugins: [], presets: [] }
+      fetchCatalogMock.mockResolvedValueOnce(mockCatalog)
+      const handler = getHandler('get-plugin-catalog')
+      await handler({} /* event */)
+      expect(fetchCatalogMock).toHaveBeenCalledWith({
+        force: undefined,
+        catalogUrl: 'https://example.com/catalog.json',
+      })
     })
   })
 

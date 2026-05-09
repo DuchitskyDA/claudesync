@@ -42,6 +42,7 @@ function defaultsBase(): AppConfig {
     lastDismissedUpdate: null,
     claude: { enabled: false, path: null },
     cursor: { enabled: false, projects: [] },
+    catalogUrl: null,
     rulesTarget: null,
   }
 }
@@ -102,6 +103,10 @@ export function readConfig(filePath: string): AppConfig {
       typeof parsed.lastDismissedUpdate === 'string' ? parsed.lastDismissedUpdate : null,
     claude,
     cursor: readCursorBlock(parsed),
+    catalogUrl:
+      typeof parsed.catalogUrl === 'string' && parsed.catalogUrl.trim() !== ''
+        ? parsed.catalogUrl
+        : null,
     // Transitional shim: mirror claude.path into rulesTarget so callers that
     // still read `cfg.rulesTarget` keep working until Tasks 2/4/5 land.
     // writeConfig drops this on save.
@@ -119,6 +124,7 @@ export function writeConfig(filePath: string, cfg: AppConfig): void {
     lastDismissedUpdate: cfg.lastDismissedUpdate,
     claude: cfg.claude,
     cursor: cfg.cursor,
+    catalogUrl: cfg.catalogUrl,
   }
   writeFileSync(tmp, JSON.stringify(persisted, null, 2), 'utf8')
   renameSync(tmp, filePath)
@@ -146,6 +152,18 @@ const URL_RE = /^(https?:\/\/|git@)[\w\-.@:/~]+/i
 export function validateRepoUrl(u: string): ValidationResult {
   if (!u) return { ok: false, error: { key: 'config.error.urlRequired' } }
   if (!URL_RE.test(u)) return { ok: false, error: { key: 'config.error.urlInvalid' } }
+  return { ok: true }
+}
+
+const HTTP_URL_RE = /^https?:\/\/[\w\-.@:/~%]+\.[\w\-.@:/~%]+/i
+
+/**
+ * Validate a custom plugin-catalog URL. Empty / null is OK — that signals
+ * "use the bundled default" and the fetcher takes the hardcoded path.
+ */
+export function validateCatalogUrl(u: string | null): ValidationResult {
+  if (u === null || u.trim() === '') return { ok: true }
+  if (!HTTP_URL_RE.test(u)) return { ok: false, error: { key: 'config.error.catalogUrlInvalid' } }
   return { ok: true }
 }
 

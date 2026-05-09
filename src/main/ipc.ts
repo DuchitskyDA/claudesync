@@ -22,6 +22,7 @@ import {
   validateLocalRepo,
   validateRepoUrl,
   validateClaudePath,
+  validateCatalogUrl,
   validateCursorProject,
   expandTilde,
   detectClaudeTarget,
@@ -195,6 +196,10 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('set-config', (_e, cfg: AppConfig): SetConfigResult => {
     const claudePath = cfg.claude?.path ? expandTilde(cfg.claude.path) : null
+    const normalizedCatalogUrl =
+      typeof cfg.catalogUrl === 'string' && cfg.catalogUrl.trim() !== ''
+        ? cfg.catalogUrl.trim()
+        : null
     const normalized: AppConfig = {
       repoUrl: cfg.repoUrl,
       repoPath: cfg.repoPath ? expandTilde(cfg.repoPath) : null,
@@ -212,6 +217,7 @@ export function registerIpc(window: BrowserWindow): void {
           path: expandTilde(p.path),
         })),
       },
+      catalogUrl: normalizedCatalogUrl,
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)
@@ -228,6 +234,10 @@ export function registerIpc(window: BrowserWindow): void {
     if (normalized.cursor.projects.length > 0) {
       const cv = validateCursorProjects(normalized.cursor.projects)
       if (!cv.ok) return { ok: false, error: cv.error }
+    }
+    {
+      const cu = validateCatalogUrl(normalized.catalogUrl)
+      if (!cu.ok) return { ok: false, error: cu.error }
     }
 
     // Clean up working-tree directories of Cursor projects that were removed
@@ -284,7 +294,10 @@ export function registerIpc(window: BrowserWindow): void {
     return shell.openExternal(url)
   })
 
-  ipcMain.handle('get-plugin-catalog', (_e, force?: boolean) => fetchCatalog({ force }))
+  ipcMain.handle('get-plugin-catalog', (_e, force?: boolean) => {
+    const cfg = readConfig(configPath)
+    return fetchCatalog({ force, catalogUrl: cfg.catalogUrl })
+  })
 
   ipcMain.handle('get-installed-plugins', () => {
     const cfg = readConfig(configPath)

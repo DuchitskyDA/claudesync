@@ -139,4 +139,53 @@ describe('fetchCatalog', () => {
     makeFetchFail('Network down')
     await expect(fetchCatalog()).rejects.toThrow('Network down')
   })
+
+  it('uses a custom catalogUrl when provided', async () => {
+    makeFetchOk()
+    const custom = 'https://example.com/my-catalog.json'
+    await fetchCatalog({ catalogUrl: custom })
+    expect(fetchMock).toHaveBeenCalledWith(custom)
+  })
+
+  it('switching catalogUrl invalidates cache from a different URL', async () => {
+    // Populate cache from default URL
+    makeFetchOk()
+    await fetchCatalog()
+    fetchMock.mockReset()
+
+    // Now request with a custom URL — cache must NOT be served, fetch must run
+    const custom = 'https://example.com/my-catalog.json'
+    const customCatalog: PluginCatalog = {
+      version: 1,
+      plugins: [{ id: 'cu', name: 'Custom', description: '' }],
+      presets: [],
+    }
+    makeFetchOk(customCatalog)
+    const got = await fetchCatalog({ catalogUrl: custom })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(custom)
+    expect(got).toEqual(customCatalog)
+  })
+
+  it('network failure with cache from a DIFFERENT url does not return that stale catalog', async () => {
+    // Pre-populate cache from default URL
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(
+      join(tmpDir, 'plugin-catalog-cache.json'),
+      JSON.stringify({
+        fetchedAt: Date.now(),
+        sourceUrl: 'https://default.example/index.json',
+        catalog: MOCK_CATALOG,
+      }),
+      'utf8',
+    )
+
+    makeFetchFail('Network down')
+    // Asking for a custom URL — fallback must NOT silently return the cache
+    // from the unrelated default URL.
+    await expect(
+      fetchCatalog({ catalogUrl: 'https://other.example/x.json' }),
+    ).rejects.toThrow('Network down')
+  })
 })

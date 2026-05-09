@@ -39,13 +39,14 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
   const [cursor, setCursor] = useState<CursorConfig>({ enabled: false, projects: [] })
+  const [catalogUrl, setCatalogUrl] = useState('')
   const [error, setError] = useState<LocalizedMessage | null>(null)
   const [busy, setBusy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [placeholderTarget, setPlaceholderTarget] = useState('')
   const [deviceFlowOpen, setDeviceFlowOpen] = useState(false)
   const [addProjectOpen, setAddProjectOpen] = useState(false)
-  const [tab, setTab] = useState<'repo' | 'claude' | 'cursor'>('repo')
+  const [tab, setTab] = useState<'repo' | 'claude' | 'cursor' | 'plugins'>('repo')
   const t = useT()
   const { preference, setPreference } = useLocale()
 
@@ -63,6 +64,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       void window.api.suggestClaudePath().then(setPlaceholderTarget)
       void window.api.getConfig().then((c) => {
         setCursor(c.cursor)
+        setCatalogUrl(c.catalogUrl ?? '')
       })
     }
   }, [open, initial.repoUrl, initial.repoPath, initial.rulesTarget])
@@ -96,6 +98,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       }
       if (!trimmedUrl) finalPath = null
       const existing = await window.api.getConfig()
+      const trimmedCatalog = catalogUrl.trim()
       const r = await window.api.setConfig({
         repoUrl: trimmedUrl || null,
         repoPath: finalPath,
@@ -104,6 +107,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
         lastDismissedUpdate: existing.lastDismissedUpdate,
         claude: { enabled: !!trimmedTarget, path: trimmedTarget || null },
         cursor,
+        catalogUrl: trimmedCatalog || null,
       })
       if (!r.ok) {
         setError(r.error ?? { key: 'settings.error.unknown' })
@@ -139,6 +143,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                 <TabsTrigger value="repo" className="flex-1">{t('settings.tabs.repo')}</TabsTrigger>
                 <TabsTrigger value="claude" className="flex-1">{t('settings.tabs.claude')}</TabsTrigger>
                 <TabsTrigger value="cursor" className="flex-1">{t('settings.tabs.cursor')}</TabsTrigger>
+                <TabsTrigger value="plugins" className="flex-1">{t('settings.tabs.plugins')}</TabsTrigger>
               </TabsList>
             </UITabs>
           </div>
@@ -314,6 +319,42 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                     {t('settings.cursor.addProject')}
                   </Button>
                 </div>
+              </>
+            )}
+
+            {tab === 'plugins' && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.plugins.description')}
+                </p>
+                <Field
+                  label={t('settings.plugins.catalogUrl.label')}
+                  hint={
+                    catalogUrl.trim() === ''
+                      ? t('settings.plugins.catalogUrl.usingDefault')
+                      : undefined
+                  }
+                >
+                  <div className="flex gap-2">
+                    <Input
+                      value={catalogUrl}
+                      onChange={(e) => setCatalogUrl(e.target.value)}
+                      placeholder={t('settings.plugins.catalogUrl.placeholder')}
+                      className="font-mono"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setCatalogUrl('')}
+                      disabled={catalogUrl.trim() === ''}
+                    >
+                      {t('settings.plugins.catalogUrl.useDefault')}
+                    </Button>
+                  </div>
+                </Field>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.plugins.catalogUrl.formatHint')}
+                </p>
               </>
             )}
 

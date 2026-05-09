@@ -10,6 +10,7 @@ import {
   validateClaudePath,
   validateRulesTarget,
   validateCursorProject,
+  validateCatalogUrl,
 } from '../../src/main/config'
 import type { AppConfig } from '@shared/api'
 
@@ -25,6 +26,7 @@ const baseDefaults: AppConfig = {
   lastDismissedUpdate: null,
   claude: { enabled: false, path: null },
   cursor: { enabled: false, projects: [] },
+  catalogUrl: null,
   rulesTarget: null,
 }
 
@@ -367,5 +369,42 @@ describe('validateCursorProject', () => {
 describe('validateLocalRepo tilde expansion', () => {
   it('accepts ~/some-non-existent-folder-12345 (tilde expansion, non-existent ok)', () => {
     expect(validateLocalRepo('~/some-non-existent-folder-12345')).toEqual({ ok: true })
+  })
+})
+
+describe('validateCatalogUrl', () => {
+  it('accepts null (use default)', () => {
+    expect(validateCatalogUrl(null)).toEqual({ ok: true })
+  })
+
+  it('accepts empty string (use default)', () => {
+    expect(validateCatalogUrl('')).toEqual({ ok: true })
+  })
+
+  it('accepts whitespace-only string (use default)', () => {
+    expect(validateCatalogUrl('   ')).toEqual({ ok: true })
+  })
+
+  it('accepts valid https URL', () => {
+    expect(
+      validateCatalogUrl('https://raw.githubusercontent.com/user/repo/main/index.json'),
+    ).toEqual({ ok: true })
+  })
+
+  it('accepts valid http URL', () => {
+    expect(validateCatalogUrl('http://example.com/catalog.json')).toEqual({ ok: true })
+  })
+
+  it('rejects bare hostname', () => {
+    expect(validateCatalogUrl('example.com').ok).toBe(false)
+  })
+
+  it('rejects non-http schemes', () => {
+    expect(validateCatalogUrl('git@github.com:user/repo.git').ok).toBe(false)
+    expect(validateCatalogUrl('ftp://files.example.com/a.json').ok).toBe(false)
+  })
+
+  it('rejects garbage strings', () => {
+    expect(validateCatalogUrl('not a url').ok).toBe(false)
   })
 })

@@ -41,6 +41,10 @@ export type AppConfig = {
   lastDismissedUpdate: string | null
   claude: ClaudeConfig
   cursor: CursorConfig
+  /** Custom plugin catalog URL. `null` (or missing) means "use the bundled
+   *  default" — the default URL is intentionally not surfaced in the UI;
+   *  Settings shows a blank field with a placeholder. */
+  catalogUrl: string | null
   /** Legacy field, migrated into `claude` on read, never written. */
   rulesTarget?: string | null
 }
