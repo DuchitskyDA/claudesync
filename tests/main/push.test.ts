@@ -154,17 +154,17 @@ describe('detectInstallMode', () => {
     const target = join(repoPath, 'claude', 'CLAUDE.md')
     writeFileSync(target, 'rules')
     symlinkSync(target, join(rulesTarget, 'CLAUDE.md'))
-    expect(detectInstallMode(rulesTarget, repoPath)).toBe('symlink')
+    expect(detectInstallMode(rulesTarget)).toBe('symlink')
   })
 
   it('returns copy when probe is regular file', () => {
     writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
     writeFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'rules')
-    expect(detectInstallMode(rulesTarget, repoPath)).toBe('copy')
+    expect(detectInstallMode(rulesTarget)).toBe('copy')
   })
 
   it('returns copy when probe missing in rulesTarget', () => {
-    expect(detectInstallMode(rulesTarget, repoPath)).toBe('copy')
+    expect(detectInstallMode(rulesTarget)).toBe('copy')
   })
 })
 

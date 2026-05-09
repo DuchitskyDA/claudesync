@@ -10,6 +10,7 @@ export function validateCursorProjects(projects: CursorProject[]): ProjectListVa
   const seenPaths = new Set<string>()
   for (let i = 0; i < projects.length; i++) {
     const p = projects[i]
+    if (!p) continue
     const r = validateCursorProject(p)
     if (!r.ok) return { ok: false, index: i, error: r.error }
     if (seenNames.has(p.name)) {
