@@ -94,6 +94,8 @@ const api: AppApi = {
   // v0.4 — GitHub
   listOwners: (): Promise<GitHubOwner[]> =>
     ipcRenderer.invoke('list-owners'),
+  checkRepoExists: (owner: string, name: string): Promise<boolean> =>
+    ipcRenderer.invoke('check-repo-exists', owner, name),
 
   // v0.4 — Init
   scanLocalConfig: (): Promise<ScanResult> =>
@@ -113,8 +115,12 @@ const api: AppApi = {
     ipcRenderer.invoke('preview-push-status'),
   runInstall: (opts: import('@shared/api').InstallOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-install', opts),
+  runPull: (): Promise<RunResult> =>
+    ipcRenderer.invoke('run-pull'),
   discardLocalChanges: (): Promise<RunResult> =>
     ipcRenderer.invoke('discard-local-changes'),
+  openRepoFile: (relPath: string): Promise<void> =>
+    ipcRenderer.invoke('open-repo-file', relPath),
   runPush: (opts: PushOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-push', opts),
   onPushStep: (callback: (e: PushStepEvent) => void): (() => void) => {

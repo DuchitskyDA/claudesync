@@ -127,20 +127,22 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-        <DialogContent className="sm:max-w-[560px] max-h-[88vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('settings.title')}</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-[560px] max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <div className="border-b bg-background px-6 pt-6 pb-3">
+            <DialogHeader className="mb-3">
+              <DialogTitle>{t('settings.title')}</DialogTitle>
+            </DialogHeader>
 
-          <UITabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
-            <TabsList className="w-full">
-              <TabsTrigger value="repo" className="flex-1">{t('settings.tabs.repo')}</TabsTrigger>
-              <TabsTrigger value="claude" className="flex-1">{t('settings.tabs.claude')}</TabsTrigger>
-              <TabsTrigger value="cursor" className="flex-1">{t('settings.tabs.cursor')}</TabsTrigger>
-            </TabsList>
-          </UITabs>
+            <UITabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
+              <TabsList className="w-full">
+                <TabsTrigger value="repo" className="flex-1">{t('settings.tabs.repo')}</TabsTrigger>
+                <TabsTrigger value="claude" className="flex-1">{t('settings.tabs.claude')}</TabsTrigger>
+                <TabsTrigger value="cursor" className="flex-1">{t('settings.tabs.cursor')}</TabsTrigger>
+              </TabsList>
+            </UITabs>
+          </div>
 
-          <div className="space-y-4 pt-2">
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             {tab === 'repo' && (
               <>
                 <Field label={t('settings.repoUrl.label')} hint={t('settings.repoUrl.optionalHint')}>
@@ -276,14 +278,23 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                   ) : (
                     <ul className="space-y-1.5">
                       {cursor.projects.map((p, i) => (
-                        <li key={`${p.name}-${i}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                        <li
+                          key={`${p.name}-${i}`}
+                          className="flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                        >
                           <span className="font-medium shrink-0">{p.name}</span>
-                          <span className="font-mono text-xs text-muted-foreground truncate flex-1">{p.path}</span>
+                          <span
+                            className="block min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+                            title={p.path}
+                          >
+                            {p.path}
+                          </span>
                           <button
                             type="button"
                             onClick={() => removeProject(i)}
-                            className="text-muted-foreground hover:text-destructive"
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
                             aria-label={t('settings.cursor.remove')}
+                            title={t('settings.cursor.remove')}
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -312,7 +323,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
             )}
           </div>
 
-          <DialogFooter className="gap-2 sm:justify-end">
+          <DialogFooter className="gap-2 border-t bg-background px-6 py-3 sm:justify-end">
             <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
             <Button onClick={save} disabled={busy || !canSave}>{t('common.save')}</Button>
           </DialogFooter>

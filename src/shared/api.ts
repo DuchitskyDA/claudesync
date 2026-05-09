@@ -92,6 +92,10 @@ export interface AppApi {
 
   // v0.4 — GitHub
   listOwners(): Promise<GitHubOwner[]>
+  /** Pre-flight: returns true if the named repo already exists for the owner.
+   *  Lets the init wizard fail fast with a clear inline error instead of
+   *  letting the create call bounce a 422. */
+  checkRepoExists(owner: string, name: string): Promise<boolean>
 
   // v0.4 — Init
   scanLocalConfig(): Promise<ScanResult>
@@ -109,9 +113,16 @@ export interface AppApi {
    *  refresh symlinks. Cursor install copies <repo>/cursor/projects/<name>/
    *  back into <project.path>/.cursor/ with overwrite (no backup). */
   runInstall(opts: InstallOptions): Promise<RunResult>
+  /** Pure `git pull --rebase --autostash` on the sync repo. No install
+   *  scripts run — Install is a separate action. */
+  runPull(): Promise<RunResult>
   /** Discard all local changes in the sync repo (modified + untracked).
    *  Equivalent to `git checkout -- . && git clean -fd`. Destructive. */
   discardLocalChanges(): Promise<RunResult>
+  /** Open a file in the user's default app, given a path relative to the
+   *  sync repo root. Used to inspect a single changed file from the
+   *  status popover. */
+  openRepoFile(relPath: string): Promise<void>
   runPush(opts: PushOptions): Promise<RunResult>
   onPushStep(callback: (e: PushStepEvent) => void): () => void
 
@@ -254,7 +265,7 @@ export type InstallOptions = {
 export type PushStep = 'export' | 'pull' | 'commit' | 'push'
 export type PushStepEvent = { step: PushStep; status: StepStatus; message?: LocalizedMessage }
 
-export type InitStep = 'create-repo' | 'clone' | 'generate' | 'commit' | 'push'
+export type InitStep = 'init-local' | 'generate' | 'commit' | 'create-remote' | 'push'
 export type InitStepEvent = { step: InitStep; status: StepStatus; message?: LocalizedMessage }
 
 export type ScanResult = {

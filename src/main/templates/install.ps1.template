@@ -54,26 +54,38 @@ function Link-Dir {
 }
 
 Write-Host '== claude =='
-Link-File -Src (Join-Path $RepoRoot 'claude\settings.json') -Dst (Join-Path $ClaudeDir 'settings.json')
-Link-File -Src (Join-Path $RepoRoot 'claude\CLAUDE.md')     -Dst (Join-Path $ClaudeDir 'CLAUDE.md')
+# Defensive — skip sources that don't exist yet (fresh repo before first push,
+# or sparse setups).
+$claudeSettings = Join-Path $RepoRoot 'claude\settings.json'
+$claudeMd       = Join-Path $RepoRoot 'claude\CLAUDE.md'
+if (Test-Path -LiteralPath $claudeSettings) { Link-File -Src $claudeSettings -Dst (Join-Path $ClaudeDir 'settings.json') }
+if (Test-Path -LiteralPath $claudeMd)       { Link-File -Src $claudeMd       -Dst (Join-Path $ClaudeDir 'CLAUDE.md') }
 
-Get-ChildItem -Path (Join-Path $RepoRoot 'claude\commands') -Filter '*.md' -File | ForEach-Object {
-    Link-File -Src $_.FullName -Dst (Join-Path $ClaudeDir "commands\$($_.Name)")
+$claudeCommands = Join-Path $RepoRoot 'claude\commands'
+if (Test-Path -LiteralPath $claudeCommands) {
+    Get-ChildItem -Path $claudeCommands -Filter '*.md' -File | ForEach-Object {
+        Link-File -Src $_.FullName -Dst (Join-Path $ClaudeDir "commands\$($_.Name)")
+    }
 }
 
-Get-ChildItem -Path (Join-Path $RepoRoot 'claude\skills') -Directory | ForEach-Object {
-    Link-Dir -Src $_.FullName -Dst (Join-Path $ClaudeDir "skills\$($_.Name)")
+$claudeSkills = Join-Path $RepoRoot 'claude\skills'
+if (Test-Path -LiteralPath $claudeSkills) {
+    Get-ChildItem -Path $claudeSkills -Directory | ForEach-Object {
+        Link-Dir -Src $_.FullName -Dst (Join-Path $ClaudeDir "skills\$($_.Name)")
+    }
 }
 
 Write-Host ''
 Write-Host '== projects memory =='
-Get-ChildItem -Path (Join-Path $RepoRoot 'claude\projects') -Directory | ForEach-Object {
-    $name = $_.Name
-    $targetDir = Join-Path $ClaudeDir "projects\$name"
-    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-    $memorySrc = Join-Path $_.FullName 'memory'
-    $memoryDst = Join-Path $targetDir 'memory'
-    if (Test-Path -LiteralPath $memorySrc) {
+$claudeProjects = Join-Path $RepoRoot 'claude\projects'
+if (Test-Path -LiteralPath $claudeProjects) {
+    Get-ChildItem -Path $claudeProjects -Directory | ForEach-Object {
+        $memorySrc = Join-Path $_.FullName 'memory'
+        if (-not (Test-Path -LiteralPath $memorySrc)) { return }
+        $name = $_.Name
+        $targetDir = Join-Path $ClaudeDir "projects\$name"
+        New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+        $memoryDst = Join-Path $targetDir 'memory'
         Link-Dir -Src $memorySrc -Dst $memoryDst
     }
 }

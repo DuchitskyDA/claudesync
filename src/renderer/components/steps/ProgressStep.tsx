@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { InitStepEvent, LocalizedMessage, RunResult } from '@shared/api'
 import { Circle, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -11,7 +11,7 @@ type Props = {
   finalRepoUrl: string | null
 }
 
-const stepOrder = ['create-repo', 'clone', 'generate', 'commit', 'push'] as const
+const stepOrder = ['init-local', 'generate', 'commit', 'create-remote', 'push'] as const
 
 type StepInfo = { status: 'idle' | 'running' | 'done' | 'failed'; message?: LocalizedMessage }
 
@@ -32,22 +32,31 @@ function StepIcon({ status }: { status: StepInfo['status'] | undefined }) {
 export function ProgressStep({ onClose, startInit, finalRepoUrl }: Props) {
   const t = useT()
   const labels: Record<(typeof stepOrder)[number], string> = {
-    'create-repo': t('init.step.createRepo'),
-    clone: t('init.step.clone'),
+    'init-local': t('init.step.initLocal'),
     generate: t('init.step.generate'),
     commit: t('init.step.commit'),
+    'create-remote': t('init.step.createRemote'),
     push: t('init.step.push'),
   }
   const [stepStates, setStepStates] = useState<Record<string, StepInfo>>({})
   const [result, setResult] = useState<RunResult | null>(null)
 
+  // Hold the latest startInit in a ref so we don't re-trigger initRepo on
+  // every parent re-render. Earlier we depended on `startInit` directly,
+  // and any parent state change (e.g. setConfigState inside onCompleted)
+  // recreated the callback → useEffect re-fired → initRepo got called a
+  // second time, hitting GitHub 422 because the repo from the first call
+  // already existed.
+  const startInitRef = useRef(startInit)
+  startInitRef.current = startInit
+
   useEffect(() => {
     const unsub = window.api.onInitStep((e: InitStepEvent) => {
       setStepStates((prev) => ({ ...prev, [e.step]: { status: e.status, message: e.message } }))
     })
-    void startInit().then(setResult)
+    void startInitRef.current().then(setResult)
     return () => unsub()
-  }, [startInit])
+  }, [])
 
   return (
     <div className="space-y-4">

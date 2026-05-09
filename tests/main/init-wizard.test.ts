@@ -218,7 +218,6 @@ describe('initRepo', () => {
       ownerLogin: 'me',
       name: 'test',
       isPrivate: true,
-      rulesTarget,
       userDataDir: dir,
       tplDir: 'unused',
       emit: () => {},
@@ -228,7 +227,7 @@ describe('initRepo', () => {
     expect((r.error as LocalizedMessage).key).toBe('init.error.notSignedIn')
   })
 
-  it('runs full happy path: createRepo → clone → generate → commit → push', async () => {
+  it('runs full happy path: init-local → generate → commit → create-remote → push', async () => {
     loadTokenMock.mockReturnValue('gho_token')
     createRepoMock.mockResolvedValue({
       clone_url: 'https://github.com/me/test.git',
@@ -236,8 +235,6 @@ describe('initRepo', () => {
       full_name: 'me/test',
     })
     runCommandMock.mockResolvedValue({ exitCode: 0 })
-
-    writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
 
     const tplDir = join(dir, 'tpl')
     mkdirSync(tplDir)
@@ -252,7 +249,6 @@ describe('initRepo', () => {
       ownerLogin: 'me',
       name: 'test',
       isPrivate: true,
-      rulesTarget,
       userDataDir: dir,
       tplDir,
       emit: () => {},
@@ -264,24 +260,30 @@ describe('initRepo', () => {
       expect((r as { ok: true; exitCode: number; repoUrl?: string; repoPath?: string }).repoUrl).toBe('https://github.com/me/test.git')
     }
     expect(createRepoMock).toHaveBeenCalled()
-    expect(steps).toContain('create-repo:done')
-    expect(steps).toContain('clone:done')
+    expect(steps).toContain('init-local:done')
     expect(steps).toContain('generate:done')
     expect(steps).toContain('commit:done')
+    expect(steps).toContain('create-remote:done')
     expect(steps).toContain('push:done')
+    // create-remote runs AFTER local steps now — verify ordering
+    expect(steps.indexOf('init-local:done')).toBeLessThan(steps.indexOf('create-remote:done'))
+    expect(steps.indexOf('commit:done')).toBeLessThan(steps.indexOf('create-remote:done'))
   })
 
-  it('aborts on createRepo failure', async () => {
+  it('aborts on createRepo failure (after local steps already succeeded)', async () => {
     loadTokenMock.mockReturnValue('gho_token')
     createRepoMock.mockRejectedValue(new Error('GitHub API 422: name taken'))
+    runCommandMock.mockResolvedValue({ exitCode: 0 })
+
+    const tplDir = join(dir, 'tpl')
+    mkdirSync(tplDir)
 
     const r = await initRepo({
       ownerLogin: 'me',
       name: 'taken',
       isPrivate: true,
-      rulesTarget,
       userDataDir: dir,
-      tplDir: 'unused',
+      tplDir,
       emit: () => {},
       emitStep: () => {},
     })
@@ -290,14 +292,9 @@ describe('initRepo', () => {
     expect((r.error as LocalizedMessage).params?.reason).toMatch(/422/)
   })
 
-  it('aborts on clone failure', async () => {
+  it('aborts on local git init failure', async () => {
     loadTokenMock.mockReturnValue('gho_token')
-    createRepoMock.mockResolvedValue({
-      clone_url: 'https://github.com/me/test.git',
-      html_url: '',
-      full_name: 'me/test',
-    })
-    runCommandMock.mockResolvedValueOnce({ exitCode: 128 })
+    runCommandMock.mockResolvedValueOnce({ exitCode: 128 }) // git init fails
 
     const tplDir = join(dir, 'tpl')
     mkdirSync(tplDir)
@@ -306,38 +303,31 @@ describe('initRepo', () => {
       ownerLogin: 'me',
       name: 'test',
       isPrivate: true,
-      rulesTarget,
       userDataDir: dir,
       tplDir,
       emit: () => {},
       emitStep: () => {},
     })
     expect(r.ok).toBe(false)
-    expect((r.error as LocalizedMessage).key).toBe('init.error.cloneFailed')
+    expect((r.error as LocalizedMessage).key).toBe('init.error.gitInitFailed')
+    // GitHub repo should NOT have been created — local failure happens first
+    expect(createRepoMock).not.toHaveBeenCalled()
   })
 
-  it('aborts on commit failure', async () => {
+  it('aborts on commit failure (and does NOT create remote repo)', async () => {
     loadTokenMock.mockReturnValue('gho_token')
-    createRepoMock.mockResolvedValue({
-      clone_url: 'https://github.com/me/test.git',
-      html_url: '',
-      full_name: 'me/test',
-    })
     runCommandMock
-      .mockResolvedValueOnce({ exitCode: 0 }) // clone
-      .mockResolvedValueOnce({ exitCode: 0 }) // add
+      .mockResolvedValueOnce({ exitCode: 0 }) // git init
+      .mockResolvedValueOnce({ exitCode: 0 }) // git add
       .mockResolvedValueOnce({ exitCode: 1 }) // commit fails
 
     const tplDir = join(dir, 'tpl')
     mkdirSync(tplDir)
 
-    writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
-
     const r = await initRepo({
       ownerLogin: 'me',
       name: 'test',
       isPrivate: true,
-      rulesTarget,
       userDataDir: dir,
       tplDir,
       emit: () => {},
@@ -345,5 +335,7 @@ describe('initRepo', () => {
     })
     expect(r.ok).toBe(false)
     expect((r.error as LocalizedMessage).key).toBe('init.error.commitFailed')
+    // Local-side commit failure must not have touched GitHub
+    expect(createRepoMock).not.toHaveBeenCalled()
   })
 })

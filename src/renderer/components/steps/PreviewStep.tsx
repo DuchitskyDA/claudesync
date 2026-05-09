@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import type { ScanResult } from '@shared/api'
-import { AlertTriangle, Check, X } from 'lucide-react'
+import React from 'react'
+import { FileText, Folder } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useT } from '../../i18n'
 
@@ -9,58 +8,54 @@ type Props = {
   onConfirm: () => void
 }
 
-function formatBytes(b: number): string {
-  if (b < 1024) return `${b} B`
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
-  return `${(b / 1024 / 1024).toFixed(1)} MB`
-}
+type Entry = { kind: 'dir' | 'file'; path: string; hint?: string }
+
+const SKELETON: Entry[] = [
+  { kind: 'dir', path: 'claude/', hint: 'init.preview.hint.claude' },
+  { kind: 'dir', path: 'cursor/projects/', hint: 'init.preview.hint.cursor' },
+  { kind: 'file', path: 'install.sh', hint: 'init.preview.hint.installSh' },
+  { kind: 'file', path: 'install.ps1', hint: 'init.preview.hint.installPs1' },
+  { kind: 'file', path: 'README.md' },
+  { kind: 'file', path: 'LICENSE' },
+  { kind: 'file', path: '.gitignore' },
+]
 
 export function PreviewStep({ onBack, onConfirm }: Props) {
   const t = useT()
-  const [scan, setScan] = useState<ScanResult | null>(null)
-
-  useEffect(() => {
-    void window.api.scanLocalConfig().then(setScan)
-  }, [])
-
-  if (!scan) return <div className="p-4 text-sm text-muted-foreground">{t('init.preview.scanning')}</div>
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="mb-2 text-sm font-semibold">
-          {t('init.preview.includeTitle')} ({scan.files.length}, {formatBytes(scan.totalSize)})
+    <div className="min-w-0 space-y-4">
+      <p className="text-sm text-muted-foreground">{t('init.preview.description')}</p>
+
+      <div className="min-w-0">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('init.preview.structureTitle')}
         </h3>
-        <div className="max-h-48 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs">
-          {scan.files.map((f) => (
-            <div key={f} className="flex items-center gap-1">
-              <Check className="h-3 w-3 text-emerald-500" />
-              {f}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {scan.excluded.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-semibold">
-            {t('init.preview.excludeTitle')} ({scan.excluded.length})
-          </h3>
-          <div className="max-h-32 overflow-auto rounded-md border p-2 font-mono text-xs text-muted-foreground">
-            {scan.excluded.map((f) => (
-              <div key={f} className="flex items-center gap-1">
-                <X className="h-3 w-3" />
-                {f}
-              </div>
+        <div className="min-w-0 rounded-md border bg-muted/40 p-3">
+          <ul className="space-y-1.5 font-mono text-xs">
+            {SKELETON.map((e) => (
+              <li key={e.path} className="flex min-w-0 items-start gap-2">
+                {e.kind === 'dir' ? (
+                  <Folder className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-500" />
+                ) : (
+                  <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="shrink-0 font-medium">{e.path}</span>
+                {e.hint && (
+                  <span
+                    className="ml-2 block min-w-0 flex-1 truncate text-muted-foreground"
+                    title={t(e.hint)}
+                  >
+                    — {t(e.hint)}
+                  </span>
+                )}
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
-      )}
-
-      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span>{t('init.preview.envWarning')}</span>
       </div>
+
+      <p className="text-xs text-muted-foreground">{t('init.preview.afterHint')}</p>
 
       <div className="flex justify-between">
         <Button variant="ghost" onClick={onBack}>{t('init.nav.back')}</Button>

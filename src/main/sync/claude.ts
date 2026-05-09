@@ -136,7 +136,15 @@ function copyFileIfExists(src: string, dst: string): void {
 function copyDirIfExists(src: string, dst: string): void {
   if (!existsSync(src)) return
   mkdirSync(dst, { recursive: true })
-  cpSync(src, dst, { recursive: true })
+  // Filter mirrors IGNORED_NAME so init-time copy and push-time mirror agree:
+  // `*.backup.<digit>...`, `.DS_Store`, `Thumbs.db` never enter the repo.
+  cpSync(src, dst, {
+    recursive: true,
+    filter: (s) => {
+      const base = s.split(/[/\\]/).pop() ?? ''
+      return !isIgnored(base)
+    },
+  })
 }
 
 /**

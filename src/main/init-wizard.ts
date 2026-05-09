@@ -4,6 +4,7 @@ import {
   readFileSync,
   writeFileSync,
   readdirSync,
+  rmSync,
   statSync,
   chmodSync,
 } from 'node:fs'
@@ -41,6 +42,16 @@ const RUNTIME_TOP_FILES = [
 ]
 const RUNTIME_PROJECT_DIRS = ['sessions']
 
+/**
+ * Names that are install-time/runtime junk and should NEVER be carried into
+ * the sync repo. Matches the runtime exporter's filter
+ * (src/main/sync/claude.ts → IGNORED_NAME) so init-time scan and push-time
+ * export agree on what's worth syncing.
+ *   - `*.backup.<digit>...` — install.ps1/sh leftover backups
+ *   - `.DS_Store`, `Thumbs.db` — OS junk
+ */
+const IGNORED_NAME = /\.backup\.\d|^\.DS_Store$|^Thumbs\.db$/i
+
 function toPosix(p: string): string {
   return p.split(sep).join(posix.sep)
 }
@@ -60,6 +71,12 @@ function walk(root: string, rel = ''): WalkResult {
     try {
       stat = statSync(fullPath)
     } catch {
+      continue
+    }
+
+    // Universal junk filter — install backups, OS metadata.
+    if (IGNORED_NAME.test(entry)) {
+      result.excluded.push(toPosix(relPath))
       continue
     }
 
@@ -121,6 +138,21 @@ export function scanLocalConfig(rulesTarget: string): ScanResult {
 
 /** Backwards-compat re-export. Logic moved to src/main/sync/claude.ts. */
 export const generateGlobalStructure = generateClaudeStructure
+
+/**
+ * Create an empty skeleton: claude/ and cursor/projects/ with .gitkeep files
+ * so git tracks the directories. No data is copied at init time — the user
+ * fills these via the regular Push flow once targets are configured.
+ */
+export function generateEmptySkeleton(repoPath: string): void {
+  const stake = (relDir: string) => {
+    const dir = join(repoPath, relDir)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '.gitkeep'), '')
+  }
+  stake('claude')
+  stake('cursor/projects')
+}
 
 // ---------------------------------------------------------------------------
 // Embedded templates
@@ -217,12 +249,42 @@ function nowHHMMSS(): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Run a `runCommand`-style action with retries + exponential-ish backoff.
+ * Used for the network-touching git steps (clone, push) that often fail
+ * the first time right after the GitHub repo was created (propagation lag)
+ * or briefly when the network blips.
+ */
+async function runCommandRetry(
+  label: string,
+  attempts: number,
+  emit: (l: LogLine) => void,
+  exec: () => Promise<{ exitCode: number }>,
+): Promise<{ exitCode: number }> {
+  let last: { exitCode: number } = { exitCode: -1 }
+  for (let i = 0; i < attempts; i++) {
+    last = await exec()
+    if (last.exitCode === 0) return last
+    if (i < attempts - 1) {
+      const wait = 1000 * (i + 1) // 1s, 2s, …
+      emit({
+        time: nowHHMMSS(),
+        text: `${label} failed (exit ${last.exitCode}) — retrying in ${wait / 1000}s (${i + 2}/${attempts})…`,
+        level: 'info',
+      })
+      await sleep(wait)
+    }
+  }
+  return last
+}
+
 export type InitRepoOpts = {
   ownerLogin: string
   name: string
   isPrivate: boolean
   description?: string
-  rulesTarget: string
   userDataDir: string
   tplDir: string
   emit: (line: LogLine) => void
@@ -244,8 +306,89 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
   if (!token) return fail({ key: 'init.error.notSignedIn' })
 
   return withRunLock(async () => {
-    // Step 1: create repo via API
-    opts.emitStep({ step: 'create-repo', status: 'running' })
+    // We deliberately create the GitHub repo LAST (step 4). Everything before
+    // that is local-only — if any of those steps fail, we wipe the local dir
+    // and exit cleanly with no GitHub side-effects. Only step 4+5 can leave
+    // a remote artifact, and step 4 is just an API call (very rarely flaky)
+    // while step 5 is retried.
+
+    // Compute the deterministic local path. We can't derive it from the
+    // remote URL until step 4, so use the (owner, name) tuple instead.
+    const stableKey = `https://github.com/${opts.ownerLogin}/${opts.name}.git`
+    const localPath = defaultManagedRepoPath(stableKey, opts.userDataDir)
+    const wipeLocal = () => {
+      try {
+        rmSync(localPath, { recursive: true, force: true })
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    // Step 1: init local repo (mkdir + git init)
+    opts.emitStep({ step: 'init-local', status: 'running' })
+    try {
+      // If a previous failed attempt left files behind, start clean.
+      if (existsSync(localPath)) rmSync(localPath, { recursive: true, force: true })
+      mkdirSync(localPath, { recursive: true })
+    } catch (e) {
+      const msg = (e as Error).message
+      opts.emitStep({ step: 'init-local', status: 'failed', message: { key: 'init.error.generic', params: { reason: msg }, fallback: msg } })
+      return fail({ key: 'init.error.generic', params: { reason: msg }, fallback: msg })
+    }
+    const initResult = await runCommand('git', ['-C', localPath, 'init', '-b', 'main'], {
+      cwd: localPath,
+      onLine: opts.emit,
+    })
+    if (initResult.exitCode !== 0) {
+      wipeLocal()
+      opts.emitStep({ step: 'init-local', status: 'failed' })
+      return failWithCode(initResult.exitCode, { key: 'init.error.gitInitFailed', params: { code: initResult.exitCode } })
+    }
+    opts.emitStep({ step: 'init-local', status: 'done' })
+
+    // Step 2: skeleton + templates
+    opts.emitStep({ step: 'generate', status: 'running' })
+    try {
+      generateEmptySkeleton(localPath)
+      dropTemplatesFrom(opts.tplDir, localPath, { name: opts.name, owner: opts.ownerLogin })
+    } catch (e) {
+      wipeLocal()
+      const msg = (e as Error).message
+      opts.emitStep({ step: 'generate', status: 'failed', message: { key: 'init.error.generic', params: { reason: msg }, fallback: msg } })
+      return fail({ key: 'init.error.generic', params: { reason: msg }, fallback: msg })
+    }
+    opts.emitStep({ step: 'generate', status: 'done' })
+
+    // Step 3: commit
+    opts.emitStep({ step: 'commit', status: 'running' })
+    const addResult = await runCommand('git', ['-C', localPath, 'add', '-A'], {
+      cwd: localPath,
+      onLine: opts.emit,
+    })
+    if (addResult.exitCode !== 0) {
+      wipeLocal()
+      opts.emitStep({ step: 'commit', status: 'failed' })
+      return fail({ key: 'init.error.commitFailed' })
+    }
+    const commitResult = await runCommand(
+      'git',
+      [
+        '-C', localPath,
+        '-c', 'user.email=claudesync@noreply',
+        '-c', 'user.name=claudesync',
+        'commit', '-m', 'initial commit from claudesync',
+      ],
+      { cwd: localPath, onLine: opts.emit },
+    )
+    if (commitResult.exitCode !== 0) {
+      wipeLocal()
+      opts.emitStep({ step: 'commit', status: 'failed' })
+      return fail({ key: 'init.error.commitFailed' })
+    }
+    opts.emitStep({ step: 'commit', status: 'done' })
+
+    // Step 4: create GitHub repo (last point at which we leave no side-effects on failure)
+    opts.emitStep({ step: 'create-remote', status: 'running' })
     let cloneUrl: string
     try {
       const repo = await ghCreateRepo(token, {
@@ -256,84 +399,43 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
       })
       cloneUrl = repo.clone_url
       opts.emit({ time: nowHHMMSS(), text: `✓ Created ${repo.full_name}`, level: 'info' })
-      opts.emitStep({ step: 'create-repo', status: 'done' })
+      opts.emitStep({ step: 'create-remote', status: 'done' })
     } catch (e) {
+      wipeLocal()
       const msg = (e as Error).message
-      opts.emitStep({ step: 'create-repo', status: 'failed', message: { key: 'init.error.createRepoFailed', params: { reason: msg }, fallback: msg } })
+      opts.emitStep({ step: 'create-remote', status: 'failed', message: { key: 'init.error.createRepoFailed', params: { reason: msg }, fallback: msg } })
       return fail({ key: 'init.error.createRepoFailed', params: { reason: msg }, fallback: msg })
     }
 
-    // Step 2: clone empty repo
-    const localPath = defaultManagedRepoPath(cloneUrl, opts.userDataDir)
-    mkdirSync(dirname(localPath), { recursive: true })
-    opts.emitStep({ step: 'clone', status: 'running' })
-    const cloneResult = await runCommand(
-      'git',
-      [...authArgs(token), 'clone', cloneUrl, localPath],
-      {
-        cwd: dirname(localPath),
-        onLine: opts.emit,
-      },
-    )
-    if (cloneResult.exitCode !== 0) {
-      opts.emitStep({ step: 'clone', status: 'failed' })
-      return failWithCode(cloneResult.exitCode, { key: 'init.error.cloneFailed', params: { code: cloneResult.exitCode } })
-    }
-    opts.emitStep({ step: 'clone', status: 'done' })
-
-    // Step 3: generate global/ + drop templates
-    opts.emitStep({ step: 'generate', status: 'running' })
-    try {
-      generateGlobalStructure(opts.rulesTarget, localPath)
-      dropTemplatesFrom(opts.tplDir, localPath, { name: opts.name, owner: opts.ownerLogin })
-    } catch (e) {
-      const msg = (e as Error).message
-      opts.emitStep({ step: 'generate', status: 'failed', message: { key: 'init.error.generic', params: { reason: msg }, fallback: msg } })
-      return fail({ key: 'init.error.generic', params: { reason: msg }, fallback: msg })
-    }
-    opts.emitStep({ step: 'generate', status: 'done' })
-
-    // Step 4: commit (add then commit)
-    opts.emitStep({ step: 'commit', status: 'running' })
-    const addResult = await runCommand('git', ['-C', localPath, 'add', '-A'], {
-      cwd: localPath,
-      onLine: opts.emit,
-    })
-    if (addResult.exitCode !== 0) {
-      opts.emitStep({ step: 'commit', status: 'failed' })
-      return fail({ key: 'init.error.commitFailed' })
-    }
-    const commitResult = await runCommand(
-      'git',
-      [
-        '-C',
-        localPath,
-        '-c',
-        'user.email=claudesync@noreply',
-        '-c',
-        'user.name=claudesync',
-        'commit',
-        '-m',
-        'initial commit from claudesync',
-      ],
-      { cwd: localPath, onLine: opts.emit },
-    )
-    if (commitResult.exitCode !== 0) {
-      opts.emitStep({ step: 'commit', status: 'failed' })
-      return fail({ key: 'init.error.commitFailed' })
-    }
-    opts.emitStep({ step: 'commit', status: 'done' })
-
-    // Step 5: push
+    // Step 5: add remote + push (retried — network)
     opts.emitStep({ step: 'push', status: 'running' })
-    const pushResult = await runCommand(
-      'git',
-      [...authArgs(token), '-C', localPath, 'push', '-u', 'origin', 'main'],
+    const remoteResult = await runCommand(
+      'git', ['-C', localPath, 'remote', 'add', 'origin', cloneUrl],
       { cwd: localPath, onLine: opts.emit },
+    )
+    if (remoteResult.exitCode !== 0) {
+      // Local-only failure. GitHub repo exists but is empty — surface that.
+      opts.emitStep({ step: 'push', status: 'failed' })
+      return failWithCode(remoteResult.exitCode, {
+        key: 'init.error.pushFailedKeepRepo',
+        params: { code: remoteResult.exitCode, repoUrl: cloneUrl.replace(/\.git$/, '') },
+        fallback: `git remote add failed (exit ${remoteResult.exitCode}). Empty repo exists at ${cloneUrl.replace(/\.git$/, '')}.`,
+      })
+    }
+    const pushResult = await runCommandRetry('git push', 3, opts.emit, () =>
+      runCommand(
+        'git',
+        [...authArgs(token), '-C', localPath, 'push', '-u', 'origin', 'main'],
+        { cwd: localPath, onLine: opts.emit },
+      ),
     )
     if (pushResult.exitCode !== 0) {
       opts.emitStep({ step: 'push', status: 'failed' })
-      return failWithCode(pushResult.exitCode, { key: 'init.error.pushFailed', params: { code: pushResult.exitCode } })
+      return failWithCode(pushResult.exitCode, {
+        key: 'init.error.pushFailedKeepRepo',
+        params: { code: pushResult.exitCode, repoUrl: cloneUrl.replace(/\.git$/, '') },
+        fallback: `git push failed after retries (exit ${pushResult.exitCode}). Repo was created at ${cloneUrl.replace(/\.git$/, '')}; you can push manually from ${localPath}.`,
+      })
     }
     opts.emitStep({ step: 'push', status: 'done' })
 

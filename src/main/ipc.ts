@@ -38,7 +38,7 @@ import {
   getAuthState,
   signOut,
 } from './github-auth'
-import { listOwners } from './github-api'
+import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush, getRepoStatus } from './push'
 import { detectClaudeInstallMode, exportClaude, stripSecretsInClaudeRepo } from './sync/claude'
@@ -362,6 +362,11 @@ export function registerIpc(window: BrowserWindow): void {
     if (!token) throw new Error('Not authenticated')
     return listOwners(token)
   })
+  ipcMain.handle('check-repo-exists', async (_e, owner: string, name: string) => {
+    const token = loadToken(userDataDir)
+    if (!token) throw new Error('Not authenticated')
+    return repoExists(token, owner, name)
+  })
 
   // Init wizard
   ipcMain.handle('scan-local-config', () => {
@@ -381,14 +386,14 @@ export function registerIpc(window: BrowserWindow): void {
   }
 
   ipcMain.handle('init-repo', async (_e, opts: InitWizardOptions) => {
-    const cfg = readConfig(configPath)
-    if (!cfg.claude.path) return { ok: false, exitCode: -1, error: { key: 'config.error.targetRequired', fallback: 'Claude config folder not set' } }
+    // Init creates a clean template-only repo — Claude/Cursor data is synced
+    // separately via the Push flow once targets are configured. So we don't
+    // require cfg.claude.path here anymore.
     const result = await initRepo({
       ownerLogin: opts.owner,
       name: opts.name,
       isPrivate: opts.isPrivate,
       description: opts.description,
-      rulesTarget: cfg.claude.path,
       userDataDir,
       tplDir: templatesDir(),
       emit,
@@ -527,6 +532,43 @@ export function registerIpc(window: BrowserWindow): void {
       emit,
       emitStep: emitPushStep,
     })
+  })
+
+  ipcMain.handle('open-repo-file', async (_e, relPath: string) => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath || !relPath) return
+    // Strip trailing slash that `git status --porcelain` adds for untracked dirs.
+    const cleaned = relPath.replace(/[/\\]+$/, '')
+    await shell.openPath(join(cfg.repoPath, cleaned))
+  })
+
+  ipcMain.handle('run-pull', async (): Promise<RunResult> => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) {
+      return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
+    }
+    const token = loadToken(userDataDir)
+    if (!token) {
+      return { ok: false, exitCode: -1, error: { key: 'push.error.notSignedIn' } }
+    }
+    const repoPath = cfg.repoPath
+    const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+    const authHeader = ['-c', `http.extraheader=Authorization: Basic ${basic}`]
+    emit({ time: nowHHMMSS(), text: '$ git pull --rebase --autostash', level: 'info' })
+    const r = await runCommand(
+      'git',
+      [...authHeader, '-C', repoPath, 'pull', '--rebase', '--autostash'],
+      { cwd: repoPath, onLine: emit },
+    )
+    if (r.exitCode !== 0) {
+      return {
+        ok: false,
+        exitCode: r.exitCode,
+        error: { key: 'pull.error.failed', fallback: r.stderr.trim().split(/\r?\n/).slice(-2).join(' | ') },
+      }
+    }
+    emit({ time: nowHHMMSS(), text: '✓ Pull done', level: 'success' })
+    return { ok: true, exitCode: 0 }
   })
 
   ipcMain.handle('discard-local-changes', async (): Promise<RunResult> => {

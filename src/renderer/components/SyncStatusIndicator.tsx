@@ -204,10 +204,17 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
             {files.length > 0 && (
               <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-background/50 p-1.5 font-mono text-[10px] leading-tight">
                 {files.slice(0, 50).map((f) => (
-                  <div key={f} className="truncate" title={f}>{f}</div>
+                  <button
+                    key={f}
+                    onClick={() => void window.api.openRepoFile(f)}
+                    className="block w-full truncate rounded px-1 py-0.5 text-left transition hover:bg-accent hover:text-foreground"
+                    title={t('sync.popover.openFile', { path: f })}
+                  >
+                    {f}
+                  </button>
                 ))}
                 {files.length > 50 && (
-                  <div className="text-muted-foreground">
+                  <div className="px-1 text-muted-foreground">
                     {t('sync.popover.moreFiles', { count: files.length - 50 })}
                   </div>
                 )}

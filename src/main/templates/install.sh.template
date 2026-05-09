@@ -33,30 +33,39 @@ link() {
 }
 
 echo "== claude =="
-link "$REPO_ROOT/claude/settings.json" "$CLAUDE_DIR/settings.json"
-link "$REPO_ROOT/claude/CLAUDE.md"     "$CLAUDE_DIR/CLAUDE.md"
+# Each link is defensive — skip if source doesn't exist yet (fresh repo
+# before first push, or sparse setups that don't sync everything).
+[[ -f "$REPO_ROOT/claude/settings.json" ]] && link "$REPO_ROOT/claude/settings.json" "$CLAUDE_DIR/settings.json"
+[[ -f "$REPO_ROOT/claude/CLAUDE.md" ]]     && link "$REPO_ROOT/claude/CLAUDE.md"     "$CLAUDE_DIR/CLAUDE.md"
 
-for f in "$REPO_ROOT"/claude/commands/*.md; do
-  [[ -f "$f" ]] || continue
-  link "$f" "$CLAUDE_DIR/commands/$(basename "$f")"
-done
+if [[ -d "$REPO_ROOT/claude/commands" ]]; then
+  for f in "$REPO_ROOT"/claude/commands/*.md; do
+    [[ -f "$f" ]] || continue
+    link "$f" "$CLAUDE_DIR/commands/$(basename "$f")"
+  done
+fi
 
-for d in "$REPO_ROOT"/claude/skills/*/; do
-  [[ -d "$d" ]] || continue
-  link "${d%/}" "$CLAUDE_DIR/skills/$(basename "${d%/}")"
-done
+if [[ -d "$REPO_ROOT/claude/skills" ]]; then
+  for d in "$REPO_ROOT"/claude/skills/*/; do
+    [[ -d "$d" ]] || continue
+    link "${d%/}" "$CLAUDE_DIR/skills/$(basename "${d%/}")"
+  done
+fi
 
 echo
 echo "== projects memory =="
-for d in "$REPO_ROOT"/claude/projects/*/; do
-  [[ -d "$d" ]] || continue
-  name=$(basename "${d%/}")
-  target_dir="$CLAUDE_DIR/projects/$name"
-  mkdir -p "$target_dir"
-  backup_if_real "$target_dir/memory"
-  ln -s "${d%/}/memory" "$target_dir/memory"
-  echo "  link:   $target_dir/memory -> ${d%/}/memory"
-done
+if [[ -d "$REPO_ROOT/claude/projects" ]]; then
+  for d in "$REPO_ROOT"/claude/projects/*/; do
+    [[ -d "$d" ]] || continue
+    [[ -d "${d%/}/memory" ]] || continue
+    name=$(basename "${d%/}")
+    target_dir="$CLAUDE_DIR/projects/$name"
+    mkdir -p "$target_dir"
+    backup_if_real "$target_dir/memory"
+    ln -s "${d%/}/memory" "$target_dir/memory"
+    echo "  link:   $target_dir/memory -> ${d%/}/memory"
+  done
+fi
 
 echo
 echo "== projects (local) =="

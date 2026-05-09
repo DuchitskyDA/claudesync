@@ -47,7 +47,7 @@ export function InitWizard({ open, authState, onClose, onAuthChanged, onComplete
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-[640px] max-h-[88vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[640px] max-h-[88vh] overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('init.title')}</DialogTitle>
         </DialogHeader>

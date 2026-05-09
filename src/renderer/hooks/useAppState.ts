@@ -53,6 +53,10 @@ export type AppState = {
   lastDismissedUpdate: string | null
   updaterKind: UpdaterKind
   updaterFlow: UpdaterFlowState
+  /** True when something has changed in the sync repo since the last
+   *  successful Install — set after a Pull that brought commits, cleared
+   *  after Install completes. */
+  installPending: boolean
 }
 
 type Action =
@@ -74,6 +78,7 @@ type Action =
   | { type: 'set-dismissed-update'; version: string | null }
   | { type: 'set-updater-kind'; kind: UpdaterKind }
   | { type: 'set-updater-flow'; flow: UpdaterFlowState }
+  | { type: 'set-install-pending'; pending: boolean }
 
 const initialSteps: Steps = {
   fetch: { status: 'idle' },
@@ -103,6 +108,7 @@ const initial: AppState = {
   lastDismissedUpdate: null,
   updaterKind: 'unknown',
   updaterFlow: { phase: 'idle' },
+  installPending: false,
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -143,6 +149,8 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, updaterKind: a.kind }
     case 'set-updater-flow':
       return { ...s, updaterFlow: a.flow }
+    case 'set-install-pending':
+      return { ...s, installPending: a.pending }
   }
 }
 
@@ -372,6 +380,8 @@ export function useAppState() {
     refreshAuth,
     signOut: handleSignOut,
     setConflictInProgress,
+    setInstallPending: (pending: boolean) =>
+      dispatch({ type: 'set-install-pending', pending }),
     refreshSyncStatus: () => refreshSyncStatus(true),
     checkForUpdates: () => checkForUpdates(true),
     dismissUpdate,

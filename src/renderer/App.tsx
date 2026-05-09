@@ -28,7 +28,6 @@ const LOG_PANEL_HEIGHT = 240
 export function App() {
   const {
     state,
-    syncNow,
     runPush,
     clearLog,
     openSettings,
@@ -37,6 +36,7 @@ export function App() {
     refreshAuth,
     signOut,
     setConflictInProgress,
+    setInstallPending,
     refreshSyncStatus,
     checkForUpdates,
     startUpdater,
@@ -65,8 +65,22 @@ export function App() {
 
   const handleInstall = async (opts: { installClaude: boolean; cursorProjectNames: string[] }) => {
     setInstallOpen(false)
-    await window.api.runInstall(opts)
+    const r = await window.api.runInstall(opts)
+    if (r.ok) setInstallPending(false)
   }
+
+  const handlePull = async () => {
+    const behindBefore = state.syncStatus.behind
+    const r = await window.api.runPull()
+    await refreshSyncStatus()
+    if (r.ok && behindBefore > 0) setInstallPending(true)
+  }
+
+  const showPushBtn = state.syncStatus.localChanges > 0 || state.syncStatus.ahead > 0
+  const showPullBtn = state.syncStatus.behind > 0
+  const showInstallBtn = state.installPending
+  const allHidden = !showPushBtn && !showPullBtn && !showInstallBtn
+  const hasAnyTarget = state.rulesTarget !== null || state.cursor.projects.length > 0
 
   return (
     <div className="flex h-screen flex-col">
@@ -117,26 +131,49 @@ export function App() {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <PullButton
-                    configComplete={configComplete}
-                    isRunning={state.isRunning}
-                    onClick={() => void syncNow()}
-                  />
-                  <PushButton
-                    configComplete={configComplete}
-                    isRunning={state.isRunning}
-                    onClick={() => setPushOpen(true)}
-                  />
-                  <InstallButton
-                    configComplete={configComplete}
-                    isRunning={state.isRunning}
-                    onClick={() => setInstallOpen(true)}
-                  />
-                </div>
-                <div className="flex-1 overflow-auto border-t">
-                  <StepList steps={state.steps} />
-                </div>
+                {allHidden ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center text-sm text-muted-foreground">
+                    {hasAnyTarget ? (
+                      <p>{t('sync.allInSync')}</p>
+                    ) : (
+                      <>
+                        <p>{t('sync.noTargets.text')}</p>
+                        <Button variant="outline" onClick={openSettings}>
+                          {t('sync.noTargets.cta')}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      {showPullBtn && (
+                        <PullButton
+                          configComplete={configComplete}
+                          isRunning={state.isRunning}
+                          onClick={() => void handlePull()}
+                        />
+                      )}
+                      {showPushBtn && (
+                        <PushButton
+                          configComplete={configComplete}
+                          isRunning={state.isRunning}
+                          onClick={() => setPushOpen(true)}
+                        />
+                      )}
+                      {showInstallBtn && (
+                        <InstallButton
+                          configComplete={configComplete}
+                          isRunning={state.isRunning}
+                          onClick={() => setInstallOpen(true)}
+                        />
+                      )}
+                    </div>
+                    <div className="flex-1 overflow-auto border-t">
+                      <StepList steps={state.steps} />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>
@@ -172,7 +209,7 @@ export function App() {
         onRefreshSync={refreshSyncStatus}
         onOpenSettings={openSettings}
         onPush={() => setPushOpen(true)}
-        onPull={() => void syncNow()}
+        onPull={() => void handlePull()}
         onDiscard={async () => {
           await window.api.discardLocalChanges()
           await refreshSyncStatus()
@@ -211,13 +248,20 @@ export function App() {
         onClose={() => setInitOpen(false)}
         onAuthChanged={() => void refreshAuth()}
         onCompleted={() => {
-          void window.api.getConfig().then((c) =>
+          void window.api.getConfig().then((c) => {
             setConfigState({
               repoUrl: c.repoUrl,
               repoPath: c.repoPath,
               rulesTarget: c.claude.path,
-            }),
-          )
+              cursor: c.cursor,
+            })
+            // Fresh init with no targets configured yet → nudge user
+            // straight into Settings so they don't land on an empty Sync tab
+            // wondering what to do next.
+            if (!c.claude.path && c.cursor.projects.length === 0) {
+              openSettings()
+            }
+          })
         }}
       />
 

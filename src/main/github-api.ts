@@ -41,6 +41,27 @@ export type CreateRepoResult = {
   full_name: string
 }
 
+/** Returns true if `<owner>/<name>` already exists on GitHub.
+ *  GitHub returns 200 if the caller can see the repo, 404 otherwise.
+ *  Other statuses (rate limit, network) bubble up as errors. */
+export async function repoExists(
+  token: string,
+  owner: string,
+  name: string,
+): Promise<boolean> {
+  const r = await fetch(`${API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  })
+  if (r.status === 200) return true
+  if (r.status === 404) return false
+  const body = await r.text()
+  throw new Error(`GitHub API ${r.status}: ${body}`)
+}
+
 export async function createRepo(
   token: string,
   opts: CreateRepoOptions,
