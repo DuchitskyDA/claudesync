@@ -5,6 +5,7 @@ import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
 import { InstallButton } from './components/InstallButton'
 import { InstallModal } from './components/InstallModal'
+import { StatusBar } from './components/StatusBar'
 import { ConflictModal } from './components/ConflictModal'
 import { UpdateProgressModal } from './components/UpdateProgressModal'
 import { InitWizard } from './components/InitWizard'
@@ -70,17 +71,12 @@ export function App() {
   return (
     <div className="flex h-screen flex-col">
       <Header
-        repoPath={state.repoPath}
-        authState={state.authState}
-        syncStatus={state.syncStatus}
-        syncStatusChecking={state.syncStatusChecking}
         hasUpdate={
           state.updateInfo?.available === true &&
           state.updateInfo.latest !== null &&
           state.updateInfo.latest !== state.lastDismissedUpdate
         }
         onOpenSettings={openSettings}
-        onRefreshSync={refreshSyncStatus}
       />
       {state.conflictInProgress && !conflictOpen && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
@@ -151,31 +147,33 @@ export function App() {
         )}
       </div>
 
-      {/* Log footer — always pinned to the bottom of the window. Toggle grows
-          the OS window vertically by LOG_PANEL_HEIGHT so existing content
-          isn't squashed. */}
-      {tab === 'sync' && state.repoUrl !== null && (
-        <div className="border-t">
-          <button
-            onClick={() => {
-              const willOpen = !showDetails
-              setShowDetails(willOpen)
-              void window.api.resizeWindowBy(willOpen ? LOG_PANEL_HEIGHT : -LOG_PANEL_HEIGHT)
-            }}
-            className="w-full px-4 py-1 text-left text-xs text-muted-foreground transition hover:text-foreground"
-          >
-            {showDetails ? `▾ ${t('sync.log.hide')}` : `▸ ${t('sync.log.show')}`}
-          </button>
-          {showDetails && (
-            <div
-              className="overflow-hidden border-t"
-              style={{ height: LOG_PANEL_HEIGHT }}
-            >
-              <LogConsole lines={state.log} onClear={clearLog} />
-            </div>
-          )}
+      {/* Log panel — toggled from StatusBar. Toggle grows the OS window
+          vertically by LOG_PANEL_HEIGHT so existing content isn't squashed. */}
+      {tab === 'sync' && state.repoUrl !== null && showDetails && (
+        <div
+          className="overflow-hidden border-t"
+          style={{ height: LOG_PANEL_HEIGHT }}
+        >
+          <LogConsole lines={state.log} onClear={clearLog} />
         </div>
       )}
+
+      <StatusBar
+        repoPath={state.repoPath}
+        authState={state.authState}
+        syncStatus={state.syncStatus}
+        syncStatusChecking={state.syncStatusChecking}
+        logOpen={showDetails}
+        onToggleLog={() => {
+          const willOpen = !showDetails
+          setShowDetails(willOpen)
+          void window.api.resizeWindowBy(willOpen ? LOG_PANEL_HEIGHT : -LOG_PANEL_HEIGHT)
+        }}
+        onRefreshSync={refreshSyncStatus}
+        onOpenSettings={openSettings}
+        onPush={() => setPushOpen(true)}
+        onPull={() => void syncNow()}
+      />
 
       <Settings
         open={state.settingsOpen}
