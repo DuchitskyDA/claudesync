@@ -236,7 +236,10 @@ export async function runPush(opts: RunPushOpts): Promise<RunResult> {
 }
 
 export async function getRepoStatus(repoPath: string): Promise<RepoStatus> {
-  const r = await runCommand('git', ['-C', repoPath, 'status', '--porcelain'], {
+  // -uall expands untracked directories to their individual files so the
+  // Push modal lists each file the user is about to commit (and the count
+  // matches the sync chip's localChanges).
+  const r = await runCommand('git', ['-C', repoPath, 'status', '--porcelain', '-uall'], {
     cwd: repoPath,
     onLine: () => {},
   })
