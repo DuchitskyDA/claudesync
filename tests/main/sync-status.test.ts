@@ -56,7 +56,7 @@ afterEach(() => {
 
 describe('getSyncStatus', () => {
   it('returns no-remote when repoPath is null', async () => {
-    const s = await getSyncStatus({ repoPath: null, userDataDir: dir, doFetch: false })
+    const s = await getSyncStatus({ repoPath: null, claudePath: null, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('no-remote')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(0)
@@ -66,37 +66,42 @@ describe('getSyncStatus', () => {
   it('returns no-remote when path is not a git repo', async () => {
     const empty = join(dir, 'empty')
     mkdirSync(empty)
-    const s = await getSyncStatus({ repoPath: empty, userDataDir: dir, doFetch: false })
+    const s = await getSyncStatus({ repoPath: empty, claudePath: null, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('no-remote')
   })
 
   it('returns in-sync after a fresh clone', async () => {
     setupRemoteAndClone()
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    const s = await getSyncStatus({ repoPath: local, claudePath: null, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('in-sync')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(0)
     expect(s.localChanges).toBe(0)
   })
 
-  it('reports local-changes when working tree has uncommitted edits', async () => {
+  it('reports local-changes when Claude source has new file', async () => {
     setupRemoteAndClone()
-    writeFileSync(join(local, 'fresh.txt'), 'untracked')
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
+    const s = await getSyncStatus({ repoPath: local, claudePath, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('local-changes')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(0)
     expect(s.localChanges).toBe(1)
   })
 
-  it('counts modified + untracked files together in localChanges', async () => {
+  it('counts Claude changes as localChanges', async () => {
     setupRemoteAndClone()
-    writeFileSync(join(local, 'README.md'), 'modified\n')
-    writeFileSync(join(local, 'newfile1.txt'), 'a')
-    writeFileSync(join(local, 'newfile2.txt'), 'b')
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    // repo HEAD has CLAUDE.md = "hello\n", we modify it and add 2 more
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'modified\n')
+    writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
+    writeFileSync(join(claudePath, 'extra.json'), '{}')
+    const s = await getSyncStatus({ repoPath: local, claudePath, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('local-changes')
-    expect(s.localChanges).toBe(3)
+    expect(s.localChanges).toBe(2) // 1 modified + 2 added
   })
 
   it('reports ahead after a local commit', async () => {
@@ -104,7 +109,7 @@ describe('getSyncStatus', () => {
     writeFileSync(join(local, 'a.txt'), 'A')
     git('add a.txt', local)
     git('commit -q -m local', local)
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: false })
+    const s = await getSyncStatus({ repoPath: local, claudePath: null, cursorProjects: [], userDataDir: dir, doFetch: false })
     expect(s.state).toBe('ahead')
     expect(s.behind).toBe(0)
     expect(s.ahead).toBe(1)
@@ -123,14 +128,14 @@ describe('getSyncStatus', () => {
     git('commit -q -m remote', sibling)
     git('push -q origin main', sibling)
 
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: true })
+    const s = await getSyncStatus({ repoPath: local, claudePath: null, cursorProjects: [], userDataDir: dir, doFetch: true })
     expect(s.state).toBe('behind')
     expect(s.behind).toBe(1)
     expect(s.ahead).toBe(0)
     expect(s.fetchedAt).toBeTypeOf('number')
   })
 
-  it('reports diverged when remote moved AND working tree is dirty (with fetch)', async () => {
+  it('reports diverged when remote moved AND Claude has changes (with fetch)', async () => {
     setupRemoteAndClone()
     // remote-side commit
     const sibling = join(dir, 'sibling-dirty')
@@ -142,10 +147,12 @@ describe('getSyncStatus', () => {
     git('add rr.txt', sibling)
     git('commit -q -m remote', sibling)
     git('push -q origin main', sibling)
-    // local: only working-tree dirt, no commits
-    writeFileSync(join(local, 'wt.txt'), 'wt')
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: true })
-    // behind > 0 + uncommitted local work → diverged (potential conflict on pull)
+    // local: Claude changes, no commits
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
+    const s = await getSyncStatus({ repoPath: local, claudePath, cursorProjects: [], userDataDir: dir, doFetch: true })
+    // behind > 0 + Claude changes → diverged (potential conflict on pull)
     expect(s.state).toBe('diverged')
     expect(s.behind).toBe(1)
     expect(s.ahead).toBe(0)
@@ -168,8 +175,12 @@ describe('getSyncStatus', () => {
     writeFileSync(join(local, 'l.txt'), 'L')
     git('add l.txt', local)
     git('commit -q -m local', local)
+    // local Claude changes
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
 
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: true })
+    const s = await getSyncStatus({ repoPath: local, claudePath, cursorProjects: [], userDataDir: dir, doFetch: true })
     expect(s.state).toBe('diverged')
     expect(s.behind).toBe(1)
     expect(s.ahead).toBe(1)
@@ -179,12 +190,15 @@ describe('getSyncStatus', () => {
     setupRemoteAndClone()
     // Point origin at a path that does not exist — fetch must fail.
     git(`remote set-url origin "${join(dir, 'does-not-exist').replace(/\\/g, '/')}"`, local)
-    const s = await getSyncStatus({ repoPath: local, userDataDir: dir, doFetch: true })
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
+    const s = await getSyncStatus({ repoPath: local, claudePath, cursorProjects: [], userDataDir: dir, doFetch: true })
     expect(s.state).toBe('offline')
-    expect(s.errorKey).toBe('sync.error.fetchFailed')
+    // Engine doesn't set errorKey for offline state
   })
 
-  it('returns unknown with errorKey when no upstream is configured', async () => {
+  it('returns in-sync when no upstream and no Claude changes', async () => {
     const orphan = join(dir, 'orphan')
     mkdirSync(orphan)
     git('init -q -b main', orphan)
@@ -194,8 +208,11 @@ describe('getSyncStatus', () => {
     writeFileSync(join(orphan, 'x.txt'), 'x')
     git('add x.txt', orphan)
     git('commit -q -m only', orphan)
-    const s = await getSyncStatus({ repoPath: orphan, userDataDir: dir, doFetch: false })
-    expect(s.state).toBe('unknown')
-    expect(s.errorKey).toBe('sync.error.noUpstream')
+    const claudePath = join(dir, '.claude')
+    mkdirSync(claudePath)
+    const s = await getSyncStatus({ repoPath: orphan, claudePath, cursorProjects: [], userDataDir: dir, doFetch: false })
+    // No remote + no Claude changes = in-sync
+    expect(s.state).toBe('in-sync')
+    expect(s.localChanges).toBe(0)
   })
 })

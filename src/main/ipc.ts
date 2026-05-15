@@ -472,20 +472,21 @@ export function registerIpc(window: BrowserWindow): void {
   }
   ipcMain.handle('get-sync-status', async () => {
     const cfg = readConfig(configPath)
-    runEnabledExporters(cfg)
     if (cachedSyncStatus.fetchedAt !== null) {
-      // Cache hit — recount with current local commits but skip network.
       const fresh = await getSyncStatus({
         repoPath: cfg.repoPath,
+        claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+        cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
         userDataDir,
         doFetch: false,
       })
-      // Preserve fetchedAt so UI shows "last checked" relative time.
       cachedSyncStatus = { ...fresh, fetchedAt: cachedSyncStatus.fetchedAt }
       return cachedSyncStatus
     }
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: false,
     })
@@ -493,9 +494,10 @@ export function registerIpc(window: BrowserWindow): void {
   })
   ipcMain.handle('refresh-sync-status', async () => {
     const cfg = readConfig(configPath)
-    runEnabledExporters(cfg)
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: true,
     })
