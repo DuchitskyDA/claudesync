@@ -168,3 +168,58 @@ export async function syncWtToHead(repoPath: string): Promise<void> {
   const r3 = await runGit(repoPath, ['clean', '-fd', '-e', '.git'])
   if (r3.exitCode !== 0) throw new Error(`git clean failed: ${r3.stderr}`)
 }
+
+export type RemoteErrorKind = 'network' | 'auth' | 'non-ff' | 'other'
+
+export function classifyRemoteError(stderr: string): RemoteErrorKind {
+  const s = stderr.toLowerCase()
+  if (/non-fast-forward|fetch first|updates were rejected/.test(s)) return 'non-ff'
+  if (
+    /tls|ssl|unexpected eof|could not resolve host|connection (reset|refused|timed out)|network is unreachable|operation timed out|proxy|the requested url returned error: 5\d\d/.test(s)
+  ) return 'network'
+  if (
+    /authentication failed|401|403|invalid username or password|bad credentials|terminal prompts disabled/.test(s)
+  ) return 'auth'
+  return 'other'
+}
+
+function authArgs(token: string | null): string[] {
+  if (!token) return []
+  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
+  return ['-c', `http.extraheader=Authorization: Basic ${basic}`]
+}
+
+export async function fetchOrigin(repoPath: string, token: string | null, timeoutMs = 8000): Promise<{ ok: boolean; stderr: string }> {
+  return new Promise((resolve) => {
+    const proc = require('node:child_process').spawn(
+      'git',
+      [...authArgs(token), '-C', repoPath, 'fetch', '--quiet', 'origin'],
+      { cwd: repoPath },
+    )
+    let stderr = ''
+    let settled = false
+    const settle = (ok: boolean) => { if (settled) return; settled = true; resolve({ ok, stderr }) }
+    const t = setTimeout(() => { try { proc.kill('SIGKILL') } catch {/*noop*/} settle(false) }, timeoutMs)
+    proc.stderr?.on('data', (b: Buffer) => { stderr += b.toString() })
+    proc.on('exit', (code: number | null) => { clearTimeout(t); settle(code === 0) })
+    proc.on('error', () => { clearTimeout(t); settle(false) })
+  })
+}
+
+export async function pushOrigin(repoPath: string, branch: string, token: string | null): Promise<{ ok: boolean; stderr: string }> {
+  const r = await _internal.runGit(repoPath, [...authArgs(token), 'push', 'origin', branch])
+  return { ok: r.exitCode === 0, stderr: r.stderr }
+}
+
+export async function mergeBase(repoPath: string, a: string, b: string): Promise<string> {
+  const r = await _internal.runGit(repoPath, ['merge-base', a, b])
+  if (r.exitCode !== 0) throw new Error(`git merge-base failed: ${r.stderr}`)
+  return r.stdout.toString('utf8').trim()
+}
+
+export async function revListCount(repoPath: string, range: string): Promise<number> {
+  const r = await _internal.runGit(repoPath, ['rev-list', '--count', range])
+  if (r.exitCode !== 0) return 0
+  const n = parseInt(r.stdout.toString('utf8').trim(), 10)
+  return Number.isFinite(n) ? n : 0
+}
