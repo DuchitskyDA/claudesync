@@ -361,5 +361,11 @@
   "pull.modal.deleted": "Удалено на удалённом: {{n}}",
   "pull.modal.deletedHint": "Поставь галочку чтобы удалить локально. Нетронутые файлы остаются.",
   "pull.modal.apply": "Применить",
-  "pull.modal.applying": "Применяю…"
+  "pull.modal.applying": "Применяю…",
+  "conflict.title": "Разруливание конфликта",
+  "conflict.keepMine": "Оставить моё",
+  "conflict.takeTheirs": "Взять удалённое",
+  "conflict.discard": "Отменить разруливание",
+  "conflict.apply": "Применить",
+  "conflict.commitDefault": "Merge через claudesync"
 }

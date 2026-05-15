@@ -54,16 +54,8 @@ import {
   quitAndInstall,
 } from './auto-updater'
 import { isBrewAvailable, runBrewUpgrade } from './brew-updater'
-import {
-  getConflictState,
-  getStageContent,
-  resolveFile,
-  continueRebase,
-  abortRebase,
-  STAGE_BASE,
-  STAGE_REMOTE,
-  STAGE_MINE,
-} from './conflict'
+import { getResolverStateIPC, executeResolveIPC, discardResolverIPC } from './conflict'
+import type { ResolverState } from '@shared/sync-types'
 import { loadToken } from './safe-storage'
 
 const LOG_LIMIT = 200
@@ -776,49 +768,14 @@ export function registerIpc(window: BrowserWindow): void {
     return { ok: true, exitCode: 0 }
   })
 
-  // Conflict resolution
-  ipcMain.handle('conflict-get-state', () => {
-    const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return { inProgress: false, files: [] }
-    return getConflictState(cfg.repoPath)
-  })
-
-  ipcMain.handle('conflict-get-file', (_e, path: string, side: 'base' | 'remote' | 'mine') => {
-    const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return { text: null, binary: false }
-    const stage =
-      side === 'base' ? STAGE_BASE : side === 'remote' ? STAGE_REMOTE : STAGE_MINE
-    return getStageContent(cfg.repoPath, path, stage)
-  })
-
+  // Conflict resolver (Engine-based)
+  ipcMain.handle('resolver-get-state', () => getResolverStateIPC(configPath, userDataDir))
   ipcMain.handle(
-    'conflict-resolve-file',
-    (_e, path: string, choice: 'mine' | 'remote' | 'manual') => {
-      const cfg = readConfig(configPath)
-      if (!cfg.repoPath) {
-        return { ok: false, error: { key: 'push.error.notConfigured' } }
-      }
-      return resolveFile(cfg.repoPath, path, choice)
-    },
+    'resolver-execute',
+    (_e, commitMessage: string, resolutions: ResolverState) =>
+      executeResolveIPC(configPath, userDataDir, commitMessage, resolutions),
   )
-
-  ipcMain.handle('conflict-open-in-editor', async (_e, path: string) => {
-    const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return
-    await shell.openPath(join(cfg.repoPath, path))
-  })
-
-  ipcMain.handle('conflict-continue', () => {
-    const cfg = readConfig(configPath)
-    if (!cfg.repoPath) {
-      return { ok: false, exitCode: -1, error: { key: 'push.error.notConfigured' } }
-    }
-    return continueRebase(cfg.repoPath)
-  })
-
-  ipcMain.handle('conflict-abort', () => {
-    const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return
-    abortRebase(cfg.repoPath)
+  ipcMain.handle('resolver-discard', () => {
+    discardResolverIPC(userDataDir)
   })
 }

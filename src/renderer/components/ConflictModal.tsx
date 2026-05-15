@@ -1,10 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type {
-  ConflictFile,
-  ConflictResolveChoice,
-  ConflictFileContent,
-  LocalizedMessage,
-} from '@shared/api'
+import type { ResolverState, ResolverFile } from '@shared/sync-types'
 import {
   Dialog,
   DialogContent,
@@ -13,9 +8,7 @@ import {
   DialogDescription,
 } from './ui/dialog'
 import { Button } from './ui/button'
-import { useT, tMessage } from '../i18n'
-import { ConflictFileList } from './ConflictFileList'
-import { ThreeWayDiff } from './ThreeWayDiff'
+import { useT } from '../i18n'
 
 type Props = {
   open: boolean
@@ -23,173 +16,198 @@ type Props = {
   onContinued: () => void
 }
 
-type LocalStatus = ConflictFile['status']
-
-type FileContents = {
-  base: ConflictFileContent
-  remote: ConflictFileContent
-  mine: ConflictFileContent
+/**
+ * Safely decode a Buffer-like value that came over IPC.
+ * IPC serialises Node Buffer as { type: 'Buffer', data: number[] } or as a
+ * plain Uint8Array. We must not assume Buffer is available in the renderer.
+ */
+function asString(b: unknown): string {
+  if (!b) return ''
+  if (typeof b === 'string') return b
+  const obj = b as Record<string, unknown>
+  // { type: 'Buffer', data: [...] }
+  if (obj.type === 'Buffer' && Array.isArray(obj.data)) {
+    try {
+      return new TextDecoder('utf-8').decode(new Uint8Array(obj.data as number[]))
+    } catch {
+      return ''
+    }
+  }
+  // Nested: { data: { type: 'Buffer', data: [...] } }
+  if (obj.data && typeof obj.data === 'object') {
+    return asString(obj.data)
+  }
+  // Uint8Array / ArrayBuffer
+  if (ArrayBuffer.isView(b)) {
+    try {
+      return new TextDecoder('utf-8').decode(b as BufferSource)
+    } catch {
+      return ''
+    }
+  }
+  try { return String(b) } catch { return '' }
 }
 
 export function ConflictModal({ open, onClose, onContinued }: Props) {
   const t = useT()
-  const [files, setFiles] = useState<ConflictFile[]>([])
-  const [localStatus, setLocalStatus] = useState<Record<string, LocalStatus>>({})
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [content, setContent] = useState<FileContents | null>(null)
-  const [busyPath, setBusyPath] = useState<string | null>(null)
-  const [error, setError] = useState<LocalizedMessage | null>(null)
-  const [continuing, setContinuing] = useState(false)
+  const [state, setState] = useState<ResolverState | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [commitMessage, setCommitMessage] = useState(t('conflict.commitDefault'))
 
-  const refresh = async (statusOverride?: Record<string, LocalStatus>) => {
-    const state = await window.api.conflictGetState()
-    if (!state.inProgress) {
-      onContinued()
-      return
-    }
-    const statuses = statusOverride ?? localStatus
-    const merged: ConflictFile[] = state.files.map((f) => ({
-      ...f,
-      status: statuses[f.path] ?? f.status,
-    }))
-    setFiles(merged)
-    if (selectedPath == null && merged.length > 0) {
-      setSelectedPath(merged[0]?.path ?? null)
+  // choices: path -> 'mine' | 'theirs'
+  const [choices, setChoices] = useState<Record<string, 'mine' | 'theirs'>>({})
+
+  const loadState = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const s = await window.api.resolverGetState()
+      setState(s)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
     if (open) {
-      void refresh()
+      void loadState()
     } else {
-      setFiles([])
-      setLocalStatus({})
-      setSelectedPath(null)
-      setContent(null)
+      setState(null)
+      setChoices({})
       setError(null)
+      setCommitMessage(t('conflict.commitDefault'))
     }
   }, [open])
 
-  useEffect(() => {
-    if (!selectedPath) {
-      setContent(null)
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      const [base, remote, mine] = await Promise.all([
-        window.api.conflictGetFile(selectedPath, 'base'),
-        window.api.conflictGetFile(selectedPath, 'remote'),
-        window.api.conflictGetFile(selectedPath, 'mine'),
-      ])
-      if (!cancelled) setContent({ base, remote, mine })
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedPath])
-
-  const handleResolve = async (path: string, choice: ConflictResolveChoice) => {
-    setBusyPath(path)
-    setError(null)
-    try {
-      const r = await window.api.conflictResolveFile(path, choice)
-      if (!r.ok) {
-        setError(r.error)
-        return
-      }
-      const newStatus: LocalStatus =
-        choice === 'mine'
-          ? 'resolved-mine'
-          : choice === 'remote'
-            ? 'resolved-remote'
-            : 'resolved-manual'
-      const next = { ...localStatus, [path]: newStatus }
-      setLocalStatus(next)
-      await refresh(next)
-    } finally {
-      setBusyPath(null)
-    }
-  }
-
-  const handleOpenInEditor = async (path: string) => {
-    await window.api.conflictOpenInEditor(path)
-  }
-
-  const handleContinue = async () => {
-    setContinuing(true)
-    setError(null)
-    try {
-      const r = await window.api.conflictContinue()
-      if (!r.ok) {
-        if (r.kind === 'conflict') {
-          setLocalStatus({})
-          await refresh({})
-          if (r.error) setError(r.error)
-          return
-        }
-        if (r.error) setError(r.error)
-        return
-      }
-      onContinued()
-    } finally {
-      setContinuing(false)
-    }
-  }
-
-  const handleAbort = async () => {
-    if (!window.confirm(t('conflict.modal.abortConfirm'))) return
-    await window.api.conflictAbort()
+  const handleDiscard = async () => {
+    if (!window.confirm(t('conflict.discard'))) return
+    await window.api.resolverDiscard()
     onClose()
   }
 
-  const allResolved = files.every((f) => f.status !== 'unresolved')
-  const selectedFile = files.find((f) => f.path === selectedPath) ?? null
+  const handleApply = async () => {
+    if (!state) return
+    setApplying(true)
+    setError(null)
+    try {
+      // Build resolutions: apply per-file choices back into the state
+      const resolutions: ResolverState = {
+        ...state,
+        files: state.files.map((f) => ({
+          ...f,
+          choice: (choices[f.repoPath] ?? null) as ResolverFile['choice'],
+        })),
+      }
+      const r = await window.api.resolverExecute(commitMessage, resolutions)
+      if (r.kind === 'ok') {
+        onContinued()
+      } else {
+        setError(r.message)
+      }
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const allChosen =
+    state !== null &&
+    state.files.length > 0 &&
+    state.files.every((f) => choices[f.repoPath] != null)
+
+  const files = state?.files ?? []
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent
-        className="flex h-[82vh] w-[min(1180px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[85vh] w-[min(860px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
         <DialogHeader className="flex-row items-start justify-between border-b px-5 py-3">
           <div className="min-w-0 flex-1 pr-4">
-            <DialogTitle>{t('conflict.modal.title')}</DialogTitle>
-            <DialogDescription className="mt-0.5">
-              {t('conflict.modal.description')}
+            <DialogTitle>{t('conflict.title')}</DialogTitle>
+            <DialogDescription className="mt-0.5 text-xs">
+              {loading
+                ? t('sync.status.checking')
+                : `${files.length} file${files.length === 1 ? '' : 's'} to resolve`}
             </DialogDescription>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
-            <Button variant="outline" onClick={() => void handleAbort()}>
-              {t('conflict.modal.abort')}
+            <Button variant="outline" size="sm" onClick={() => void handleDiscard()}>
+              {t('conflict.discard')}
             </Button>
-            <Button onClick={() => void handleContinue()} disabled={!allResolved || continuing}>
-              {t('conflict.modal.continue')}
+            <Button
+              size="sm"
+              onClick={() => void handleApply()}
+              disabled={!allChosen || applying}
+            >
+              {applying ? '…' : t('conflict.apply')}
             </Button>
           </div>
         </DialogHeader>
 
         {error && (
           <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-sm text-destructive">
-            {tMessage(t, error)}
+            {error}
           </div>
         )}
 
-        <div className="flex flex-1 overflow-hidden">
-          <ConflictFileList
-            files={files}
-            selectedPath={selectedPath}
-            busyPath={busyPath}
-            onSelect={setSelectedPath}
-            onResolve={handleResolve}
-            onOpenInEditor={handleOpenInEditor}
+        {/* Commit message */}
+        <div className="border-b px-5 py-2">
+          <input
+            className="w-full rounded border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.target.value)}
+            placeholder={t('conflict.commitDefault')}
           />
-          <div className="flex-1 overflow-hidden">
-            {selectedFile && content ? (
-              <ThreeWayDiff path={selectedFile.path} fileContent={content} />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground" />
-            )}
-          </div>
+        </div>
+
+        {/* File list */}
+        <div className="flex-1 overflow-auto">
+          {loading && (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              {t('sync.status.checking')}
+            </div>
+          )}
+          {!loading && files.length === 0 && (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              No conflicting files found.
+            </div>
+          )}
+          {!loading &&
+            files.map((f) => {
+              const mine = asString(f.mine)
+              const theirs = asString(f.theirs)
+              const choice = choices[f.repoPath]
+              return (
+                <div key={f.repoPath} className="border-b px-5 py-3">
+                  <div className="mb-2 font-mono text-sm font-medium">{f.repoPath}</div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={choice === 'mine' ? 'default' : 'outline'}
+                      onClick={() => setChoices((c) => ({ ...c, [f.repoPath]: 'mine' }))}
+                    >
+                      {t('conflict.keepMine')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={choice === 'theirs' ? 'default' : 'outline'}
+                      onClick={() => setChoices((c) => ({ ...c, [f.repoPath]: 'theirs' }))}
+                    >
+                      {t('conflict.takeTheirs')}
+                    </Button>
+                  </div>
+                  {choice && (
+                    <div className="mt-2 max-h-40 overflow-auto rounded border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground whitespace-pre-wrap">
+                      {(choice === 'mine' ? mine : theirs) || '(empty)'}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
         </div>
       </DialogContent>
     </Dialog>

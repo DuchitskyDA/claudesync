@@ -171,13 +171,13 @@ export interface AppApi {
   /** Subscribe to streaming update events emitted by either updater backend. */
   onUpdateProgress(cb: (e: UpdateProgressEvent) => void): () => void
 
-  // v0.5 — Conflict resolver
-  conflictGetState(): Promise<ConflictState>
-  conflictGetFile(path: string, side: ConflictSide): Promise<ConflictFileContent>
-  conflictResolveFile(path: string, choice: ConflictResolveChoice): Promise<ConflictResolveResult>
-  conflictOpenInEditor(path: string): Promise<void>
-  conflictContinue(): Promise<RunResult>
-  conflictAbort(): Promise<void>
+  // v1.0 — Engine Resolver
+  resolverGetState(): Promise<import('./sync-types').ResolverState | null>
+  resolverExecute(
+    commitMessage: string,
+    resolutions: import('./sync-types').ResolverState,
+  ): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }>
+  resolverDiscard(): Promise<void>
 }
 
 declare global {

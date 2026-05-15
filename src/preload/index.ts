@@ -21,16 +21,12 @@ import type {
   RepoStatus,
   InitStepEvent,
   PushStepEvent,
-  ConflictState,
-  ConflictSide,
-  ConflictFileContent,
-  ConflictResolveChoice,
-  ConflictResolveResult,
   SyncStatus,
   UpdateInfo,
   UpdateProgressEvent,
   PullPreviewResult,
 } from '@shared/api'
+import type { ResolverState } from '@shared/sync-types'
 
 const api: AppApi = {
   runSync: (): Promise<RunResult> =>
@@ -161,19 +157,16 @@ const api: AppApi = {
     return () => ipcRenderer.off('update-progress', listener)
   },
 
-  // v0.5 — Conflict resolver
-  conflictGetState: (): Promise<ConflictState> =>
-    ipcRenderer.invoke('conflict-get-state'),
-  conflictGetFile: (path: string, side: ConflictSide): Promise<ConflictFileContent> =>
-    ipcRenderer.invoke('conflict-get-file', path, side),
-  conflictResolveFile: (path: string, choice: ConflictResolveChoice): Promise<ConflictResolveResult> =>
-    ipcRenderer.invoke('conflict-resolve-file', path, choice),
-  conflictOpenInEditor: (path: string): Promise<void> =>
-    ipcRenderer.invoke('conflict-open-in-editor', path),
-  conflictContinue: (): Promise<RunResult> =>
-    ipcRenderer.invoke('conflict-continue'),
-  conflictAbort: (): Promise<void> =>
-    ipcRenderer.invoke('conflict-abort'),
+  // v1.0 — Engine Resolver
+  resolverGetState: (): Promise<ResolverState | null> =>
+    ipcRenderer.invoke('resolver-get-state'),
+  resolverExecute: (
+    commitMessage: string,
+    resolutions: ResolverState,
+  ): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }> =>
+    ipcRenderer.invoke('resolver-execute', commitMessage, resolutions),
+  resolverDiscard: (): Promise<void> =>
+    ipcRenderer.invoke('resolver-discard'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

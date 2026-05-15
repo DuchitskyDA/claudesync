@@ -208,8 +208,8 @@ export function useAppState() {
     void window.api.getPlatform().then((p) => dispatch({ type: 'set-platform', platform: p }))
     void window.api.getArch().then((a) => dispatch({ type: 'set-arch', arch: a }))
     void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
-    void window.api.conflictGetState().then((s) => {
-      dispatch({ type: 'set-conflict', inProgress: s.inProgress })
+    void window.api.resolverGetState().then((s) => {
+      dispatch({ type: 'set-conflict', inProgress: s !== null && s.files.length > 0 })
     })
     void window.api.getConfig().then((c) => {
       dispatch({
