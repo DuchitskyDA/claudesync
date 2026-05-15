@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { refreshStatus } from '../../../src/main/sync/engine/engine'
-import type { CursorProject } from '@shared/api'
 
 let dir: string
 let claudePath: string
@@ -62,7 +61,7 @@ describe('refreshStatus', () => {
   it('does NOT write to WT (no phantom diff)', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'modified\n')
     await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null })
-    const wtContent = require('node:fs').readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')
+    const wtContent = readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')
     expect(wtContent).toBe('hello\n')  // WT untouched
   })
 })
