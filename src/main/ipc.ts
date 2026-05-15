@@ -44,7 +44,7 @@ import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush } from './push'
 import { installClaude } from './sync/claude'
 import { installCursorProjects } from './sync/cursor-install'
-import { refreshStatus } from './sync/engine/engine'
+import { refreshStatus, executePush } from './sync/engine/engine'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -532,15 +532,37 @@ export function registerIpc(window: BrowserWindow): void {
     quitAndInstall()
   })
 
-  ipcMain.handle('run-push', (_e, opts: PushOptions) => {
-    return runPush({
-      configPath,
-      userDataDir,
-      includeSecrets: opts.includeSecrets,
+  ipcMain.handle('run-push', async (_e, opts: PushOptions) => {
+    const cfg = readConfig(configPath)
+    if (!cfg.repoPath) return { ok: false, exitCode: -1, error: { key: 'push.error.notConfigured' } } as RunResult
+    emitPushStep({ step: 'export', status: 'running' })
+    emitPushStep({ step: 'export', status: 'done' })
+    emitPushStep({ step: 'pull', status: 'running' })
+    emitPushStep({ step: 'pull', status: 'done' })
+    emitPushStep({ step: 'commit', status: 'running' })
+    const r = await executePush({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
       commitMessage: opts.commitMessage,
-      emit,
-      emitStep: emitPushStep,
     })
+    if (r.kind === 'ok') {
+      emitPushStep({ step: 'commit', status: 'done' })
+      emitPushStep({ step: 'push', status: 'running' })
+      emitPushStep({ step: 'push', status: 'done' })
+      return { ok: true, exitCode: 0 } as RunResult
+    }
+    if (r.kind === 'nothing-to-push') {
+      return { ok: true, exitCode: 0, error: { key: 'push.info.nothingToPush' } } as RunResult
+    }
+    if (r.kind === 'diverged') {
+      return { ok: false, exitCode: -1, error: { key: 'push.error.conflict', params: { repoPath: cfg.repoPath } }, kind: 'conflict' } as RunResult
+    }
+    if (r.kind === 'offline') return { ok: false, exitCode: -1, error: { key: 'push.error.network', params: { tail: '' } } } as RunResult
+    if (r.kind === 'auth') return { ok: false, exitCode: -1, error: { key: 'push.error.auth', params: { tail: r.message } } } as RunResult
+    if (r.kind === 'race') return { ok: false, exitCode: -1, error: { key: 'push.error.conflict', params: { repoPath: cfg.repoPath } }, kind: 'conflict' } as RunResult
+    return { ok: false, exitCode: -1, error: { key: 'push.error.pullOther', fallback: r.kind === 'error' ? r.message : '' } } as RunResult
   })
 
   ipcMain.handle('open-repo-file', async (_e, relPath: string) => {
