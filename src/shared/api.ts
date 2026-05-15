@@ -117,9 +117,10 @@ export interface AppApi {
    *  refresh symlinks. Cursor install copies <repo>/cursor/projects/<name>/
    *  back into <project.path>/.cursor/ with overwrite (no backup). */
   runInstall(opts: InstallOptions): Promise<RunResult>
-  /** Pure `git pull --rebase --autostash` on the sync repo. No install
-   *  scripts run — Install is a separate action. */
-  runPull(): Promise<RunResult>
+  /** Compute preview of what would be pulled from remote into ~/.claude / Cursor projects. */
+  computePullPreview(): Promise<PullPreviewResult>
+  /** Apply the pull with optional deletion opt-in for remotely deleted files. */
+  executePullApply(deletionsToApply: string[]): Promise<RunResult>
   /** Returns true if the sync repo has content that hasn't been deployed
    *  yet for any enabled target. Used to decide whether to show the Install
    *  button on cold start / after a config change (e.g. adding a Cursor
@@ -364,3 +365,11 @@ export type ConflictResolveChoice = 'mine' | 'remote' | 'manual'
 export type ConflictResolveResult = { ok: true } | { ok: false; error: LocalizedMessage }
 
 export type ConflictFileContent = { text: string | null; binary: boolean }
+
+import type { PreviewItem } from './sync-types'
+
+export type PullPreviewResult =
+  | { kind: 'preview'; items: PreviewItem[] }
+  | { kind: 'nothing-to-pull' }
+  | { kind: 'diverged' }
+  | { kind: 'offline' }

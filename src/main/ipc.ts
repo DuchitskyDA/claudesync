@@ -44,7 +44,7 @@ import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush } from './push'
 import { installClaude } from './sync/claude'
 import { installCursorProjects } from './sync/cursor-install'
-import { refreshStatus, executePush } from './sync/engine/engine'
+import { refreshStatus, executePush, computePullPreview, executePullApply } from './sync/engine/engine'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -619,60 +619,32 @@ export function registerIpc(window: BrowserWindow): void {
     return false
   })
 
-  ipcMain.handle('run-pull', async (): Promise<RunResult> => {
+  ipcMain.handle('compute-pull-preview', async () => {
     const cfg = readConfig(configPath)
-    if (!cfg.repoPath) {
-      return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
+    return computePullPreview({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
+    })
+  })
+
+  ipcMain.handle('execute-pull-apply', async (_e, deletionsToApply: string[]) => {
+    const cfg = readConfig(configPath)
+    emit({ time: nowHHMMSS(), text: '$ engine pull-apply', level: 'info' })
+    const r = await executePullApply({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
+      deletionsToApply,
+    })
+    if (r.kind === 'ok') {
+      emit({ time: nowHHMMSS(), text: '✓ Pull applied', level: 'success' })
+      return { ok: true, exitCode: 0 } as RunResult
     }
-    const token = loadToken(userDataDir)
-    if (!token) {
-      return { ok: false, exitCode: -1, error: { key: 'push.error.notSignedIn' } }
-    }
-    const repoPath = cfg.repoPath
-    const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')
-    const authHeader = ['-c', `http.extraheader=Authorization: Basic ${basic}`]
-    emit({ time: nowHHMMSS(), text: '$ git pull --rebase --autostash', level: 'info' })
-    const r = await runCommand(
-      'git',
-      [...authHeader, '-C', repoPath, 'pull', '--rebase', '--autostash'],
-      { cwd: repoPath, onLine: emit },
-    )
-    if (r.exitCode !== 0) {
-      return {
-        ok: false,
-        exitCode: r.exitCode,
-        error: { key: 'pull.error.failed', fallback: r.stderr.trim().split(/\r?\n/).slice(-2).join(' | ') },
-      }
-    }
-    // Reverse-mirror the freshly-pulled repo HEAD into the user's source
-    // dirs so files that landed in HEAD via the pull (e.g. a teammate's
-    // new skill or rule) appear in `~/.claude` / Cursor projects without
-    // the user having to click "Install" separately. Additive semantics:
-    // never delete a local-only file because it isn't in repo HEAD.
-    if (cfg.claude.enabled && cfg.claude.path) {
-      try {
-        installClaude(repoPath, cfg.claude.path)
-      } catch (e) {
-        emit({
-          time: nowHHMMSS(),
-          text: `claude post-pull install failed: ${(e as Error).message}`,
-          level: 'error',
-        })
-      }
-    }
-    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
-      try {
-        installCursorProjects(repoPath, cfg.cursor.projects, emit)
-      } catch (e) {
-        emit({
-          time: nowHHMMSS(),
-          text: `cursor post-pull install failed: ${(e as Error).message}`,
-          level: 'error',
-        })
-      }
-    }
-    emit({ time: nowHHMMSS(), text: '✓ Pull done', level: 'success' })
-    return { ok: true, exitCode: 0 }
+    if (r.kind === 'diverged') return { ok: false, exitCode: -1, error: { key: 'push.error.conflict' }, kind: 'conflict' } as RunResult
+    return { ok: false, exitCode: -1, error: { key: 'pull.error.failed', fallback: 'message' in r ? r.message : '' } } as RunResult
   })
 
   ipcMain.handle('discard-local-changes', async (): Promise<RunResult> => {

@@ -70,10 +70,17 @@ export function App() {
   }
 
   const handlePull = async () => {
-    const behindBefore = state.syncStatus.behind
-    const r = await window.api.runPull()
-    await refreshSyncStatus()
-    if (r.ok && behindBefore > 0) setInstallPending(true)
+    // Will be wired to PullModal in Task D4
+    const preview = await window.api.computePullPreview()
+    if (preview.kind === 'diverged') {
+      setConflictInProgress(true)
+      return
+    }
+    if (preview.kind === 'preview') {
+      // Stub: just apply with no deletion opt-in. PullModal in D4 adds proper UI.
+      await window.api.executePullApply([])
+      await refreshSyncStatus()
+    }
   }
 
   const showPushBtn = state.syncStatus.localChanges > 0 || state.syncStatus.ahead > 0

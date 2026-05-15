@@ -29,6 +29,7 @@ import type {
   SyncStatus,
   UpdateInfo,
   UpdateProgressEvent,
+  PullPreviewResult,
 } from '@shared/api'
 
 const api: AppApi = {
@@ -115,8 +116,10 @@ const api: AppApi = {
     ipcRenderer.invoke('preview-push-status'),
   runInstall: (opts: import('@shared/api').InstallOptions): Promise<RunResult> =>
     ipcRenderer.invoke('run-install', opts),
-  runPull: (): Promise<RunResult> =>
-    ipcRenderer.invoke('run-pull'),
+  computePullPreview: (): Promise<PullPreviewResult> =>
+    ipcRenderer.invoke('compute-pull-preview'),
+  executePullApply: (deletionsToApply: string[]): Promise<RunResult> =>
+    ipcRenderer.invoke('execute-pull-apply', deletionsToApply),
   checkInstallNeeded: (): Promise<boolean> =>
     ipcRenderer.invoke('check-install-needed'),
   listRepoCursorSubdirs: (): Promise<string[]> =>
