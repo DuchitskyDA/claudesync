@@ -8,6 +8,18 @@ export type LsTreeEntry = {
   size: number
 }
 
+/**
+ * Default env we inject into every git invocation:
+ *   GIT_TERMINAL_PROMPT=0  — fail fast on auth prompts instead of hanging
+ *   GIT_ASKPASS=           — disable any external askpass helper (e.g. macOS Keychain GUI)
+ *   GCM_INTERACTIVE=Never  — disable Windows Git Credential Manager interactive UI
+ */
+const NON_INTERACTIVE_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: '',
+  GCM_INTERACTIVE: 'Never',
+}
+
 function runGit(
   cwd: string,
   args: string[],
@@ -16,7 +28,7 @@ function runGit(
   return new Promise((resolve, reject) => {
     const proc = spawn('git', args, {
       cwd,
-      env: opts.env ? { ...process.env, ...opts.env } as NodeJS.ProcessEnv : process.env,
+      env: { ...process.env, ...NON_INTERACTIVE_ENV, ...(opts.env ?? {}) } as NodeJS.ProcessEnv,
       shell: false,
     })
     const out: Buffer[] = []
@@ -158,14 +170,21 @@ export async function revParse(repoPath: string, ref: string): Promise<string> {
   return r.stdout.toString('utf8').trim()
 }
 
-/** Reset WT to match HEAD using index — no remote network, no rebase, just plumbing. */
+/** Reset WT to match HEAD using index — no remote network, no rebase, just plumbing.
+ *  We restrict `git clean` to the directories we manage (`claude/` and
+ *  `cursor/`) so unrelated worktree-internal paths (e.g. linked worktrees
+ *  under `.claude/worktrees/`, IDE state, user-added top-level files) are
+ *  never touched. The user's sync repo is dedicated and these are the only
+ *  prefixes the Engine ever writes into. */
 export async function syncWtToHead(repoPath: string): Promise<void> {
   const r1 = await runGit(repoPath, ['read-tree', 'HEAD'])
   if (r1.exitCode !== 0) throw new Error(`git read-tree HEAD failed: ${r1.stderr}`)
   const r2 = await runGit(repoPath, ['checkout-index', '-a', '-f'])
   if (r2.exitCode !== 0) throw new Error(`git checkout-index -af failed: ${r2.stderr}`)
-  // Also remove WT files NOT in index (otherwise dropped paths stay around).
-  const r3 = await runGit(repoPath, ['clean', '-fd', '-e', '.git'])
+  // Remove WT files NOT in index, but ONLY within paths we manage.
+  // -- claude/ cursor/ scopes the clean to those subtrees; if either doesn't
+  // exist git clean will just skip it (no error).
+  const r3 = await runGit(repoPath, ['clean', '-fd', '--', 'claude/', 'cursor/'])
   if (r3.exitCode !== 0) throw new Error(`git clean failed: ${r3.stderr}`)
 }
 
@@ -194,7 +213,7 @@ export async function fetchOrigin(repoPath: string, token: string | null, timeou
     const proc = spawn(
       'git',
       [...authArgs(token), '-C', repoPath, 'fetch', '--quiet', 'origin'],
-      { cwd: repoPath },
+      { cwd: repoPath, env: { ...process.env, ...NON_INTERACTIVE_ENV } as NodeJS.ProcessEnv },
     )
     let stderr = ''
     let settled = false

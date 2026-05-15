@@ -3,6 +3,17 @@ import type { DiffEntry, FileEntry, SourceRef } from '@shared/sync-types'
 
 type HeadLike = { repoPath: string; sha: string; mode: '100644' | '100755'; size: number }
 
+/** Strip the source-prefix from a repoPath to recover the surface-local path.
+ *  Used when the source side has no entry (deleted-in-source case) and we
+ *  can't read surfacePath from FileEntry directly. */
+function deriveSurfacePath(source: SourceRef, repoPath: string): string {
+  if (source.kind === 'claude') {
+    return repoPath.startsWith('claude/') ? repoPath.slice('claude/'.length) : repoPath
+  }
+  const prefix = `cursor/projects/${source.projectName}/`
+  return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : repoPath
+}
+
 export function compare(source: SourceRef, src: FileEntry[], head: HeadLike[]): DiffEntry[] {
   const srcMap = new Map(src.map((e) => [e.repoPath, e]))
   const headMap = new Map(head.map((e) => [e.repoPath, e]))
@@ -11,7 +22,7 @@ export function compare(source: SourceRef, src: FileEntry[], head: HeadLike[]): 
   for (const repoPath of allPaths) {
     const s = srcMap.get(repoPath)
     const h = headMap.get(repoPath)
-    const surfacePath = s?.surfacePath ?? repoPath.split('/').slice(2).join('/')  // fallback for deleted
+    const surfacePath = s?.surfacePath ?? deriveSurfacePath(source, repoPath)
     if (s && h) {
       out.push({
         source, repoPath, surfacePath,

@@ -67,7 +67,10 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
   if (offline) state = 'offline'
   else if (behind > 0 && localChanges > 0) state = 'diverged'
   else if (behind > 0) state = 'behind'
-  else if (localChanges > 0 && ahead === 0) state = 'local-changes'
+  // local-changes takes priority over ahead — uncommitted source changes are the
+  // user's immediate concern; ahead (committed-but-unpushed) is included implicitly
+  // because both states show the Push button (App.tsx).
+  else if (localChanges > 0) state = 'local-changes'
   else if (ahead > 0) state = 'ahead'
   else state = 'in-sync'
 
