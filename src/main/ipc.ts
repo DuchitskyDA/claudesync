@@ -41,10 +41,10 @@ import {
 } from './github-auth'
 import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
-import { runPush, getRepoStatus } from './push'
-import { detectClaudeInstallMode, exportClaude, installClaude, stripSecretsInClaudeRepo } from './sync/claude'
-import { exportCursorProjects } from './sync/cursor'
+import { runPush } from './push'
+import { installClaude } from './sync/claude'
 import { installCursorProjects } from './sync/cursor-install'
+import { refreshStatus } from './sync/engine/engine'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -424,42 +424,36 @@ export function registerIpc(window: BrowserWindow): void {
     if (!window.isDestroyed()) window.webContents.send('push-step', e)
   }
 
-  /** Runs all enabled exporters into the working tree. Idempotent — safe to
-   *  call from any read-only-feeling operation (chip refresh, push preview).
-   *  Errors are swallowed; the real push surfaces them. */
-  function runEnabledExporters(cfg: AppConfig, silent = true): void {
-    if (!cfg.repoPath) return
-    if (cfg.claude.enabled && cfg.claude.path) {
-      try {
-        if (detectClaudeInstallMode(cfg.claude.path) === 'copy') {
-          exportClaude(cfg.claude.path, cfg.repoPath)
-        }
-        if (!cfg.includeSecretsInPush) stripSecretsInClaudeRepo(cfg.repoPath)
-      } catch {
-        /* surfaced on real push */
-      }
-    }
-    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
-      try {
-        exportCursorProjects(cfg.cursor.projects, cfg.repoPath, silent ? undefined : emit)
-      } catch {
-        /* surfaced on real push */
-      }
-    }
-  }
-
-  ipcMain.handle('get-repo-status', () => {
+  ipcMain.handle('get-repo-status', async () => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
-    runEnabledExporters(cfg)
-    return getRepoStatus(cfg.repoPath)
+    const status = await refreshStatus({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
+      doFetch: false,
+    })
+    const changedFiles = status.diffs
+      .filter((d) => d.status !== 'same')
+      .map((d) => d.repoPath)
+    return { changedFiles, clean: changedFiles.length === 0 }
   })
 
   ipcMain.handle('preview-push-status', async () => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return { changedFiles: [], clean: true }
-    runEnabledExporters(cfg, false)
-    return getRepoStatus(cfg.repoPath)
+    const status = await refreshStatus({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
+      doFetch: false,
+    })
+    const changedFiles = status.diffs
+      .filter((d) => d.status !== 'same')
+      .map((d) => d.repoPath)
+    return { changedFiles, clean: changedFiles.length === 0 }
   })
 
   // Sync status — cached; refresh re-runs `git fetch`.
