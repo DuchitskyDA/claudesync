@@ -88,10 +88,12 @@ export function App() {
     setPullPreviewOpen(true)
   }
 
-  const showPushBtn = state.syncStatus.localChanges > 0 || state.syncStatus.ahead > 0
-  const showPullBtn = state.syncStatus.behind > 0
+  const isDiverged = state.syncStatus.state === 'diverged'
+  const showPushBtn = !isDiverged && (state.syncStatus.localChanges > 0 || state.syncStatus.ahead > 0)
+  const showPullBtn = !isDiverged && state.syncStatus.behind > 0
   const showInstallBtn = state.installPending
-  const allHidden = !showPushBtn && !showPullBtn && !showInstallBtn
+  const showResolveBtn = isDiverged
+  const allHidden = !showPushBtn && !showPullBtn && !showInstallBtn && !showResolveBtn
   const hasAnyTarget = state.rulesTarget !== null || state.cursor.projects.length > 0
 
   return (
@@ -179,6 +181,11 @@ export function App() {
                           isRunning={state.isRunning}
                           onClick={() => setInstallOpen(true)}
                         />
+                      )}
+                      {showResolveBtn && (
+                        <Button variant="destructive" onClick={() => setConflictOpen(true)}>
+                          {t('sync.diverged.resolve')}
+                        </Button>
                       )}
                     </div>
                     <div className="flex-1 overflow-auto border-t">

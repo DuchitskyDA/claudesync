@@ -107,6 +107,7 @@
   "sync.allInSync": "Everything is in sync.",
   "sync.noTargets.text": "Repo is ready, but no sync targets are configured. Set up Claude or Cursor projects to start syncing.",
   "sync.noTargets.cta": "Open Settings",
+  "sync.diverged.resolve": "Resolve diverged state",
   "pull.error.failed": "Pull failed: {{fallback}}",
   "sync.popover.discard": "Discard",
   "sync.popover.discardTitle": "Discard all local changes",

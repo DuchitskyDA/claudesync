@@ -119,6 +119,7 @@
   "sync.allInSync": "Всё синхронизировано.",
   "sync.noTargets.text": "Репо создан, но таргеты для синхронизации не настроены. Подключи Claude или проекты Cursor, чтобы начать.",
   "sync.noTargets.cta": "Открыть настройки",
+  "sync.diverged.resolve": "Разрулить расхождение",
   "pull.error.failed": "Не удалось выполнить pull: {{fallback}}",
   "sync.popover.discard": "Отменить",
   "sync.popover.discardTitle": "Отменить все локальные изменения",
