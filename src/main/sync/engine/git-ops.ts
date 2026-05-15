@@ -191,7 +191,7 @@ function authArgs(token: string | null): string[] {
 
 export async function fetchOrigin(repoPath: string, token: string | null, timeoutMs = 8000): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((resolve) => {
-    const proc = require('node:child_process').spawn(
+    const proc = spawn(
       'git',
       [...authArgs(token), '-C', repoPath, 'fetch', '--quiet', 'origin'],
       { cwd: repoPath },

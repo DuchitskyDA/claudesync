@@ -1,9 +1,6 @@
 // tests/main/engine/rules.test.ts
 import { describe, it, expect } from 'vitest'
 import {
-  CLAUDE_TOP_LEVEL_SYNC,
-  CLAUDE_TOP_LEVEL_IGNORE,
-  SETTINGS_KEY_ALLOW_LIST,
   isClaudePathSynced,
   isClaudePathIgnored,
   filterSettingsObject,

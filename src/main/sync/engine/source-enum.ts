@@ -13,10 +13,6 @@ function sha1OfBlob(content: Buffer): string {
   return createHash('sha1').update(header).update(content).digest('hex')
 }
 
-function toRepoPath(parts: string[]): string {
-  return posix.join(...parts)
-}
-
 function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs: string) => void): void {
   if (!existsSync(rootAbs)) return
   let entries: string[]
@@ -89,7 +85,7 @@ export async function enumCursorProjectSource(projectPath: string, projectName: 
 
 /** Helper used by IndexBuilder: read raw bytes of a source file (with canonicalization for settings.json). */
 export function readSourceForCommit(surfaceAbsPath: string, surfaceRelPath: string): Buffer {
-  let content = readFileSync(surfaceAbsPath)
-  if (surfaceRelPath === 'settings.json') content = canonicalizeSettings(content)
-  return content
+  const raw = readFileSync(surfaceAbsPath)
+  if (surfaceRelPath === 'settings.json') return canonicalizeSettings(raw)
+  return raw
 }
