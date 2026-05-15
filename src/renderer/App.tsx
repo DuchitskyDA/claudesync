@@ -80,7 +80,10 @@ export function App() {
       return
     }
     if (preview.kind === 'offline') {
-      // TODO: surface offline toast/banner
+      // Refresh chip so the StatusBar reflects the offline state immediately,
+      // and surface a one-shot message so the user knows the click landed.
+      await refreshSyncStatus()
+      window.alert(t('pull.offline'))
       return
     }
     if (preview.kind === 'nothing-to-pull') return
@@ -229,6 +232,7 @@ export function App() {
         onOpenSettings={openSettings}
         onPush={() => setPushOpen(true)}
         onPull={() => void handlePull()}
+        onResolve={() => setConflictOpen(true)}
         onDiscard={async () => {
           await window.api.discardLocalChanges()
           await refreshSyncStatus()
@@ -309,8 +313,10 @@ export function App() {
       <ConflictModal
         open={conflictOpen}
         onClose={() => {
+          // Keep conflictInProgress=true so the recovery banner stays visible
+          // and the user can reopen the modal. Only a successful resolve
+          // (onContinued) clears the flag.
           setConflictOpen(false)
-          setConflictInProgress(false)
         }}
         onContinued={() => {
           setConflictOpen(false)

@@ -106,10 +106,18 @@ export type PushResult =
   | { kind: 'auth'; message: string }
   | { kind: 'error'; message: string }
 
-function surfaceAbsPath(args: PushArgs, d: DiffEntry): string {
-  if (d.source.kind === 'claude') return join(args.claudePath!, d.surfacePath)
-  const projectName = (d.source as { kind: 'cursor-project'; projectName: string }).projectName
-  const proj = args.cursorProjects.find((p) => p.name === projectName)!
+/** Resolve the absolute source path for a diff entry. Returns null when the
+ *  entry belongs to a Cursor project that isn't registered on this machine —
+ *  callers must treat this as "skip" rather than throw. This happens cross-
+ *  machine when machine A pushed a project that machine B never registered. */
+function surfaceAbsPath(args: RefreshArgs, d: DiffEntry): string | null {
+  if (d.source.kind === 'claude') {
+    if (!args.claudePath) return null
+    return join(args.claudePath, d.surfacePath)
+  }
+  const projectName = d.source.projectName
+  const proj = args.cursorProjects.find((p) => p.name === projectName)
+  if (!proj) return null
   return join(proj.path, d.surfacePath)
 }
 
@@ -129,7 +137,9 @@ export async function executePush(args: PushArgs): Promise<PushResult> {
       diffs: items,
       sourceContent: (d) => {
         if (d.status === 'deleted') return null
-        return readSourceForCommit(surfaceAbsPath(args, d), d.surfacePath)
+        const abs = surfaceAbsPath(args, d)
+        if (!abs) return null
+        return readSourceForCommit(abs, d.surfacePath)
       },
       commitMessage: args.commitMessage,
       indexFile,
@@ -169,10 +179,23 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
   const items: PreviewItem[] = []
 
   const diff = await new Promise<string>((resolve, reject) => {
-    const proc = spawn('git', ['-C', args.repoPath!, 'diff', '--raw', '-z', 'HEAD..origin/main', '--', ...prefixes])
+    const proc = spawn(
+      'git',
+      ['-C', args.repoPath!, 'diff', '--raw', '-z', 'HEAD..origin/main', '--', ...prefixes],
+      {
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_ASKPASS: '',
+          GCM_INTERACTIVE: 'Never',
+        } as NodeJS.ProcessEnv,
+      },
+    )
     let out = ''
+    let err = ''
     proc.stdout.on('data', (b) => out += b.toString())
-    proc.on('exit', (code) => code === 0 ? resolve(out) : reject(new Error(`git diff exit ${code}`)))
+    proc.stderr.on('data', (b) => err += b.toString())
+    proc.on('exit', (code) => code === 0 ? resolve(out) : reject(new Error(`git diff exit ${code}: ${err.trim()}`)))
     proc.on('error', reject)
   })
   // diff --raw -z output: records separated by \0, each is
@@ -211,9 +234,16 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     if (st !== 'deleted' && sb && sb !== '0000000000000000000000000000000000000000') {
       newContent = await catFileBlob(args.repoPath!, sb)
     }
-    const srcAbs = source.kind === 'claude'
-      ? join(args.claudePath!, surfacePath)
-      : join(args.cursorProjects.find((p) => p.name === source.projectName)!.path, surfacePath)
+    // Map repo path → source absolute path. Skip cursor entries whose project
+    // is not registered on this machine: there's no source dir to read/write.
+    let srcAbs: string | null
+    if (source.kind === 'claude') {
+      srcAbs = args.claudePath ? join(args.claudePath, surfacePath) : null
+    } else {
+      const proj = args.cursorProjects.find((p) => p.name === source.projectName)
+      srcAbs = proj ? join(proj.path, surfacePath) : null
+    }
+    if (!srcAbs) continue
     const currentContent = readSourceIfExists(srcAbs) ?? undefined
 
     items.push({
@@ -237,9 +267,8 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
   const deletionsSet = new Set(args.deletionsToApply)
 
   for (const item of preview.items) {
-    const surfaceAbs = item.source.kind === 'claude'
-      ? join(args.claudePath!, item.surfacePath)
-      : join(args.cursorProjects.find((p) => p.name === (item.source as { kind: 'cursor-project'; projectName: string }).projectName)!.path, item.surfacePath)
+    const surfaceAbs = surfaceAbsPath(args, item)
+    if (!surfaceAbs) continue  // unregistered cursor project — skip silently
 
     if (item.status === 'deleted') {
       if (deletionsSet.has(item.repoPath)) {
@@ -268,15 +297,14 @@ export async function executeDiscard(args: RefreshArgs): Promise<{ kind: 'ok' } 
   const status = await refreshStatus({ ...args, doFetch: false })
   for (const d of status.diffs) {
     if (d.status === 'same') continue
-    const surfaceAbs = d.source.kind === 'claude'
-      ? join(args.claudePath!, d.surfacePath)
-      : join(args.cursorProjects.find((p) => p.name === (d.source as { kind: 'cursor-project'; projectName: string }).projectName)!.path, d.surfacePath)
+    const surfaceAbs = surfaceAbsPath(args, d)
+    if (!surfaceAbs) continue  // unregistered cursor project — skip silently
     if (d.status === 'added') {
       // file in source, not in HEAD → discard means delete from source
       await applyToSource(surfaceAbs, null)
     } else if (d.status === 'modified' || d.status === 'deleted') {
       // pull HEAD's content to source
-      const prefix = d.source.kind === 'claude' ? 'claude/' : `cursor/projects/${(d.source as { kind: 'cursor-project'; projectName: string }).projectName}/`
+      const prefix = d.source.kind === 'claude' ? 'claude/' : `cursor/projects/${d.source.projectName}/`
       const head = await enumHead(args.repoPath, prefix, prefix)
       const entry = head.find((h) => h.repoPath === d.repoPath)
       if (entry) {

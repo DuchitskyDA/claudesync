@@ -86,7 +86,9 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
   const handleDiscard = async () => {
     if (!window.confirm(t('conflict.discard'))) return
     await window.api.resolverDiscard()
-    onClose()
+    // Resolver state has been cleared on disk — signal "no longer in progress"
+    // so the recovery banner disappears.
+    onContinued()
   }
 
   const handleApply = async () => {

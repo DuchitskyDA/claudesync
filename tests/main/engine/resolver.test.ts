@@ -22,6 +22,7 @@ beforeEach(() => {
   repoPath = join(dir, 'repo'); mkdirSync(repoPath)
   git(repoPath, ['init', '-q', '-b', 'main'])
   git(repoPath, ['config', 'user.email', 't@t']); git(repoPath, ['config', 'user.name', 't'])
+  git(repoPath, ['config', 'core.autocrlf', 'false'])
   git(repoPath, ['remote', 'add', 'origin', remotePath])
   mkdirSync(join(repoPath, 'claude'))
   writeFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'base\n')

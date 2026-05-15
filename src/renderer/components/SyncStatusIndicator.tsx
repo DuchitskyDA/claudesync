@@ -11,6 +11,7 @@ type Props = {
   onRefresh: () => void
   onPush: () => void
   onPull: () => void
+  onResolve: () => void
   onDiscard: () => Promise<void> | void
 }
 
@@ -71,7 +72,7 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
     return {
       icon: <Circle className="h-2.5 w-2.5 fill-current" />,
       text: String(status.localChanges),
-      className: 'text-sky-600 dark:text-sky-500',
+      className: 'text-foreground/80',
       hasChanges: true,
     }
   }
@@ -79,7 +80,7 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
     return {
       icon: <ArrowDown className="h-3 w-3" />,
       text: String(status.behind),
-      className: 'text-sky-600 dark:text-sky-500',
+      className: 'text-foreground/80',
       hasChanges: true,
     }
   }
@@ -87,7 +88,7 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
     return {
       icon: <ArrowUp className="h-3 w-3" />,
       text: String(status.ahead),
-      className: 'text-sky-600 dark:text-sky-500',
+      className: 'text-foreground/80',
       hasChanges: true,
     }
   }
@@ -100,7 +101,7 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
       </span>
     ),
     text: `${status.behind}/${status.ahead}`,
-    className: 'text-rose-600 dark:text-rose-500',
+    className: 'text-amber-600 dark:text-amber-500',
     hasChanges: true,
   }
 }
@@ -108,7 +109,7 @@ function getVisual(status: SyncStatus, checking: boolean): Visual {
 const POPOVER_WIDTH = 320
 const POPOVER_GAP = 6
 
-export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPull, onDiscard }: Props) {
+export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPull, onResolve, onDiscard }: Props) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -165,11 +166,11 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
     setOpen((v) => !v)
   }
 
+  const isDiverged = status.state === 'diverged'
+  const showResolveAction = isDiverged
   const showPushAction =
-    status.state === 'ahead' ||
-    status.state === 'local-changes' ||
-    status.state === 'diverged'
-  const showPullAction = status.state === 'behind' || status.state === 'diverged'
+    !isDiverged && (status.state === 'ahead' || status.state === 'local-changes')
+  const showPullAction = !isDiverged && status.state === 'behind'
 
   return (
     <div className="relative">
@@ -202,19 +203,19 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
             <StateSummary status={status} />
 
             {files.length > 0 && (
-              <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-background/50 p-1.5 font-mono text-[10px] leading-tight">
+              <div className="mt-2 max-h-40 overflow-auto rounded border bg-secondary/40 p-1.5 font-mono text-[10px] leading-tight">
                 {files.slice(0, 50).map((f) => (
                   <button
                     key={f}
                     onClick={() => void window.api.openRepoFile(f)}
-                    className="block w-full truncate rounded px-1 py-0.5 text-left transition hover:bg-accent hover:text-foreground"
+                    className="block whitespace-nowrap rounded px-1 py-0.5 text-left transition hover:bg-accent hover:text-foreground"
                     title={t('sync.popover.openFile', { path: f })}
                   >
                     {f}
                   </button>
                 ))}
                 {files.length > 50 && (
-                  <div className="px-1 text-muted-foreground">
+                  <div className="whitespace-nowrap px-1 text-muted-foreground">
                     {t('sync.popover.moreFiles', { count: files.length - 50 })}
                   </div>
                 )}
@@ -281,7 +282,7 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
                         onPull()
                         setOpen(false)
                       }}
-                      className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                      className="rounded border bg-secondary px-2 py-1 text-xs text-secondary-foreground transition hover:bg-accent"
                     >
                       {t('sync.popover.pull')}
                     </button>
@@ -292,9 +293,20 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
                         onPush()
                         setOpen(false)
                       }}
-                      className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition hover:opacity-90"
+                      className="rounded border bg-secondary px-2 py-1 text-xs text-secondary-foreground transition hover:bg-accent"
                     >
                       {t('sync.popover.push')}
+                    </button>
+                  )}
+                  {showResolveAction && (
+                    <button
+                      onClick={() => {
+                        onResolve()
+                        setOpen(false)
+                      }}
+                      className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 transition hover:bg-amber-500/20 dark:text-amber-400"
+                    >
+                      {t('sync.diverged.resolve')}
                     </button>
                   )}
                 </div>
@@ -314,21 +326,21 @@ function StateSummary({ status }: { status: SyncStatus }) {
     lines.push({
       label: t('sync.popover.incoming'),
       value: status.behind,
-      cls: 'text-sky-600 dark:text-sky-500',
+      cls: 'text-foreground',
     })
   }
   if (status.ahead > 0) {
     lines.push({
       label: t('sync.popover.outgoing'),
       value: status.ahead,
-      cls: 'text-sky-600 dark:text-sky-500',
+      cls: 'text-foreground',
     })
   }
   if (status.localChanges > 0) {
     lines.push({
       label: t('sync.popover.localChanges'),
       value: status.localChanges,
-      cls: 'text-sky-600 dark:text-sky-500',
+      cls: 'text-foreground',
     })
   }
   return (

@@ -24,6 +24,7 @@ beforeEach(() => {
   git(repoPath, ['init', '-q', '-b', 'main'])
   git(repoPath, ['config', 'user.email', 't@t'])
   git(repoPath, ['config', 'user.name', 't'])
+  git(repoPath, ['config', 'core.autocrlf', 'false'])
   // First commit — "what Mac pushed": canonical settings.json + CLAUDE.md
   mkdirSync(join(repoPath, 'claude'))
   writeFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'shared rules\n')

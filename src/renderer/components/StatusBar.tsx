@@ -15,6 +15,7 @@ type Props = {
   onOpenSettings: () => void
   onPush: () => void
   onPull: () => void
+  onResolve: () => void
   onDiscard: () => Promise<void> | void
 }
 
@@ -35,6 +36,7 @@ export function StatusBar({
   onOpenSettings,
   onPush,
   onPull,
+  onResolve,
   onDiscard,
 }: Props) {
   const t = useT()
@@ -68,6 +70,7 @@ export function StatusBar({
           onRefresh={onRefreshSync}
           onPush={onPush}
           onPull={onPull}
+          onResolve={onResolve}
           onDiscard={onDiscard}
         />
       </div>

@@ -94,7 +94,9 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
       const projectName = m[1]!
       source = { kind: 'cursor-project', projectName }
       surfacePath = m[2]!
-      surfaceAbs = join(args.cursorProjects.find((p) => p.name === projectName)!.path, surfacePath)
+      const proj = args.cursorProjects.find((p) => p.name === projectName)
+      if (!proj) continue  // project not registered locally — skip the row
+      surfaceAbs = join(proj.path, surfacePath)
     }
 
     let base: Buffer | null = null
@@ -140,10 +142,15 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
     // 1. Write source
     for (const f of resolutions.files) {
       const final = finalContent(f)
-      const projectName = f.source.kind === 'cursor-project' ? (f.source as { projectName: string }).projectName : ''
-      const surfaceAbs = f.source.kind === 'claude'
-        ? join(args.claudePath ?? '', f.surfacePath)
-        : join(args.cursorProjects.find((p) => p.name === projectName)!.path, f.surfacePath)
+      const source = f.source
+      let surfaceAbs: string | null
+      if (source.kind === 'claude') {
+        surfaceAbs = args.claudePath ? join(args.claudePath, f.surfacePath) : null
+      } else {
+        const proj = args.cursorProjects.find((p) => p.name === source.projectName)
+        surfaceAbs = proj ? join(proj.path, f.surfacePath) : null
+      }
+      if (!surfaceAbs) continue  // unregistered project — skip writing to source
       await applyToSource(surfaceAbs, final)
     }
 
