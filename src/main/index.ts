@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { registerIpc } from './ipc'
+import { readConfig } from './config'
+import { sweepEngineState } from './sync/engine/sweep'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -70,6 +72,14 @@ function createWindow() {
 
 app.whenReady().then(() => {
   configureAppMenu()
+  // Best-effort cleanup of orphaned tmp-index files left by previous crashes
+  // before any new Engine push/resolve can run.
+  try {
+    const cfg = readConfig(join(app.getPath('userData'), 'config.json'))
+    if (cfg.repoPath) sweepEngineState(cfg.repoPath, app.getPath('userData'))
+  } catch {
+    /* sweep is best-effort; never block startup */
+  }
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
