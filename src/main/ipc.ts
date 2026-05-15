@@ -41,8 +41,6 @@ import {
 } from './github-auth'
 import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
-import { runPush } from './push'
-import { installClaude } from './sync/claude'
 import { installCursorProjects } from './sync/cursor-install'
 import { refreshStatus, executePush, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
 import { getSyncStatus } from './sync-status'

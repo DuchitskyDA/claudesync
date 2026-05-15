@@ -1,6 +1,6 @@
 // tests/main/engine/pull-apply.test.ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applyToSource, mergeSettingsForPull } from '../../../src/main/sync/engine/pull-apply'
