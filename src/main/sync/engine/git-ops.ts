@@ -76,3 +76,95 @@ export async function hashObjectWrite(repoPath: string, content: Buffer): Promis
 
 /** Internal — used by index-builder etc. */
 export const _internal = { runGit }
+
+export async function readTreeIntoIndex(repoPath: string, ref: string, indexFile: string): Promise<void> {
+  const r = await runGit(repoPath, ['read-tree', ref], { env: { GIT_INDEX_FILE: indexFile } })
+  if (r.exitCode !== 0) throw new Error(`git read-tree ${ref} failed: ${r.stderr}`)
+}
+
+export async function readTreeMergeAggressive(
+  repoPath: string,
+  base: string,
+  ours: string,
+  theirs: string,
+  indexFile: string,
+): Promise<void> {
+  const r = await runGit(
+    repoPath,
+    ['read-tree', '-m', '--aggressive', base, ours, theirs],
+    { env: { GIT_INDEX_FILE: indexFile } },
+  )
+  if (r.exitCode !== 0) throw new Error(`git read-tree -m --aggressive failed: ${r.stderr}`)
+}
+
+export async function updateIndexAdd(
+  repoPath: string,
+  indexFile: string,
+  mode: '100644' | '100755',
+  sha: string,
+  path: string,
+): Promise<void> {
+  const r = await runGit(
+    repoPath,
+    ['update-index', '--add', '--cacheinfo', `${mode},${sha},${path}`],
+    { env: { GIT_INDEX_FILE: indexFile } },
+  )
+  if (r.exitCode !== 0) throw new Error(`git update-index --add ${path} failed: ${r.stderr}`)
+}
+
+export async function updateIndexRemove(
+  repoPath: string,
+  indexFile: string,
+  path: string,
+): Promise<void> {
+  const r = await runGit(
+    repoPath,
+    ['update-index', '--force-remove', path],
+    { env: { GIT_INDEX_FILE: indexFile } },
+  )
+  if (r.exitCode !== 0) throw new Error(`git update-index --force-remove ${path} failed: ${r.stderr}`)
+}
+
+export async function writeTree(repoPath: string, indexFile: string): Promise<string> {
+  const r = await runGit(repoPath, ['write-tree'], { env: { GIT_INDEX_FILE: indexFile } })
+  if (r.exitCode !== 0) throw new Error(`git write-tree failed: ${r.stderr}`)
+  return r.stdout.toString('utf8').trim()
+}
+
+export async function commitTree(
+  repoPath: string,
+  tree: string,
+  parents: string[],
+  message: string,
+): Promise<string> {
+  const args = ['commit-tree', tree]
+  for (const p of parents) args.push('-p', p)
+  args.push('-m', message)
+  const r = await runGit(repoPath, args, {
+    env: { GIT_AUTHOR_NAME: 'claudesync', GIT_AUTHOR_EMAIL: 'claudesync@noreply', GIT_COMMITTER_NAME: 'claudesync', GIT_COMMITTER_EMAIL: 'claudesync@noreply' },
+  })
+  if (r.exitCode !== 0) throw new Error(`git commit-tree failed: ${r.stderr}`)
+  return r.stdout.toString('utf8').trim()
+}
+
+export async function updateRef(repoPath: string, ref: string, sha: string): Promise<void> {
+  const r = await runGit(repoPath, ['update-ref', ref, sha])
+  if (r.exitCode !== 0) throw new Error(`git update-ref ${ref} failed: ${r.stderr}`)
+}
+
+export async function revParse(repoPath: string, ref: string): Promise<string> {
+  const r = await runGit(repoPath, ['rev-parse', ref])
+  if (r.exitCode !== 0) throw new Error(`git rev-parse ${ref} failed: ${r.stderr}`)
+  return r.stdout.toString('utf8').trim()
+}
+
+/** Reset WT to match HEAD using index — no remote network, no rebase, just plumbing. */
+export async function syncWtToHead(repoPath: string): Promise<void> {
+  const r1 = await runGit(repoPath, ['read-tree', 'HEAD'])
+  if (r1.exitCode !== 0) throw new Error(`git read-tree HEAD failed: ${r1.stderr}`)
+  const r2 = await runGit(repoPath, ['checkout-index', '-a', '-f'])
+  if (r2.exitCode !== 0) throw new Error(`git checkout-index -af failed: ${r2.stderr}`)
+  // Also remove WT files NOT in index (otherwise dropped paths stay around).
+  const r3 = await runGit(repoPath, ['clean', '-fd', '-e', '.git'])
+  if (r3.exitCode !== 0) throw new Error(`git clean failed: ${r3.stderr}`)
+}
