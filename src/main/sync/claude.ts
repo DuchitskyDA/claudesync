@@ -11,6 +11,8 @@ import {
   cpSync,
 } from 'node:fs'
 import { join, resolve as resolvePath } from 'node:path'
+import { enumClaudeSource } from './engine/source-enum'
+import { readSourceForCommit } from './engine/source-enum'
 
 /**
  * Names we never want to mirror into the repo:
@@ -190,38 +192,18 @@ function copyDirIfExists(src: string, dst: string): void {
 
 /**
  * Init-wizard variant: writes the initial Claude tree into <repoPath>/claude/
- * with `env` stripped from settings.json. Differs from exportClaude in that
- * it does not perform mirror-style cleanup (the destination is fresh).
+ * with settings.json filtered to allow-list keys via SyncRules.
+ * Uses enumClaudeSource to enumerate exactly what would be synced (applies SyncRules).
  */
-export function generateClaudeStructure(claudePath: string, repoPath: string): void {
-  const globalDir = join(repoPath, 'claude')
-  mkdirSync(globalDir, { recursive: true })
-
-  copyFileIfExists(join(claudePath, 'CLAUDE.md'), join(globalDir, 'CLAUDE.md'))
-
-  const settingsSrc = join(claudePath, 'settings.json')
-  if (existsSync(settingsSrc)) {
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(readFileSync(settingsSrc, 'utf8')) as Record<string, unknown>
-    } catch {
-      parsed = {}
-    }
-    delete parsed.env
-    writeFileSync(join(globalDir, 'settings.json'), JSON.stringify(parsed, null, 2), 'utf8')
-  }
-
-  copyDirIfExists(join(claudePath, 'commands'), join(globalDir, 'commands'))
-  copyDirIfExists(join(claudePath, 'skills'), join(globalDir, 'skills'))
-
-  const projectsSrc = join(claudePath, 'projects')
-  const projectsDst = join(globalDir, 'projects')
-  if (existsSync(projectsSrc)) {
-    for (const dir of readdirSync(projectsSrc)) {
-      const src = join(projectsSrc, dir, 'memory')
-      const dst = join(projectsDst, dir, 'memory')
-      copyDirIfExists(src, dst)
-    }
+export async function generateClaudeStructure(claudePath: string, repoPath: string): Promise<void> {
+  mkdirSync(join(repoPath, 'claude'), { recursive: true })
+  const entries = await enumClaudeSource(claudePath)
+  for (const e of entries) {
+    const srcAbs = join(claudePath, e.surfacePath)
+    const dstAbs = join(repoPath, e.repoPath)
+    mkdirSync(join(dstAbs, '..'), { recursive: true })
+    const content = readSourceForCommit(srcAbs, e.surfacePath)
+    writeFileSync(dstAbs, content)
   }
 }
 

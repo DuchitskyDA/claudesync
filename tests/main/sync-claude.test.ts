@@ -76,23 +76,20 @@ describe('exportClaude', () => {
 })
 
 describe('generateClaudeStructure', () => {
-  it('strips env from settings.json on first commit', () => {
+  it('canonicalizes settings.json with only allow-list keys', async () => {
     writeFileSync(
       join(claudePath, 'settings.json'),
-      JSON.stringify({ env: { SECRET: 'x' }, theme: 'dark' }),
+      '{"permissions":{"allow":["x"]},"env":{"K":"v"},"numStartups":42}',
     )
-    generateClaudeStructure(claudePath, repoPath)
-    const written = JSON.parse(
-      readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'),
-    ) as Record<string, unknown>
-    expect(written.env).toBeUndefined()
-    expect(written.theme).toBe('dark')
+    await generateClaudeStructure(claudePath, repoPath)
+    const out = readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8')
+    expect(out).toBe('{\n  "permissions": {\n    "allow": [\n      "x"\n    ]\n  }\n}')
   })
 
-  it('places projects/<encoded>/memory at <repo>/global/projects/<encoded>/memory', () => {
+  it('places projects/<encoded>/memory at <repo>/claude/projects/<encoded>/memory', async () => {
     mkdirSync(join(claudePath, 'projects', 'enc', 'memory'), { recursive: true })
     writeFileSync(join(claudePath, 'projects', 'enc', 'memory', 'a.md'), 'A')
-    generateClaudeStructure(claudePath, repoPath)
+    await generateClaudeStructure(claudePath, repoPath)
     expect(
       existsSync(join(repoPath, 'claude', 'projects', 'enc', 'memory', 'a.md')),
     ).toBe(true)

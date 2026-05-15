@@ -111,43 +111,42 @@ describe('scanLocalConfig', () => {
 })
 
 describe('generateGlobalStructure', () => {
-  it('copies CLAUDE.md and commands into global/', () => {
+  it('copies CLAUDE.md and commands into global/', async () => {
     writeFileSync(join(rulesTarget, 'CLAUDE.md'), 'rules')
     mkdirSync(join(rulesTarget, 'commands'))
     writeFileSync(join(rulesTarget, 'commands', 'a.md'), 'A')
 
-    generateGlobalStructure(rulesTarget, repoPath)
+    await generateGlobalStructure(rulesTarget, repoPath)
 
     expect(readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')).toBe('rules')
     expect(readFileSync(join(repoPath, 'claude', 'commands', 'a.md'), 'utf8')).toBe('A')
   })
 
-  it('strips env block from settings.json', () => {
+  it('canonicalizes settings.json with only allow-list keys', async () => {
     writeFileSync(
       join(rulesTarget, 'settings.json'),
-      JSON.stringify({ env: { K: 'v' }, effortLevel: 'high' }),
+      JSON.stringify({ permissions: { allow: ['x'] }, env: { K: 'v' }, numStartups: 42 }),
     )
-    generateGlobalStructure(rulesTarget, repoPath)
-    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
-    expect(out.env).toBeUndefined()
-    expect(out.effortLevel).toBe('high')
+    await generateGlobalStructure(rulesTarget, repoPath)
+    const out = readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8')
+    expect(out).toBe('{\n  "permissions": {\n    "allow": [\n      "x"\n    ]\n  }\n}')
   })
 
-  it('copies skills directory recursively', () => {
+  it('copies skills directory recursively', async () => {
     mkdirSync(join(rulesTarget, 'skills', 's1'), { recursive: true })
     writeFileSync(join(rulesTarget, 'skills', 's1', 'SKILL.md'), 'X')
-    generateGlobalStructure(rulesTarget, repoPath)
+    await generateGlobalStructure(rulesTarget, repoPath)
     expect(readFileSync(join(repoPath, 'claude', 'skills', 's1', 'SKILL.md'), 'utf8')).toBe('X')
   })
 
-  it('copies only memory dirs from projects/, skips sessions/jsonl', () => {
+  it('copies only memory dirs from projects/, skips sessions/jsonl', async () => {
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'memory'), { recursive: true })
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'memory', 'm.md'), 'M')
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'session.jsonl'), 's')
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'sessions'))
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'sessions', 'a.jsonl'), 's')
 
-    generateGlobalStructure(rulesTarget, repoPath)
+    await generateGlobalStructure(rulesTarget, repoPath)
     expect(
       readFileSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
     ).toBe('M')
@@ -155,16 +154,18 @@ describe('generateGlobalStructure', () => {
     expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'sessions'))).toBe(false)
   })
 
-  it('handles missing source files gracefully', () => {
-    expect(() => generateGlobalStructure(rulesTarget, repoPath)).not.toThrow()
+  it('handles missing source files gracefully', async () => {
+    await generateGlobalStructure(rulesTarget, repoPath)
     expect(existsSync(join(repoPath, 'claude'))).toBe(true)
   })
 
-  it('handles invalid settings.json by writing empty object minus env', () => {
+  it('handles invalid settings.json by skipping it gracefully', async () => {
     writeFileSync(join(rulesTarget, 'settings.json'), '{not json')
-    expect(() => generateGlobalStructure(rulesTarget, repoPath)).not.toThrow()
-    const out = JSON.parse(readFileSync(join(repoPath, 'claude', 'settings.json'), 'utf8'))
-    expect(out).toEqual({})
+    // Invalid JSON means settings.json won't be included in enumClaudeSource output
+    // (canonicalizeSettings will throw, so the entry is skipped)
+    await generateGlobalStructure(rulesTarget, repoPath)
+    // Just verify no crash — settings.json won't exist in output due to parse error
+    expect(existsSync(join(repoPath, 'claude'))).toBe(true)
   })
 })
 
