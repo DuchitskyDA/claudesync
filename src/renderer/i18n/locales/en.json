@@ -340,5 +340,12 @@
   "conflict.diff.tooLarge": "File too large to preview ({{size}} KB) — open in editor",
   "conflict.diff.empty": "(empty)",
   "conflict.recovery.banner": "Unresolved push from previous session.",
-  "conflict.recovery.resolve": "Resolve"
+  "conflict.recovery.resolve": "Resolve",
+  "pull.modal.title": "Pull changes",
+  "pull.modal.added": "{{n}} new",
+  "pull.modal.modified": "{{n}} modified",
+  "pull.modal.deleted": "{{n}} removed on remote",
+  "pull.modal.deletedHint": "Tick to also remove locally. Untouched files remain.",
+  "pull.modal.apply": "Apply",
+  "pull.modal.applying": "Applying…"
 }

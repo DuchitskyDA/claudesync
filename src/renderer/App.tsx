@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
+import type { PullPreviewResult } from '@shared/api'
 import { useAppState } from './hooks/useAppState'
 import { PullButton } from './components/PullButton'
 import { PushButton } from './components/PushButton'
 import { PushModal } from './components/PushModal'
+import { PullModal } from './components/PullModal'
 import { InstallButton } from './components/InstallButton'
 import { InstallModal } from './components/InstallModal'
 import { StatusBar } from './components/StatusBar'
@@ -47,6 +49,8 @@ export function App() {
   const [showDetails, setShowDetails] = useState(false)
   const [initOpen, setInitOpen] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
+  const [pullPreviewOpen, setPullPreviewOpen] = useState(false)
+  const [pullPreviewData, setPullPreviewData] = useState<PullPreviewResult | null>(null)
   const [installOpen, setInstallOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const t = useT()
@@ -70,17 +74,18 @@ export function App() {
   }
 
   const handlePull = async () => {
-    // Will be wired to PullModal in Task D4
     const preview = await window.api.computePullPreview()
     if (preview.kind === 'diverged') {
       setConflictInProgress(true)
       return
     }
-    if (preview.kind === 'preview') {
-      // Stub: just apply with no deletion opt-in. PullModal in D4 adds proper UI.
-      await window.api.executePullApply([])
-      await refreshSyncStatus()
+    if (preview.kind === 'offline') {
+      // TODO: surface offline toast/banner
+      return
     }
+    if (preview.kind === 'nothing-to-pull') return
+    setPullPreviewData(preview)
+    setPullPreviewOpen(true)
   }
 
   const showPushBtn = state.syncStatus.localChanges > 0 || state.syncStatus.ahead > 0
@@ -280,6 +285,19 @@ export function App() {
 
       <PushModal open={pushOpen} onClose={() => setPushOpen(false)} onConfirm={handlePush} />
       <InstallModal open={installOpen} onClose={() => setInstallOpen(false)} onConfirm={handleInstall} />
+      <PullModal
+        open={pullPreviewOpen}
+        preview={pullPreviewData}
+        onClose={() => setPullPreviewOpen(false)}
+        onApply={async (dels) => {
+          setPullPreviewOpen(false)
+          const r = await window.api.executePullApply(dels)
+          await refreshSyncStatus()
+          if (r.ok) {
+            // optional toast on success
+          }
+        }}
+      />
 
       <ConflictModal
         open={conflictOpen}

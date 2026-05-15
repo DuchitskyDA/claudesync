@@ -354,5 +354,12 @@
   "conflict.diff.tooLarge": "Файл слишком большой для просмотра ({{size}} КБ) — откройте в редакторе",
   "conflict.diff.empty": "(пусто)",
   "conflict.recovery.banner": "Незавершённый push из предыдущей сессии.",
-  "conflict.recovery.resolve": "Разрешить"
+  "conflict.recovery.resolve": "Разрешить",
+  "pull.modal.title": "Подтянуть изменения",
+  "pull.modal.added": "Новых: {{n}}",
+  "pull.modal.modified": "Изменено: {{n}}",
+  "pull.modal.deleted": "Удалено на удалённом: {{n}}",
+  "pull.modal.deletedHint": "Поставь галочку чтобы удалить локально. Нетронутые файлы остаются.",
+  "pull.modal.apply": "Применить",
+  "pull.modal.applying": "Применяю…"
 }
