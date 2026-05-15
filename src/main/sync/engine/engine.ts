@@ -262,3 +262,28 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
   await syncWtToHead(args.repoPath!)
   return { kind: 'ok' }
 }
+
+export async function executeDiscard(args: RefreshArgs): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }> {
+  if (!args.repoPath) return { kind: 'error', message: 'repoPath required' }
+  const status = await refreshStatus({ ...args, doFetch: false })
+  for (const d of status.diffs) {
+    if (d.status === 'same') continue
+    const surfaceAbs = d.source.kind === 'claude'
+      ? join(args.claudePath!, d.surfacePath)
+      : join(args.cursorProjects.find((p) => p.name === (d.source as { kind: 'cursor-project'; projectName: string }).projectName)!.path, d.surfacePath)
+    if (d.status === 'added') {
+      // file in source, not in HEAD → discard means delete from source
+      await applyToSource(surfaceAbs, null)
+    } else if (d.status === 'modified' || d.status === 'deleted') {
+      // pull HEAD's content to source
+      const prefix = d.source.kind === 'claude' ? 'claude/' : `cursor/projects/${(d.source as { kind: 'cursor-project'; projectName: string }).projectName}/`
+      const head = await enumHead(args.repoPath, prefix, prefix)
+      const entry = head.find((h) => h.repoPath === d.repoPath)
+      if (entry) {
+        const blob = await catFileBlob(args.repoPath, entry.sha1)
+        await applyToSource(surfaceAbs, blob)
+      }
+    }
+  }
+  return { kind: 'ok' }
+}

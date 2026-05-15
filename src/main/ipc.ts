@@ -44,7 +44,7 @@ import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { runPush } from './push'
 import { installClaude } from './sync/claude'
 import { installCursorProjects } from './sync/cursor-install'
-import { refreshStatus, executePush, computePullPreview, executePullApply } from './sync/engine/engine'
+import { refreshStatus, executePush, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -641,63 +641,18 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('discard-local-changes', async (): Promise<RunResult> => {
     const cfg = readConfig(configPath)
-    if (!cfg.repoPath) {
-      return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
-    }
-    const repoPath = cfg.repoPath
-    emit({ time: nowHHMMSS(), text: '$ git checkout -- .', level: 'info' })
-    const checkout = await runCommand('git', ['-C', repoPath, 'checkout', '--', '.'], {
-      cwd: repoPath,
-      onLine: emit,
+    emit({ time: nowHHMMSS(), text: '$ engine discard', level: 'info' })
+    const r = await executeDiscard({
+      repoPath: cfg.repoPath,
+      claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
+      token: loadToken(userDataDir),
     })
-    if (checkout.exitCode !== 0) {
-      return { ok: false, exitCode: checkout.exitCode, error: { key: 'discard.error.failed', fallback: 'git checkout failed' } }
+    if (r.kind === 'ok') {
+      emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
+      return { ok: true, exitCode: 0 }
     }
-    // Note: we deliberately do NOT run `git clean -fd` here. In symlink
-    // install mode the user's `~/.claude/<file>` is a symlink whose target
-    // is `<repo>/claude/<file>`; if that target was untracked, `git clean`
-    // would remove it and break the symlink, making the file appear to
-    // "disappear" from the user's claude path. The `installClaude` /
-    // `installCursorProjects` calls below reverse-mirror the repo's
-    // tracked HEAD back into source dirs, which is what Discard actually
-    // means. Untracked files in the repo working tree are left alone —
-    // the next exportClaude pass will reconcile them, and the user can
-    // always Push or manually delete them.
-    // Reverse-mirror repo HEAD back into source dirs so the very next
-    // get-repo-status / refresh-sync-status — which always re-runs
-    // `runEnabledExporters` — produces no diff. Without this step a still-
-    // modified Cursor project source would be re-exported into the repo
-    // immediately after `git checkout`, making Discard appear to do
-    // nothing.
-    if (cfg.cursor.enabled && cfg.cursor.projects.length > 0) {
-      try {
-        installCursorProjects(repoPath, cfg.cursor.projects, emit)
-      } catch (e) {
-        emit({
-          time: nowHHMMSS(),
-          text: `cursor reverse-mirror failed: ${(e as Error).message}`,
-          level: 'error',
-        })
-      }
-    }
-    // Claude in `copy` install mode has the same loop: a still-modified
-    // ~/.claude tree gets re-exported into the repo by the next
-    // `runEnabledExporters` pass and Discard appears to do nothing.
-    // `installClaude` is a no-op when the user is in symlink mode (git
-    // checkout already updated the underlying inodes via the symlinks).
-    if (cfg.claude.enabled && cfg.claude.path) {
-      try {
-        installClaude(repoPath, cfg.claude.path)
-      } catch (e) {
-        emit({
-          time: nowHHMMSS(),
-          text: `claude reverse-mirror failed: ${(e as Error).message}`,
-          level: 'error',
-        })
-      }
-    }
-    emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
-    return { ok: true, exitCode: 0 }
+    return { ok: false, exitCode: -1, error: { key: 'discard.error.failed', fallback: r.message } }
   })
 
   ipcMain.handle('run-install', async (_e, opts: InstallOptions): Promise<RunResult> => {
