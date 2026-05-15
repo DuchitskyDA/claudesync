@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import type { CursorProject } from '@shared/api'
+import type { ClaudeProject, CursorProject } from '@shared/api'
 import type { EngineStatus, DiffEntry, SourceRef, PreviewItem } from '@shared/sync-types'
 import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit } from './source-enum'
 import { enumHead } from './head-enum'
@@ -9,13 +9,35 @@ import { compare } from './comparator'
 import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob } from './git-ops'
 import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
+import { encodeClaudeProjectSegment } from './rules'
 
 export type RefreshArgs = {
   repoPath: string | null
   claudePath: string | null
+  claudeProjects: ClaudeProject[]
   cursorProjects: CursorProject[]
   token: string | null
   doFetch?: boolean
+}
+
+/**
+ * Translate a repo-side `claude/...` path into the local on-disk relative path
+ * under `~/.claude`. For `projects/<name>/memory/...` we swap `<name>` for the
+ * locally-registered encoded directory. Returns null when the project name is
+ * present in the repo but not registered on this device (caller treats as skip,
+ * same pattern we already use for unregistered Cursor projects).
+ */
+function claudeRepoRelToSurfaceRel(
+  repoRel: string,
+  claudeProjects: ClaudeProject[],
+): string | null {
+  const m = repoRel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
+  if (!m) return repoRel
+  const name = m[1]!
+  const tail = m[2]!
+  const proj = claudeProjects.find((p) => p.name === name)
+  if (!proj) return null
+  return `projects/${encodeClaudeProjectSegment(proj.path)}/${tail}`
 }
 
 const EMPTY_STATUS: EngineStatus = {
@@ -31,9 +53,16 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
   // Claude
   if (claudePath) {
     const src: SourceRef = { kind: 'claude' }
-    const srcEntries = await enumClaudeSource(claudePath)
+    const srcEntries = await enumClaudeSource(claudePath, args.claudeProjects)
     const headEntries = await enumHead(repoPath, 'claude/', 'claude/')
-    const part = compare(src, srcEntries, headEntries.map((h) => ({ ...h, sha: h.sha1 })))
+    // Filter HEAD entries belonging to claude/projects/<name> where <name> is
+    // not registered locally — otherwise compare() would see them as
+    // "deleted-on-source" and try to wipe data the user never opted in to.
+    const filteredHead = headEntries.filter((h) => {
+      const rel = h.repoPath.startsWith('claude/') ? h.repoPath.slice('claude/'.length) : h.repoPath
+      return claudeRepoRelToSurfaceRel(rel, args.claudeProjects) !== null
+    })
+    const part = compare(src, srcEntries, filteredHead.map((h) => ({ ...h, sha: h.sha1 })), args.claudeProjects)
     diffs.push(...part)
   }
 
@@ -215,7 +244,10 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     let source: { kind: 'claude' } | { kind: 'cursor-project'; projectName: string }
     if (path.startsWith('claude/')) {
       source = { kind: 'claude' }
-      surfacePath = path.slice('claude/'.length)
+      const repoRel = path.slice('claude/'.length)
+      const mapped = claudeRepoRelToSurfaceRel(repoRel, args.claudeProjects)
+      if (mapped === null) continue // project in repo not registered locally — skip
+      surfacePath = mapped
     } else {
       const m = path.match(/^cursor\/projects\/([^/]+)\/(.*)$/)
       if (!m) continue

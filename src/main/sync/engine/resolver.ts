@@ -2,7 +2,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ResolverFile, ResolverState, SourceRef } from '@shared/sync-types'
-import type { CursorProject } from '@shared/api'
+import type { ClaudeProject, CursorProject } from '@shared/api'
+import { encodeClaudeProjectSegment } from './rules'
 import { refreshStatus } from './engine'
 import { catFileBlob, mergeBase, revParse, readTreeMergeAggressive, updateIndexAdd, updateIndexRemove, writeTree, commitTree, updateRef, syncWtToHead, pushOrigin, hashObjectWrite, classifyRemoteError, lsTree } from './git-ops'
 import { applyToSource, readSourceIfExists } from './pull-apply'
@@ -53,9 +54,25 @@ export function clearResolverState(userDataDir: string): void {
 export type ResolverArgs = {
   repoPath: string
   claudePath: string | null
+  claudeProjects: ClaudeProject[]
   cursorProjects: CursorProject[]
   token: string | null
   userDataDir: string
+}
+
+/** Translate a repoPath like `claude/projects/<name>/memory/...` into the local
+ *  surfacePath (`projects/<encoded>/memory/...`). Returns null when the project
+ *  in the repo is not registered locally — caller should skip the row. */
+function claudeSurfacePathFromRepo(
+  repoPath: string,
+  claudeProjects: ClaudeProject[],
+): string | null {
+  const rel = repoPath.startsWith('claude/') ? repoPath.slice('claude/'.length) : repoPath
+  const m = rel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
+  if (!m) return rel
+  const proj = claudeProjects.find((p) => p.name === m[1]!)
+  if (!proj) return null
+  return `projects/${encodeClaudeProjectSegment(proj.path)}/${m[2]!}`
 }
 
 export async function computeResolverState(args: ResolverArgs): Promise<ResolverState> {
@@ -86,7 +103,9 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
     let surfacePath: string
     if (repoPath.startsWith('claude/')) {
       source = { kind: 'claude' }
-      surfacePath = repoPath.slice('claude/'.length)
+      const mapped = claudeSurfacePathFromRepo(repoPath, args.claudeProjects)
+      if (mapped === null) continue // project not registered locally — skip row
+      surfacePath = mapped
       surfaceAbs = join(args.claudePath ?? '', surfacePath)
     } else {
       const m = repoPath.match(/^cursor\/projects\/([^/]+)\/(.*)$/)

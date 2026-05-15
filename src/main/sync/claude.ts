@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ClaudeProject } from '@shared/api'
 import { enumClaudeSource, readSourceForCommit } from './engine/source-enum'
 
 export type ClaudeInstallMode = 'symlink' | 'copy'
@@ -22,9 +23,13 @@ export function detectClaudeInstallMode(claudePath: string): ClaudeInstallMode {
  *  using SyncRules (settings.json filtered to allow-list keys, canonical form).
  *  Uses Engine's enumClaudeSource so init-time and push-time agree on what gets
  *  synced and in what canonical form. */
-export async function generateClaudeStructure(claudePath: string, repoPath: string): Promise<void> {
+export async function generateClaudeStructure(
+  claudePath: string,
+  repoPath: string,
+  claudeProjects: ClaudeProject[] = [],
+): Promise<void> {
   mkdirSync(join(repoPath, 'claude'), { recursive: true })
-  const entries = await enumClaudeSource(claudePath)
+  const entries = await enumClaudeSource(claudePath, claudeProjects)
   for (const e of entries) {
     const srcAbs = join(claudePath, e.surfacePath)
     const dstAbs = join(repoPath, e.repoPath)

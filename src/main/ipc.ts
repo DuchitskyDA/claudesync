@@ -43,6 +43,7 @@ import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { installCursorProjects } from './sync/cursor-install'
 import { refreshStatus, executePush, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
+import { detectClaudeProjects } from './sync/engine/claude-projects-detect'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -420,6 +421,7 @@ export function registerIpc(window: BrowserWindow): void {
     const status = await refreshStatus({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       doFetch: false,
@@ -436,6 +438,7 @@ export function registerIpc(window: BrowserWindow): void {
     const status = await refreshStatus({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       doFetch: false,
@@ -470,6 +473,7 @@ export function registerIpc(window: BrowserWindow): void {
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: false,
@@ -481,6 +485,7 @@ export function registerIpc(window: BrowserWindow): void {
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: true,
@@ -533,6 +538,7 @@ export function registerIpc(window: BrowserWindow): void {
     const r = await executePush({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       commitMessage: opts.commitMessage,
@@ -614,6 +620,7 @@ export function registerIpc(window: BrowserWindow): void {
     return computePullPreview({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
     })
@@ -625,6 +632,7 @@ export function registerIpc(window: BrowserWindow): void {
     const r = await executePullApply({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       deletionsToApply,
@@ -643,6 +651,7 @@ export function registerIpc(window: BrowserWindow): void {
     const r = await executeDiscard({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+      claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
     })
@@ -730,5 +739,15 @@ export function registerIpc(window: BrowserWindow): void {
   )
   ipcMain.handle('resolver-discard', () => {
     discardResolverIPC(userDataDir)
+  })
+
+  ipcMain.handle('rescan-claude-projects', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.claude.enabled || !cfg.claude.path) return cfg.claude.projects
+    const next = detectClaudeProjects(cfg.claude.path, cfg.claude.projects)
+    if (next !== cfg.claude.projects) {
+      writeConfig(configPath, { ...cfg, claude: { ...cfg.claude, projects: next } })
+    }
+    return next
   })
 }

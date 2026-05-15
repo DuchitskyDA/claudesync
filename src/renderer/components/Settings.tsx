@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type { CursorConfig, CursorProject, GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
+import type { ClaudeProject, CursorConfig, CursorProject, GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
 import { ArrowUp, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import type { UpdaterKind } from '../hooks/useAppState'
 import {
@@ -39,6 +39,8 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   const [path, setPath] = useState(initial.repoPath ?? '')
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
   const [cursor, setCursor] = useState<CursorConfig>({ enabled: false, projects: [] })
+  const [claudeProjects, setClaudeProjects] = useState<ClaudeProject[]>([])
+  const [rescanBusy, setRescanBusy] = useState(false)
   const [catalogUrl, setCatalogUrl] = useState('')
   const [error, setError] = useState<LocalizedMessage | null>(null)
   const [busy, setBusy] = useState(false)
@@ -64,6 +66,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       void window.api.suggestClaudePath().then(setPlaceholderTarget)
       void window.api.getConfig().then((c) => {
         setCursor(c.cursor)
+        setClaudeProjects(c.claude.projects)
         setCatalogUrl(c.catalogUrl ?? '')
       })
     }
@@ -105,7 +108,11 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
         includeSecretsInPush: false,
         locale: preference,
         lastDismissedUpdate: existing.lastDismissedUpdate,
-        claude: { enabled: !!trimmedTarget, path: trimmedTarget || null },
+        claude: {
+          enabled: !!trimmedTarget,
+          path: trimmedTarget || null,
+          projects: claudeProjects,
+        },
         cursor,
         catalogUrl: trimmedCatalog || null,
       })
@@ -261,6 +268,84 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                     </Button>
                   </div>
                 </Field>
+
+                <Separator />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-medium">{t('settings.claude.projects.title')}</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {t('settings.claude.projects.description')}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={rescanBusy}
+                      onClick={async () => {
+                        setRescanBusy(true)
+                        try {
+                          const next = await window.api.rescanClaudeProjects()
+                          setClaudeProjects(next)
+                        } finally {
+                          setRescanBusy(false)
+                        }
+                      }}
+                    >
+                      {rescanBusy
+                        ? t('settings.claude.projects.rescanning')
+                        : t('settings.claude.projects.rescan')}
+                    </Button>
+                  </div>
+                  {claudeProjects.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                      {t('settings.claude.projects.empty')}
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {claudeProjects.map((p, i) => (
+                        <li
+                          key={`${p.name}-${i}`}
+                          className="flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                        >
+                          <Input
+                            value={p.name}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setClaudeProjects((arr) =>
+                                arr.map((it, idx) => (idx === i ? { ...it, name: v } : it)),
+                              )
+                            }}
+                            className="h-7 w-40 shrink-0 text-sm"
+                          />
+                          <Input
+                            value={p.path}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setClaudeProjects((arr) =>
+                                arr.map((it, idx) => (idx === i ? { ...it, path: v } : it)),
+                              )
+                            }}
+                            title={p.path}
+                            className="h-7 min-w-0 flex-1 font-mono text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setClaudeProjects((arr) => arr.filter((_, idx) => idx !== i))
+                            }
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                            aria-label={t('settings.claude.projects.detach')}
+                            title={t('settings.claude.projects.detachTitle')}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </>
             )}
 

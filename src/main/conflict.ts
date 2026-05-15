@@ -14,6 +14,7 @@ function getResolverArgs(configPath: string, userDataDir: string) {
   return {
     repoPath: cfg.repoPath ?? '',
     claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+    claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
     cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
     token: loadToken(userDataDir),
     userDataDir,

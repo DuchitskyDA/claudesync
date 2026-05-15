@@ -50,11 +50,58 @@ describe('no phantom diff after pull', () => {
     // run 20 status refreshes — none should produce phantom diff
     for (let i = 0; i < 20; i++) {
       const s = await refreshStatus({
-        repoPath, claudePath, cursorProjects: [], token: null, doFetch: false,
+        repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, doFetch: false,
       })
       expect(s.localChanges).toBe(0)
       expect(s.state).toBe('in-sync')
     }
+  })
+
+  it('HEAD entry for a registered project matches local <encoded>/memory after pull (no phantom)', async () => {
+    // Simulate "after pull": HEAD already has claude/projects/myproj/memory/note.md
+    // (because the other machine pushed it under the canonical <name>). Locally
+    // the same content lives under projects/<encoded>/memory/note.md. With the
+    // project registered, refreshStatus must consider them identical — no
+    // phantom "added" on source side, no phantom "deleted" on HEAD side.
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'shared rules\n')
+    writeFileSync(join(claudePath, 'settings.json'), '{"permissions":{"allow":["x"]}}')
+    mkdirSync(join(repoPath, 'claude', 'projects', 'myproj', 'memory'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'projects', 'myproj', 'memory', 'note.md'), 'shared note\n')
+    git(repoPath, ['add', '-A'])
+    git(repoPath, ['commit', '-q', '-m', 'add memory'])
+
+    mkdirSync(join(claudePath, 'projects', 'enc-seg', 'memory'), { recursive: true })
+    writeFileSync(join(claudePath, 'projects', 'enc-seg', 'memory', 'note.md'), 'shared note\n')
+
+    const s = await refreshStatus({
+      repoPath, claudePath,
+      claudeProjects: [{ name: 'myproj', path: 'enc-seg' }],
+      cursorProjects: [], token: null, doFetch: false,
+    })
+    expect(s.localChanges).toBe(0)
+    expect(s.state).toBe('in-sync')
+  })
+
+  it('HEAD entries for an unregistered project are filtered out (no phantom delete)', async () => {
+    // HEAD has claude/projects/otherproj/memory/x.md but the local user never
+    // registered "otherproj". Without filtering, comparator would see this as
+    // "deleted on source" — but we must skip silently (data belongs to a
+    // device the user hasn't opted into).
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'shared rules\n')
+    writeFileSync(join(claudePath, 'settings.json'), '{"permissions":{"allow":["x"]}}')
+    mkdirSync(join(repoPath, 'claude', 'projects', 'otherproj', 'memory'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'projects', 'otherproj', 'memory', 'note.md'), 'other\n')
+    git(repoPath, ['add', '-A'])
+    git(repoPath, ['commit', '-q', '-m', 'add unregistered memory'])
+
+    const s = await refreshStatus({
+      repoPath, claudePath,
+      claudeProjects: [],
+      cursorProjects: [], token: null, doFetch: false,
+    })
+    const phantom = s.diffs.find((d) => d.repoPath.includes('otherproj'))
+    expect(phantom).toBeUndefined()
+    expect(s.state).toBe('in-sync')
   })
 
   it('windows-only project hash dirs do NOT show as untracked when not in HEAD', async () => {
@@ -63,17 +110,20 @@ describe('no phantom diff after pull', () => {
       join(claudePath, 'settings.json'),
       '{"permissions":{"allow":["x"]}}',
     )
-    // Windows-only project memory
+    // Windows-only project memory; register it under canonical name 'winproj'
+    // so it lands at claude/projects/winproj/memory/... in the repo.
     mkdirSync(join(claudePath, 'projects', 'win-hash', 'memory'), { recursive: true })
     writeFileSync(join(claudePath, 'projects', 'win-hash', 'memory', 'note.md'), 'local note\n')
 
     const s = await refreshStatus({
-      repoPath, claudePath, cursorProjects: [], token: null, doFetch: false,
+      repoPath, claudePath,
+      claudeProjects: [{ name: 'winproj', path: 'win-hash' }],
+      cursorProjects: [], token: null, doFetch: false,
     })
-    // It IS a local change (added) — that's correct semantics now: user has unpushed memory.
-    // But chip says "1 local-change", not 1+ untracked artifacts from background export.
+    // One local change (added) — user has unpushed memory under the canonical
+    // repo path.
     expect(s.localChanges).toBe(1)
-    const added = s.diffs.find((d) => d.repoPath === 'claude/projects/win-hash/memory/note.md')
+    const added = s.diffs.find((d) => d.repoPath === 'claude/projects/winproj/memory/note.md')
     expect(added?.status).toBe('added')
   })
 })

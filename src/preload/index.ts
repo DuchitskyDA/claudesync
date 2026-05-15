@@ -167,6 +167,9 @@ const api: AppApi = {
     ipcRenderer.invoke('resolver-execute', commitMessage, resolutions),
   resolverDiscard: (): Promise<void> =>
     ipcRenderer.invoke('resolver-discard'),
+
+  rescanClaudeProjects: (): Promise<import('@shared/api').ClaudeProject[]> =>
+    ipcRenderer.invoke('rescan-claude-projects'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

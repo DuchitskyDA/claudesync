@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import type {
   AppConfig,
   ClaudeConfig,
+  ClaudeProject,
   CursorConfig,
   CursorProject,
   LocalizedMessage,
@@ -40,11 +41,26 @@ function defaultsBase(): AppConfig {
     includeSecretsInPush: false,
     locale: null,
     lastDismissedUpdate: null,
-    claude: { enabled: false, path: null },
+    claude: { enabled: false, path: null, projects: [] },
     cursor: { enabled: false, projects: [] },
     catalogUrl: null,
     rulesTarget: null,
   }
+}
+
+function readClaudeProjects(raw: unknown): ClaudeProject[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((p): ClaudeProject[] => {
+    if (
+      p &&
+      typeof p === 'object' &&
+      typeof (p as { name?: unknown }).name === 'string' &&
+      typeof (p as { path?: unknown }).path === 'string'
+    ) {
+      return [{ name: (p as { name: string }).name, path: (p as { path: string }).path }]
+    }
+    return []
+  })
 }
 
 function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
@@ -54,12 +70,13 @@ function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
     return {
       enabled: b.enabled === true,
       path: typeof b.path === 'string' ? b.path : null,
+      projects: readClaudeProjects(b.projects),
     }
   }
   if (typeof parsed.rulesTarget === 'string') {
-    return { enabled: true, path: parsed.rulesTarget }
+    return { enabled: true, path: parsed.rulesTarget, projects: [] }
   }
-  return { enabled: false, path: null }
+  return { enabled: false, path: null, projects: [] }
 }
 
 function readCursorBlock(parsed: Record<string, unknown>): CursorConfig {

@@ -140,18 +140,22 @@ describe('generateGlobalStructure', () => {
   })
 
   it('copies only memory dirs from projects/, skips sessions/jsonl', async () => {
+    // The encoded segment `-p1` decodes to `/p1`; we register the project so
+    // its memory lands under the canonical friendly name in the repo. Without
+    // registration, the path-normalization layer skips the project entirely
+    // (covered in source-enum tests).
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'memory'), { recursive: true })
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'memory', 'm.md'), 'M')
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'session.jsonl'), 's')
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'sessions'))
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'sessions', 'a.jsonl'), 's')
 
-    await generateGlobalStructure(rulesTarget, repoPath)
+    await generateGlobalStructure(rulesTarget, repoPath, [{ name: 'p1', path: '/p1' }])
     expect(
-      readFileSync(join(repoPath, 'claude', 'projects', '-p1', 'memory', 'm.md'), 'utf8'),
+      readFileSync(join(repoPath, 'claude', 'projects', 'p1', 'memory', 'm.md'), 'utf8'),
     ).toBe('M')
-    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'session.jsonl'))).toBe(false)
-    expect(existsSync(join(repoPath, 'claude', 'projects', '-p1', 'sessions'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', 'p1', 'session.jsonl'))).toBe(false)
+    expect(existsSync(join(repoPath, 'claude', 'projects', 'p1', 'sessions'))).toBe(false)
   })
 
   it('handles missing source files gracefully', async () => {

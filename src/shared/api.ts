@@ -21,9 +21,23 @@ export type CursorProject = {
   path: string
 }
 
+export type ClaudeProject = {
+  /** User-editable label, used as repo subfolder under <repo>/claude/projects/.
+   *  Must match across devices for the same logical project. */
+  name: string
+  /** Absolute path to the project root on this machine. Used to translate
+   *  between the encoded segment in ~/.claude/projects/<encoded>/ and the
+   *  cross-device-stable `name`. */
+  path: string
+}
+
 export type ClaudeConfig = {
   enabled: boolean
   path: string | null
+  /** Registered claude-projects. The encoded `~/.claude/projects/<encoded>`
+   *  segment is decoded to an abs path and matched against `path` to translate
+   *  to/from the stable `name` used in the repo. Auto-seeded on first run. */
+  projects: ClaudeProject[]
 }
 
 export type CursorConfig = {
@@ -178,6 +192,10 @@ export interface AppApi {
     resolutions: import('./sync-types').ResolverState,
   ): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }>
   resolverDiscard(): Promise<void>
+  /** Re-scan ~/.claude/projects/ for unregistered local projects and append
+   *  them to the registry. Returns the merged list. Existing entries are
+   *  preserved. */
+  rescanClaudeProjects(): Promise<ClaudeProject[]>
 }
 
 declare global {

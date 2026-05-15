@@ -2,8 +2,16 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node
 import { join, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { FileEntry } from '@shared/sync-types'
-import { isClaudePathSynced, isClaudePathIgnored, isCursorPathSynced } from './rules'
+import type { ClaudeProject } from '@shared/api'
+import { isClaudePathSynced, isClaudePathIgnored, isCursorPathSynced, encodeClaudeProjectSegment } from './rules'
 import { canonicalizeSettings } from './settings-canonical'
+
+/** Build encoded→name lookup for fast translation while walking. */
+function projectIndex(projects: ClaudeProject[]): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const p of projects) m.set(encodeClaudeProjectSegment(p.path), p.name)
+  return m
+}
 
 const MAX_BYTES = 5 * 1024 * 1024 // 5MB
 
@@ -33,9 +41,17 @@ function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs
   }
 }
 
-/** Walks ~/.claude, returns synced file entries. */
-export async function enumClaudeSource(claudePath: string): Promise<FileEntry[]> {
+/** Walks ~/.claude, returns synced file entries.
+ *  `claudeProjects` is the registry of `(name, absLocalPath)` pairs; entries
+ *  under `projects/<encoded>/memory/` are emitted under `claude/projects/<name>/`
+ *  iff the encoded segment matches a registered project. Unregistered projects
+ *  are skipped (they're effectively "not opted into sync"). */
+export async function enumClaudeSource(
+  claudePath: string,
+  claudeProjects: ClaudeProject[] = [],
+): Promise<FileEntry[]> {
   if (!existsSync(claudePath)) return []
+  const idx = projectIndex(claudeProjects)
   const out: FileEntry[] = []
   walk(claudePath, [], (rel, abs) => {
     if (isClaudePathIgnored(rel)) return
@@ -48,9 +64,21 @@ export async function enumClaudeSource(claudePath: string): Promise<FileEntry[]>
     if (rel === 'settings.json') {
       try { content = canonicalizeSettings(content) } catch { return }
     }
+    // Translate projects/<encoded>/memory/... → projects/<name>/memory/... for
+    // the repo. surfacePath keeps the on-disk shape so writes/reads still hit
+    // the right encoded directory locally.
+    let repoRel = rel
+    const m = rel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
+    if (m) {
+      const encoded = m[1]!
+      const tail = m[2]!
+      const name = idx.get(encoded)
+      if (!name) return // unregistered project — skip
+      repoRel = `projects/${name}/${tail}`
+    }
     const sha1 = sha1OfBlob(content)
     out.push({
-      repoPath: `claude/${rel}`,
+      repoPath: `claude/${repoRel}`,
       surfacePath: rel,
       sha1,
       mode: '100644',

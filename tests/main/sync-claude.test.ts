@@ -42,13 +42,20 @@ describe('generateClaudeStructure', () => {
     expect(out).toBe('{\n  "permissions": {\n    "allow": [\n      "x"\n    ]\n  }\n}')
   })
 
-  it('places projects/<encoded>/memory at <repo>/claude/projects/<encoded>/memory', async () => {
+  it('places registered projects/<encoded>/memory under <repo>/claude/projects/<name>/memory', async () => {
     mkdirSync(join(claudePath, 'projects', 'enc', 'memory'), { recursive: true })
     writeFileSync(join(claudePath, 'projects', 'enc', 'memory', 'a.md'), 'A')
-    await generateClaudeStructure(claudePath, repoPath)
+    await generateClaudeStructure(claudePath, repoPath, [{ name: 'myproj', path: 'enc' }])
     expect(
-      existsSync(join(repoPath, 'claude', 'projects', 'enc', 'memory', 'a.md')),
+      existsSync(join(repoPath, 'claude', 'projects', 'myproj', 'memory', 'a.md')),
     ).toBe(true)
+  })
+
+  it('skips unregistered projects/<encoded>/memory entries', async () => {
+    mkdirSync(join(claudePath, 'projects', 'enc', 'memory'), { recursive: true })
+    writeFileSync(join(claudePath, 'projects', 'enc', 'memory', 'a.md'), 'A')
+    await generateClaudeStructure(claudePath, repoPath /* no projects */)
+    expect(existsSync(join(repoPath, 'claude', 'projects'))).toBe(false)
   })
 
   it('writes CLAUDE.md and commands when present', async () => {

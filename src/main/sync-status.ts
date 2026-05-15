@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SyncStatus } from '@shared/api'
-import type { CursorProject } from '@shared/api'
+import type { ClaudeProject, CursorProject } from '@shared/api'
 import { refreshStatus } from './sync/engine/engine'
 import { loadToken } from './safe-storage'
 
 export type SyncStatusOpts = {
   repoPath: string | null
   claudePath: string | null
+  claudeProjects: ClaudeProject[]
   cursorProjects: CursorProject[]
   userDataDir: string
   doFetch: boolean
@@ -22,6 +23,7 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
   const s = await refreshStatus({
     repoPath: opts.repoPath,
     claudePath: opts.claudePath,
+    claudeProjects: opts.claudeProjects,
     cursorProjects: opts.cursorProjects,
     token,
     doFetch: opts.doFetch,

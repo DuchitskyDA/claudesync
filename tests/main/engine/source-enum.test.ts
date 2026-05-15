@@ -43,15 +43,28 @@ describe('enumClaudeSource', () => {
     expect(out).toEqual([])
   })
 
-  it('includes only memory subdir of projects/<hash>', async () => {
+  it('includes only memory subdir of projects/<encoded>, mapped to registered <name>', async () => {
     const claude = join(dir, '.claude')
+    // 'abc' is the local encoded segment; we register it as a project with
+    // stable name 'myproj' so the repo path uses the canonical name.
     mkdirSync(join(claude, 'projects', 'abc', 'memory'), { recursive: true })
     mkdirSync(join(claude, 'projects', 'abc', 'sessions'), { recursive: true })
     writeFileSync(join(claude, 'projects', 'abc', 'memory', 'n.md'), 'N')
     writeFileSync(join(claude, 'projects', 'abc', 'sessions', 's.jsonl'), 'X')
     writeFileSync(join(claude, 'projects', 'abc', 'log.jsonl'), 'L')
-    const out = await enumClaudeSource(claude)
-    expect(out.map(e => e.repoPath)).toEqual(['claude/projects/abc/memory/n.md'])
+    // The registered project's `path`, when encoded, must equal 'abc'.
+    // 'abc' has no path separators, so encoding /abc would be -abc; we use a
+    // bare-segment path that round-trips to 'abc' by using a 3-char path.
+    const out = await enumClaudeSource(claude, [{ name: 'myproj', path: 'abc' }])
+    expect(out.map(e => e.repoPath)).toEqual(['claude/projects/myproj/memory/n.md'])
+  })
+
+  it('skips projects/<encoded> when no project is registered for that segment', async () => {
+    const claude = join(dir, '.claude')
+    mkdirSync(join(claude, 'projects', 'abc', 'memory'), { recursive: true })
+    writeFileSync(join(claude, 'projects', 'abc', 'memory', 'n.md'), 'N')
+    const out = await enumClaudeSource(claude /* no registry */)
+    expect(out).toEqual([])
   })
 
   it('returns [] when ~/.claude does not exist', async () => {

@@ -99,6 +99,60 @@ export function filterSettingsObject(obj: Record<string, unknown>): Record<strin
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Claude per-project path normalization
+//
+// Claude Code stores per-project memory under ~/.claude/projects/<encoded>/...
+// where <encoded> is the project's absolute path with separators replaced by
+// '-' (and ':' on Windows, since the drive colon would be illegal in a name).
+//
+// Examples:
+//   POSIX:    /Users/foo/myrepo            -> -Users-foo-myrepo
+//   Windows:  C:\Users\Foo\bar             -> C--Users-Foo-bar
+//
+// We need to map <encoded> ↔ a stable cross-device <name> registered by the
+// user. We do that by encoding each registered project's absolute path with
+// the SAME rule and comparing. We never need to perfectly decode (which is
+// ambiguous because directory names can also contain '-'), only to:
+//   - encode forward for comparison,
+//   - produce a best-effort decoded preview for the auto-detect UX.
+// ---------------------------------------------------------------------------
+
+/** Encode an absolute path the way Claude Code does for projects/<dir>. */
+export function encodeClaudeProjectSegment(absPath: string): string {
+  // Normalize Windows backslashes to forward slashes, then replace every
+  // path-separator-ish character with '-'. The result has a leading '-' on
+  // POSIX absolute paths (because they start with '/'), and starts with the
+  // drive letter on Windows ('C--Users-...').
+  const norm = absPath.replace(/\\/g, '/').replace(/:/g, '-')
+  return norm.replace(/\//g, '-')
+}
+
+/** Best-effort decode for UX defaults. Ambiguous when directory names contain
+ *  '-'; callers should treat the result as a *suggestion* and verify with the
+ *  filesystem before relying on it. */
+export function decodeClaudeProjectSegment(encoded: string): string {
+  // Windows shape: '<Drive>--<rest>' where Drive is a single uppercase letter.
+  const winMatch = encoded.match(/^([A-Za-z])--(.*)$/)
+  if (winMatch) {
+    const drive = winMatch[1]!
+    const rest = winMatch[2]!.replace(/-/g, '\\')
+    return `${drive}:\\${rest}`
+  }
+  // POSIX shape: leading '-' becomes '/'.
+  if (encoded.startsWith('-')) {
+    return '/' + encoded.slice(1).replace(/-/g, '/')
+  }
+  // Fallback: treat as-is.
+  return encoded
+}
+
+/** Cheap default name for auto-detection: last `-`-separated chunk. */
+export function defaultClaudeProjectName(encoded: string): string {
+  const i = encoded.lastIndexOf('-')
+  return i < 0 ? encoded : encoded.slice(i + 1)
+}
+
 /** Cursor sync paths inside a project root. */
 export function isCursorPathSynced(relPath: string): boolean {
   const norm = relPath.replace(/\\/g, '/')

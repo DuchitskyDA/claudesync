@@ -2,8 +2,9 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { registerIpc } from './ipc'
-import { readConfig } from './config'
+import { readConfig, writeConfig } from './config'
 import { sweepEngineState } from './sync/engine/sweep'
+import { detectClaudeProjects } from './sync/engine/claude-projects-detect'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -75,8 +76,19 @@ app.whenReady().then(() => {
   // Best-effort cleanup of orphaned tmp-index files left by previous crashes
   // before any new Engine push/resolve can run.
   try {
-    const cfg = readConfig(join(app.getPath('userData'), 'config.json'))
+    const cfgPath = join(app.getPath('userData'), 'config.json')
+    const cfg = readConfig(cfgPath)
     if (cfg.repoPath) sweepEngineState(cfg.repoPath, app.getPath('userData'))
+    // Seed claude-projects registry on first launch (or whenever the user
+    // hasn't registered anything yet). Additive only — never touches entries
+    // the user has already configured. Settings UI exposes a "Scan again"
+    // action that re-runs detection on demand.
+    if (cfg.claude.enabled && cfg.claude.path && cfg.claude.projects.length === 0) {
+      const next = detectClaudeProjects(cfg.claude.path, cfg.claude.projects)
+      if (next !== cfg.claude.projects) {
+        writeConfig(cfgPath, { ...cfg, claude: { ...cfg.claude, projects: next } })
+      }
+    }
   } catch {
     /* sweep is best-effort; never block startup */
   }
