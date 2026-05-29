@@ -45,7 +45,7 @@ describe('generateClaudeStructure', () => {
   it('places registered projects/<encoded>/memory under <repo>/claude/projects/<name>/memory', async () => {
     mkdirSync(join(claudePath, 'projects', 'enc', 'memory'), { recursive: true })
     writeFileSync(join(claudePath, 'projects', 'enc', 'memory', 'a.md'), 'A')
-    await generateClaudeStructure(claudePath, repoPath, [{ name: 'myproj', path: 'enc' }])
+    await generateClaudeStructure(claudePath, repoPath, [{ name: 'myproj', path: 'enc', syncMemory: true, syncDotClaude: false }])
     expect(
       existsSync(join(repoPath, 'claude', 'projects', 'myproj', 'memory', 'a.md')),
     ).toBe(true)

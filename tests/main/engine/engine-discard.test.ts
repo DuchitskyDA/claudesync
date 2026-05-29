@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -28,10 +28,45 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('executeDiscard', () => {
   it('overwrites source with HEAD content', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'local mess\n')
-    const r = await executeDiscard({ repoPath, claudePath, cursorProjects: [], token: null })
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('committed\n')
-    const status = await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null, doFetch: false })
+    const status = await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true }, doFetch: false })
     expect(status.localChanges).toBe(0)
+  })
+})
+
+describe('executeDiscard — added handling', () => {
+  const SG = { claudeMd: true, commands: true, skills: true, settings: true }
+  // A genuinely-tracked added file (commands/ is a synced path) shows as 'added'
+  // in the diff. An untracked service file would never appear in diffs and must
+  // never be touched by discard.
+  it('keeps local-only added files by default', async () => {
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'committed\n')
+    mkdirSync(join(claudePath, 'commands'))
+    writeFileSync(join(claudePath, 'commands', 'new-note.md'), 'brand new\n')
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG })
+    expect(r.kind).toBe('ok')
+    expect(readFileSync(join(claudePath, 'commands', 'new-note.md'), 'utf8')).toBe('brand new\n')
+  })
+  it('deletes added files when deleteAdded=true', async () => {
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'committed\n')
+    mkdirSync(join(claudePath, 'commands'))
+    writeFileSync(join(claudePath, 'commands', 'new-note.md'), 'brand new\n')
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true })
+    expect(r.kind).toBe('ok')
+    expect(existsSync(join(claudePath, 'commands', 'new-note.md'))).toBe(false)
+  })
+  it('never deletes untracked service files even when deleteAdded=true', async () => {
+    // .credentials.json, sessions/, history.jsonl etc. are ignored by sync
+    // rules → not in diffs → discard must leave them alone.
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'committed\n')
+    writeFileSync(join(claudePath, '.credentials.json'), 'SECRET')
+    mkdirSync(join(claudePath, 'sessions'))
+    writeFileSync(join(claudePath, 'sessions', 's.jsonl'), 'session-data')
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true })
+    expect(r.kind).toBe('ok')
+    expect(existsSync(join(claudePath, '.credentials.json'))).toBe(true)
+    expect(existsSync(join(claudePath, 'sessions', 's.jsonl'))).toBe(true)
   })
 })

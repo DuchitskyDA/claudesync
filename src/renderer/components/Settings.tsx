@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type { ClaudeProject, CursorConfig, CursorProject, GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
+import type { ClaudeConfig, ClaudeProject, CursorConfig, CursorProject, GitHubAuthState, LocalizedMessage, UpdateInfo } from '@shared/api'
 import { ArrowUp, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import type { UpdaterKind } from '../hooks/useAppState'
 import {
@@ -40,6 +40,12 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
   const [target, setTarget] = useState(initial.rulesTarget ?? '')
   const [cursor, setCursor] = useState<CursorConfig>({ enabled: false, projects: [] })
   const [claudeProjects, setClaudeProjects] = useState<ClaudeProject[]>([])
+  const [claudeSyncGlobal, setClaudeSyncGlobal] = useState<ClaudeConfig['syncGlobal']>({
+    claudeMd: true,
+    commands: true,
+    skills: true,
+    settings: true,
+  })
   const [rescanBusy, setRescanBusy] = useState(false)
   const [catalogUrl, setCatalogUrl] = useState('')
   const [error, setError] = useState<LocalizedMessage | null>(null)
@@ -67,6 +73,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
       void window.api.getConfig().then((c) => {
         setCursor(c.cursor)
         setClaudeProjects(c.claude.projects)
+        setClaudeSyncGlobal(c.claude.syncGlobal)
         setCatalogUrl(c.catalogUrl ?? '')
       })
     }
@@ -112,6 +119,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
           enabled: !!trimmedTarget,
           path: trimmedTarget || null,
           projects: claudeProjects,
+          syncGlobal: claudeSyncGlobal,
         },
         cursor,
         catalogUrl: trimmedCatalog || null,
@@ -271,6 +279,34 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
 
                 <Separator />
                 <div className="space-y-2">
+                  <div>
+                    <h3 className="text-sm font-medium">{t('settings.claude.global.title')}</h3>
+                    <p className="text-xs text-muted-foreground">{t('settings.claude.global.description')}</p>
+                  </div>
+                  <div className="space-y-1.5 text-sm">
+                    {(['claudeMd', 'commands', 'skills', 'settings'] as const).map((key) => (
+                      <label key={key} className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={claudeSyncGlobal[key]}
+                          onChange={(e) =>
+                            setClaudeSyncGlobal((cur) => ({ ...cur, [key]: e.target.checked }))
+                          }
+                          className="accent-primary"
+                        />
+                        <span>{t(`settings.claude.global.${key}`)}</span>
+                        {key === 'settings' && (
+                          <span className="text-xs text-muted-foreground">
+                            {t('settings.claude.global.settingsHint')}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator />
+                <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <h3 className="text-sm font-medium">{t('settings.claude.projects.title')}</h3>
@@ -307,40 +343,72 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                       {claudeProjects.map((p, i) => (
                         <li
                           key={`${p.name}-${i}`}
-                          className="flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                          className="flex w-full min-w-0 flex-col gap-1.5 rounded-md border px-3 py-2 text-sm"
                         >
-                          <Input
-                            value={p.name}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              setClaudeProjects((arr) =>
-                                arr.map((it, idx) => (idx === i ? { ...it, name: v } : it)),
-                              )
-                            }}
-                            className="h-7 w-40 shrink-0 text-sm"
-                          />
-                          <Input
-                            value={p.path}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              setClaudeProjects((arr) =>
-                                arr.map((it, idx) => (idx === i ? { ...it, path: v } : it)),
-                              )
-                            }}
-                            title={p.path}
-                            className="h-7 min-w-0 flex-1 font-mono text-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setClaudeProjects((arr) => arr.filter((_, idx) => idx !== i))
-                            }
-                            className="shrink-0 text-muted-foreground hover:text-destructive"
-                            aria-label={t('settings.claude.projects.detach')}
-                            title={t('settings.claude.projects.detachTitle')}
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                          <div className="flex w-full min-w-0 items-center gap-2">
+                            <Input
+                              value={p.name}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setClaudeProjects((arr) =>
+                                  arr.map((it, idx) => (idx === i ? { ...it, name: v } : it)),
+                                )
+                              }}
+                              className="h-7 w-40 shrink-0 text-sm"
+                            />
+                            <Input
+                              value={p.path}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setClaudeProjects((arr) =>
+                                  arr.map((it, idx) => (idx === i ? { ...it, path: v } : it)),
+                                )
+                              }}
+                              title={p.path}
+                              className="h-7 min-w-0 flex-1 font-mono text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setClaudeProjects((arr) => arr.filter((_, idx) => idx !== i))
+                              }
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={t('settings.claude.projects.detach')}
+                              title={t('settings.claude.projects.detachTitle')}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3 pl-1 text-xs">
+                            <label className="flex cursor-pointer items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={p.syncMemory}
+                                onChange={(e) => {
+                                  const v = e.target.checked
+                                  setClaudeProjects((arr) =>
+                                    arr.map((it, idx) => (idx === i ? { ...it, syncMemory: v } : it)),
+                                  )
+                                }}
+                                className="accent-primary"
+                              />
+                              <span>{t('settings.claude.projects.memoryToggle')}</span>
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={p.syncDotClaude}
+                                onChange={(e) => {
+                                  const v = e.target.checked
+                                  setClaudeProjects((arr) =>
+                                    arr.map((it, idx) => (idx === i ? { ...it, syncDotClaude: v } : it)),
+                                  )
+                                }}
+                                className="accent-primary"
+                              />
+                              <span>{t('settings.claude.projects.dotclaudeToggle')}</span>
+                            </label>
+                          </div>
                         </li>
                       ))}
                     </ul>

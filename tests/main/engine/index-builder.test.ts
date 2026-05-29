@@ -32,8 +32,8 @@ describe('buildAndCommitFromSource', () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'new\n')
     writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
     const diffs: DiffEntry[] = [
-      { source: { kind: 'claude' }, repoPath: 'claude/CLAUDE.md', surfacePath: 'CLAUDE.md', status: 'modified' },
-      { source: { kind: 'claude' }, repoPath: 'claude/settings.json', surfacePath: 'settings.json', status: 'added' },
+      { source: { kind: 'claude-global' }, repoPath: 'claude/CLAUDE.md', surfacePath: 'CLAUDE.md', status: 'modified' },
+      { source: { kind: 'claude-global' }, repoPath: 'claude/settings.json', surfacePath: 'settings.json', status: 'added' },
     ]
     const sourceContent = (d: DiffEntry): Buffer | null => {
       if (d.repoPath === 'claude/CLAUDE.md') return Buffer.from('new\n', 'utf8')

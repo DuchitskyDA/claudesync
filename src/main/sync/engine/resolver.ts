@@ -81,7 +81,12 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
   const theirsSha = await revParse(args.repoPath, 'origin/main')
 
   // Union of paths from (source vs HEAD) and (HEAD vs origin/main)
-  const status = await refreshStatus({ ...args, doFetch: false })
+  // Resolver operates on all categories — use all-on defaults so no paths are filtered.
+  const status = await refreshStatus({
+    ...args,
+    doFetch: false,
+    syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+  })
   const sourcePaths = new Set(status.diffs.filter((d) => d.status !== 'same').map((d) => d.repoPath))
   // HEAD vs origin/main
   const ours = await lsTree(args.repoPath, 'HEAD', 'claude/')
@@ -102,11 +107,30 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
     let surfaceAbs: string
     let surfacePath: string
     if (repoPath.startsWith('claude/')) {
-      source = { kind: 'claude' }
-      const mapped = claudeSurfacePathFromRepo(repoPath, args.claudeProjects)
-      if (mapped === null) continue // project not registered locally — skip row
-      surfacePath = mapped
-      surfaceAbs = join(args.claudePath ?? '', surfacePath)
+      const rel = repoPath.slice('claude/'.length)
+      if (!rel.startsWith('projects/')) {
+        source = { kind: 'claude-global' }
+        surfacePath = rel
+        surfaceAbs = join(args.claudePath ?? '', surfacePath)
+      } else {
+        const mDot = rel.match(/^projects\/([^/]+)\/\.claude\/(.*)$/)
+        const mMem = rel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
+        if (mDot) {
+          const proj = args.claudeProjects.find((p) => p.name === mDot[1])
+          if (!proj) continue // project not registered locally — skip row
+          source = { kind: 'claude-project-dotclaude', projectName: mDot[1]! }
+          surfacePath = `.claude/${mDot[2]!}`
+          surfaceAbs = join(proj.path, surfacePath)
+        } else if (mMem) {
+          const mapped = claudeSurfacePathFromRepo(repoPath, args.claudeProjects)
+          if (mapped === null) continue // project not registered locally — skip row
+          source = { kind: 'claude-project-memory', projectName: mMem[1]! }
+          surfacePath = mapped
+          surfaceAbs = join(args.claudePath ?? '', surfacePath)
+        } else {
+          continue
+        }
+      }
     } else {
       const m = repoPath.match(/^cursor\/projects\/([^/]+)\/(.*)$/)
       if (!m) continue
@@ -130,7 +154,10 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
     } catch { /* not in theirs */ }
 
     let mine = readSourceIfExists(surfaceAbs)
-    if (mine && surfacePath === 'settings.json' && source.kind === 'claude') {
+    const isSettings =
+      (source.kind === 'claude-global' && surfacePath === 'settings.json') ||
+      (source.kind === 'claude-project-dotclaude' && surfacePath === '.claude/settings.json')
+    if (mine && isSettings) {
       try { mine = canonicalizeSettings(mine) } catch { /* leave raw */ }
     }
 
@@ -163,8 +190,11 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
       const final = finalContent(f)
       const source = f.source
       let surfaceAbs: string | null
-      if (source.kind === 'claude') {
+      if (source.kind === 'claude-global' || source.kind === 'claude-project-memory') {
         surfaceAbs = args.claudePath ? join(args.claudePath, f.surfacePath) : null
+      } else if (source.kind === 'claude-project-dotclaude') {
+        const proj = args.claudeProjects.find((p) => p.name === source.projectName)
+        surfaceAbs = proj ? join(proj.path, f.surfacePath) : null
       } else {
         const proj = args.cursorProjects.find((p) => p.name === source.projectName)
         surfaceAbs = proj ? join(proj.path, f.surfacePath) : null

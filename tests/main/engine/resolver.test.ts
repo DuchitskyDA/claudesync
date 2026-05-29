@@ -48,7 +48,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('Resolver', () => {
   it('computes base/mine/theirs for diverged path', async () => {
     const state = await computeResolverState({
-      repoPath, claudePath, cursorProjects: [], token: null, userDataDir,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
     })
     expect(state.files).toHaveLength(1)
     const f = state.files[0]!
@@ -60,7 +60,7 @@ describe('Resolver', () => {
 
   it('persists and reloads state', async () => {
     const state = await computeResolverState({
-      repoPath, claudePath, cursorProjects: [], token: null, userDataDir,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
     })
     state.files[0]!.choice = 'mine'
     persistResolverState(userDataDir, state)
@@ -72,11 +72,11 @@ describe('Resolver', () => {
 
   it('apply with choice=mine writes mine to source and pushes 2-parent commit', async () => {
     const state = await computeResolverState({
-      repoPath, claudePath, cursorProjects: [], token: null, userDataDir,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
     })
     state.files[0]!.choice = 'mine'
     const r = await executeResolve({
-      repoPath, claudePath, cursorProjects: [], token: null, userDataDir,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
       commitMessage: 'merge mine', resolutions: state,
     })
     expect(r.kind).toBe('ok')

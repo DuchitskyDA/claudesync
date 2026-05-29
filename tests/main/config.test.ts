@@ -24,7 +24,12 @@ const baseDefaults: AppConfig = {
   includeSecretsInPush: false,
   locale: null,
   lastDismissedUpdate: null,
-  claude: { enabled: false, path: null, projects: [] },
+  claude: {
+    enabled: false,
+    path: null,
+    projects: [],
+    syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+  },
   cursor: { enabled: false, projects: [] },
   catalogUrl: null,
   rulesTarget: null,
@@ -64,7 +69,12 @@ describe('readConfig', () => {
       ...baseDefaults,
       repoPath: '/some/path',
       repoUrl: 'https://github.com/org/repo',
-      claude: { enabled: true, path: '/home/user/.claude', projects: [] },
+      claude: {
+        enabled: true,
+        path: '/home/user/.claude',
+        projects: [],
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+      },
       rulesTarget: '/home/user/.claude',
     })
   })
@@ -81,7 +91,12 @@ describe('readConfig', () => {
     expect(readConfig(f)).toEqual({
       ...baseDefaults,
       includeSecretsInPush: true,
-      claude: { enabled: true, path: '/x', projects: [] },
+      claude: {
+        enabled: true,
+        path: '/x',
+        projects: [],
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+      },
       rulesTarget: '/x',
     })
   })
@@ -123,7 +138,12 @@ describe('readConfig migration to multi-target', () => {
       }),
     )
     const cfg = readConfig(f)
-    expect(cfg.claude).toEqual({ enabled: true, path: '/home/user/.claude', projects: [] })
+    expect(cfg.claude).toEqual({
+      enabled: true,
+      path: '/home/user/.claude',
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    })
     expect(cfg.cursor).toEqual({ enabled: false, projects: [] })
   })
 
@@ -140,7 +160,12 @@ describe('readConfig migration to multi-target', () => {
       }),
     )
     const cfg = readConfig(f)
-    expect(cfg.claude).toEqual({ enabled: false, path: '/x/.claude', projects: [] })
+    expect(cfg.claude).toEqual({
+      enabled: false,
+      path: '/x/.claude',
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    })
     expect(cfg.cursor.projects).toEqual([{ name: 'app', path: '/repos/app' }])
     expect(cfg.rulesTarget).toBe('/x/.claude')
   })
@@ -149,7 +174,12 @@ describe('readConfig migration to multi-target', () => {
     const f = join(dir, 'config.json')
     writeFileSync(f, JSON.stringify({ repoPath: '/p' }))
     const cfg = readConfig(f)
-    expect(cfg.claude).toEqual({ enabled: false, path: null, projects: [] })
+    expect(cfg.claude).toEqual({
+      enabled: false,
+      path: null,
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    })
     expect(cfg.cursor).toEqual({ enabled: false, projects: [] })
   })
 
@@ -183,7 +213,12 @@ describe('readConfig migration to multi-target', () => {
     writeConfig(f, cfg)
     const raw = JSON.parse(readFileSync(f, 'utf8')) as Record<string, unknown>
     expect(raw.rulesTarget).toBeUndefined()
-    expect(raw.claude).toEqual({ enabled: true, path: '/legacy', projects: [] })
+    expect(raw.claude).toEqual({
+      enabled: true,
+      path: '/legacy',
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    })
   })
 })
 
@@ -194,14 +229,24 @@ describe('writeConfig', () => {
       ...baseDefaults,
       repoPath: '/abc',
       repoUrl: 'https://github.com/org/repo',
-      claude: { enabled: true, path: '/home/user/.claude', projects: [] },
+      claude: {
+        enabled: true,
+        path: '/home/user/.claude',
+        projects: [],
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+      },
     })
     expect(existsSync(f)).toBe(true)
     expect(readConfig(f)).toEqual({
       ...baseDefaults,
       repoPath: '/abc',
       repoUrl: 'https://github.com/org/repo',
-      claude: { enabled: true, path: '/home/user/.claude', projects: [] },
+      claude: {
+        enabled: true,
+        path: '/home/user/.claude',
+        projects: [],
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+      },
       rulesTarget: '/home/user/.claude',
     })
   })
@@ -406,5 +451,78 @@ describe('validateCatalogUrl', () => {
 
   it('rejects garbage strings', () => {
     expect(validateCatalogUrl('not a url').ok).toBe(false)
+  })
+})
+
+describe('readConfig migration to flexible sync toggles', () => {
+  it('fills missing syncGlobal with all-true defaults', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(
+      f,
+      JSON.stringify({
+        claude: { enabled: true, path: '/home/u/.claude', projects: [] },
+      }),
+    )
+    const cfg = readConfig(f)
+    expect(cfg.claude.syncGlobal).toEqual({
+      claudeMd: true,
+      commands: true,
+      skills: true,
+      settings: true,
+    })
+  })
+
+  it('preserves explicit syncGlobal values', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(
+      f,
+      JSON.stringify({
+        claude: {
+          enabled: true,
+          path: '/x',
+          projects: [],
+          syncGlobal: { claudeMd: true, commands: false, skills: true, settings: false },
+        },
+      }),
+    )
+    const cfg = readConfig(f)
+    expect(cfg.claude.syncGlobal).toEqual({
+      claudeMd: true, commands: false, skills: true, settings: false,
+    })
+  })
+
+  it('fills missing per-project syncMemory/syncDotClaude with true', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(
+      f,
+      JSON.stringify({
+        claude: {
+          enabled: true,
+          path: '/x',
+          projects: [{ name: 'a', path: '/p/a' }, { name: 'b', path: '/p/b', syncDotClaude: false }],
+        },
+      }),
+    )
+    const cfg = readConfig(f)
+    expect(cfg.claude.projects).toEqual([
+      { name: 'a', path: '/p/a', syncMemory: true, syncDotClaude: true },
+      { name: 'b', path: '/p/b', syncMemory: true, syncDotClaude: false },
+    ])
+  })
+
+  it('writeConfig round-trips syncGlobal and per-project flags', () => {
+    const f = join(dir, 'config.json')
+    const cfg: AppConfig = {
+      ...baseDefaults,
+      claude: {
+        enabled: true,
+        path: '/x',
+        projects: [{ name: 'a', path: '/p/a', syncMemory: false, syncDotClaude: true }],
+        syncGlobal: { claudeMd: false, commands: true, skills: true, settings: true },
+      },
+      rulesTarget: '/x',
+    }
+    writeConfig(f, cfg)
+    expect(readConfig(f).claude).toEqual(cfg.claude)
   })
 })

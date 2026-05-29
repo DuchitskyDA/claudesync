@@ -1,4 +1,5 @@
 // src/main/sync/engine/rules.ts
+import type { ClaudeGlobalSyncFlags } from '@shared/api'
 
 /** Top-level entries within ~/.claude that are synced into the repo. */
 export const CLAUDE_TOP_LEVEL_SYNC = new Set([
@@ -76,16 +77,47 @@ export function isClaudePathIgnored(relPath: string): boolean {
   return false
 }
 
-export function isClaudePathSynced(relPath: string): boolean {
+export function isClaudePathSynced(
+  relPath: string,
+  syncGlobal: ClaudeGlobalSyncFlags,
+): boolean {
   if (isClaudePathIgnored(relPath)) return false
   const norm = relPath.replace(/\\/g, '/')
   const top = topSegment(norm)
   if (!CLAUDE_TOP_LEVEL_SYNC.has(top)) return false
   if (top === 'projects') {
-    // require .../memory/...
+    // require .../memory/... (not gated by syncGlobal)
     const parts = norm.split('/')
     return parts[2] === 'memory'
   }
+  if (top === 'CLAUDE.md') return syncGlobal.claudeMd
+  if (top === 'commands') return syncGlobal.commands
+  if (top === 'skills') return syncGlobal.skills
+  if (top === 'settings.json') return syncGlobal.settings
+  return true
+}
+
+/** Hardcoded ignore prefixes/exact names within <project>/.claude/. */
+const PROJECT_DOTCLAUDE_IGNORE_TOP = new Set([
+  ...CLAUDE_IGNORE_TOP,
+  'worktrees',
+  'scheduled_tasks.lock',
+])
+
+/** Top-level entries within <project>/.claude/ that are synced. */
+const PROJECT_DOTCLAUDE_SYNC = new Set([
+  'CLAUDE.md',
+  'settings.json',
+  'commands',
+  'skills',
+])
+
+export function isProjectDotClaudePathSynced(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, '/')
+  if (IGNORE_NAME.test(basename(norm))) return false
+  const top = topSegment(norm)
+  if (PROJECT_DOTCLAUDE_IGNORE_TOP.has(top)) return false
+  if (!PROJECT_DOTCLAUDE_SYNC.has(top)) return false
   return true
 }
 

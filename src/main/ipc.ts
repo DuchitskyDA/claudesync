@@ -42,7 +42,7 @@ import {
 import { listOwners, repoExists } from './github-api'
 import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { installCursorProjects } from './sync/cursor-install'
-import { refreshStatus, executePush, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
+import { refreshStatus, executePush, computePushPreview, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
 import { detectClaudeProjects } from './sync/engine/claude-projects-detect'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
@@ -200,6 +200,8 @@ export function registerIpc(window: BrowserWindow): void {
       claude: {
         enabled: cfg.claude?.enabled ?? false,
         path: claudePath,
+        projects: cfg.claude?.projects ?? [],
+        syncGlobal: cfg.claude?.syncGlobal ?? { claudeMd: true, commands: true, skills: true, settings: true },
       },
       cursor: {
         enabled: cfg.cursor?.enabled ?? false,
@@ -415,9 +417,12 @@ export function registerIpc(window: BrowserWindow): void {
     if (!window.isDestroyed()) window.webContents.send('push-step', e)
   }
 
-  ipcMain.handle('get-repo-status', async () => {
+  ipcMain.handle('get-repo-status', async (): Promise<import('@shared/api').RepoStatus> => {
     const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return { changedFiles: [], clean: true }
+    const empty: import('@shared/api').RepoStatus = {
+      clean: true, added: [], modified: [], deletions: [], unreadable: [], floorBlocked: [],
+    }
+    if (!cfg.repoPath) return empty
     const status = await refreshStatus({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
@@ -425,28 +430,52 @@ export function registerIpc(window: BrowserWindow): void {
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       doFetch: false,
+      syncGlobal: cfg.claude.syncGlobal,
     })
-    const changedFiles = status.diffs
-      .filter((d) => d.status !== 'same')
-      .map((d) => d.repoPath)
-    return { changedFiles, clean: changedFiles.length === 0 }
+    const added = status.diffs.filter((d) => d.status === 'added').map((d) => d.repoPath)
+    const modified = status.diffs.filter((d) => d.status === 'modified').map((d) => d.repoPath)
+    const deletions = status.diffs.filter((d) => d.status === 'deleted').map((d) => d.repoPath)
+    const unreadable = status.diffs.filter((d) => d.status === 'unreadable').map((d) => d.repoPath)
+    const clean = added.length === 0 && modified.length === 0 && deletions.length === 0
+    return { clean, added, modified, deletions, unreadable, floorBlocked: [] }
   })
 
-  ipcMain.handle('preview-push-status', async () => {
+  const refKeyLabel = (s: import('@shared/sync-types').SourceRef): string =>
+    s.kind === 'claude-global' ? 'Claude (global)'
+    : s.kind === 'claude-project-memory' ? `Claude memory: ${s.projectName}`
+    : s.kind === 'claude-project-dotclaude' ? `Claude project: ${s.projectName}`
+    : `Cursor: ${s.projectName}`
+
+  ipcMain.handle('preview-push-status', async (): Promise<import('@shared/api').RepoStatus> => {
     const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return { changedFiles: [], clean: true }
-    const status = await refreshStatus({
+    const empty: import('@shared/api').RepoStatus = {
+      clean: true, added: [], modified: [], deletions: [], unreadable: [], floorBlocked: [],
+    }
+    if (!cfg.repoPath) return empty
+    const preview = await computePushPreview({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       doFetch: false,
+      syncGlobal: cfg.claude.syncGlobal,
     })
-    const changedFiles = status.diffs
-      .filter((d) => d.status !== 'same')
-      .map((d) => d.repoPath)
-    return { changedFiles, clean: changedFiles.length === 0 }
+    if (preview.kind === 'floor-blocked') {
+      return {
+        clean: false, added: [], modified: [], deletions: [], unreadable: [],
+        floorBlocked: preview.verdicts.map((v) => ({
+          source: refKeyLabel(v.source), headCount: v.headCount, deleting: v.deleting, reason: v.reason,
+        })),
+      }
+    }
+    if (preview.kind !== 'preview') return empty
+    const added = preview.items.filter((d) => d.status === 'added').map((d) => d.repoPath)
+    const modified = preview.items.filter((d) => d.status === 'modified').map((d) => d.repoPath)
+    const deletions = preview.deletions.map((d) => d.repoPath)
+    const unreadable = preview.unreadable.map((d) => d.repoPath)
+    const clean = added.length === 0 && modified.length === 0 && deletions.length === 0
+    return { clean, added, modified, deletions, unreadable, floorBlocked: [] }
   })
 
   // Sync status — cached; refresh re-runs `git fetch`.
@@ -463,9 +492,11 @@ export function registerIpc(window: BrowserWindow): void {
       const fresh = await getSyncStatus({
         repoPath: cfg.repoPath,
         claudePath: cfg.claude.enabled ? cfg.claude.path : null,
+        claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
         cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
         userDataDir,
         doFetch: false,
+        syncGlobal: cfg.claude.syncGlobal,
       })
       cachedSyncStatus = { ...fresh, fetchedAt: cachedSyncStatus.fetchedAt }
       return cachedSyncStatus
@@ -477,6 +508,7 @@ export function registerIpc(window: BrowserWindow): void {
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: false,
+      syncGlobal: cfg.claude.syncGlobal,
     })
     return cachedSyncStatus
   })
@@ -489,6 +521,7 @@ export function registerIpc(window: BrowserWindow): void {
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       userDataDir,
       doFetch: true,
+      syncGlobal: cfg.claude.syncGlobal,
     })
     return cachedSyncStatus
   })
@@ -542,6 +575,8 @@ export function registerIpc(window: BrowserWindow): void {
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       commitMessage: opts.commitMessage,
+      approvedDeletions: opts.approvedDeletions ?? [],
+      syncGlobal: cfg.claude.syncGlobal,
     })
     if (r.kind === 'ok') {
       emitPushStep({ step: 'commit', status: 'done' })
@@ -558,6 +593,9 @@ export function registerIpc(window: BrowserWindow): void {
     if (r.kind === 'offline') return { ok: false, exitCode: -1, error: { key: 'push.error.network', params: { tail: '' } } } as RunResult
     if (r.kind === 'auth') return { ok: false, exitCode: -1, error: { key: 'push.error.auth', params: { tail: r.message } } } as RunResult
     if (r.kind === 'race') return { ok: false, exitCode: -1, error: { key: 'push.error.conflict', params: { repoPath: cfg.repoPath } }, kind: 'conflict' } as RunResult
+    if (r.kind === 'floor-blocked') {
+      return { ok: false, exitCode: -1, error: { key: 'push.error.floorBlocked' } } as RunResult
+    }
     return { ok: false, exitCode: -1, error: { key: 'push.error.pullOther', fallback: r.kind === 'error' ? r.message : '' } } as RunResult
   })
 
@@ -623,6 +661,7 @@ export function registerIpc(window: BrowserWindow): void {
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
+      syncGlobal: cfg.claude.syncGlobal,
     })
   })
 
@@ -636,6 +675,7 @@ export function registerIpc(window: BrowserWindow): void {
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
       deletionsToApply,
+      syncGlobal: cfg.claude.syncGlobal,
     })
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Pull applied', level: 'success' })
@@ -645,7 +685,7 @@ export function registerIpc(window: BrowserWindow): void {
     return { ok: false, exitCode: -1, error: { key: 'pull.error.failed', fallback: 'message' in r ? r.message : '' } } as RunResult
   })
 
-  ipcMain.handle('discard-local-changes', async (): Promise<RunResult> => {
+  ipcMain.handle('discard-local-changes', async (_e, deleteAdded?: boolean): Promise<RunResult> => {
     const cfg = readConfig(configPath)
     emit({ time: nowHHMMSS(), text: '$ engine discard', level: 'info' })
     const r = await executeDiscard({
@@ -654,6 +694,8 @@ export function registerIpc(window: BrowserWindow): void {
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
       cursorProjects: cfg.cursor.enabled ? cfg.cursor.projects : [],
       token: loadToken(userDataDir),
+      deleteAdded: deleteAdded === true,
+      syncGlobal: cfg.claude.syncGlobal,
     })
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })

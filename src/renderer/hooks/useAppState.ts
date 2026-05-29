@@ -331,10 +331,10 @@ export function useAppState() {
     }
   }
 
-  const runPush = async (commitMessage: string, includeSecrets: boolean) => {
+  const runPush = async (commitMessage: string, includeSecrets: boolean, approvedDeletions: string[] = []) => {
     dispatch({ type: 'run-start' })
     try {
-      const r = await window.api.runPush({ commitMessage, includeSecrets })
+      const r = await window.api.runPush({ commitMessage, includeSecrets, approvedDeletions })
       if (r.kind === 'conflict') {
         dispatch({ type: 'set-conflict', inProgress: true })
       }

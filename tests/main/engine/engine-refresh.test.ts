@@ -35,14 +35,14 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('refreshStatus', () => {
   it('reports in-sync when source matches HEAD exactly', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'hello\n')
-    const s = await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null })
+    const s = await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(s.state).toBe('in-sync')
     expect(s.localChanges).toBe(0)
   })
   it('reports local-changes when source has new file', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'hello\n')
     writeFileSync(join(claudePath, 'settings.json'), '{"theme":"dark"}')
-    const s = await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null })
+    const s = await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(s.state).toBe('local-changes')
     expect(s.localChanges).toBe(1)
     const added = s.diffs.find((d) => d.repoPath === 'claude/settings.json')
@@ -55,13 +55,13 @@ describe('refreshStatus', () => {
     git(repoPath, ['commit', '-q', '-m', 'settings'])
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'hello\n')
     writeFileSync(join(claudePath, 'settings.json'), '{"permissions":{"allow":["x"]},"numStartups":42}')
-    const s = await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null })
+    const s = await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(s.state).toBe('in-sync')
     expect(s.localChanges).toBe(0)
   })
   it('does NOT write to WT (no phantom diff)', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'modified\n')
-    await refreshStatus({ repoPath, claudePath, cursorProjects: [], token: null })
+    await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     const wtContent = readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')
     expect(wtContent).toBe('hello\n')  // WT untouched
   })

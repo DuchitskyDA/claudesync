@@ -124,7 +124,7 @@ export function SyncStatusIndicator({ status, checking, onRefresh, onPush, onPul
       setConfirmingDiscard(false)
       return
     }
-    void window.api.getRepoStatus().then((s) => setFiles(s.changedFiles))
+    void window.api.getRepoStatus().then((s) => setFiles([...s.added, ...s.modified, ...s.deletions, ...s.unreadable]))
   }, [open, status])
 
   useEffect(() => {

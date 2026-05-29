@@ -51,6 +51,7 @@ describe('no phantom diff after pull', () => {
     for (let i = 0; i < 20; i++) {
       const s = await refreshStatus({
         repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, doFetch: false,
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       })
       expect(s.localChanges).toBe(0)
       expect(s.state).toBe('in-sync')
@@ -75,8 +76,9 @@ describe('no phantom diff after pull', () => {
 
     const s = await refreshStatus({
       repoPath, claudePath,
-      claudeProjects: [{ name: 'myproj', path: 'enc-seg' }],
+      claudeProjects: [{ name: 'myproj', path: 'enc-seg', syncMemory: true, syncDotClaude: false }],
       cursorProjects: [], token: null, doFetch: false,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
     })
     expect(s.localChanges).toBe(0)
     expect(s.state).toBe('in-sync')
@@ -98,6 +100,7 @@ describe('no phantom diff after pull', () => {
       repoPath, claudePath,
       claudeProjects: [],
       cursorProjects: [], token: null, doFetch: false,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
     })
     const phantom = s.diffs.find((d) => d.repoPath.includes('otherproj'))
     expect(phantom).toBeUndefined()
@@ -117,8 +120,9 @@ describe('no phantom diff after pull', () => {
 
     const s = await refreshStatus({
       repoPath, claudePath,
-      claudeProjects: [{ name: 'winproj', path: 'win-hash' }],
+      claudeProjects: [{ name: 'winproj', path: 'win-hash', syncMemory: true, syncDotClaude: false }],
       cursorProjects: [], token: null, doFetch: false,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
     })
     // One local change (added) — user has unpushed memory under the canonical
     // repo path.

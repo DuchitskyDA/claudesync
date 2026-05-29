@@ -2,29 +2,43 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node
 import { join, posix } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { FileEntry } from '@shared/sync-types'
-import type { ClaudeProject } from '@shared/api'
-import { isClaudePathSynced, isClaudePathIgnored, isCursorPathSynced, encodeClaudeProjectSegment } from './rules'
+import type { ClaudeProject, ClaudeGlobalSyncFlags } from '@shared/api'
+import {
+  isClaudePathSynced,
+  isClaudePathIgnored,
+  isCursorPathSynced,
+  isProjectDotClaudePathSynced,
+  encodeClaudeProjectSegment,
+} from './rules'
 import { canonicalizeSettings } from './settings-canonical'
 
-/** Build encoded→name lookup for fast translation while walking. */
-function projectIndex(projects: ClaudeProject[]): Map<string, string> {
-  const m = new Map<string, string>()
-  for (const p of projects) m.set(encodeClaudeProjectSegment(p.path), p.name)
+/** Build encoded→ClaudeProject lookup for fast translation while walking. */
+function projectIndex(projects: ClaudeProject[]): Map<string, ClaudeProject> {
+  const m = new Map<string, ClaudeProject>()
+  for (const p of projects) m.set(encodeClaudeProjectSegment(p.path), p)
   return m
 }
 
 const MAX_BYTES = 5 * 1024 * 1024 // 5MB
 
 function sha1OfBlob(content: Buffer): string {
-  // git blob sha: sha1("blob <len>\0<content>")
   const header = Buffer.from(`blob ${content.length}\0`, 'utf8')
   return createHash('sha1').update(header).update(content).digest('hex')
 }
 
-function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs: string) => void): void {
-  if (!existsSync(rootAbs)) return
+export type EnumResult = {
+  entries: FileEntry[]
+  /** repoPath's of files that exist on disk but couldn't be read/canonicalized
+   *  or exceed MAX_BYTES. Never silently dropped → never inferred as deletion. */
+  unreadable: string[]
+}
+
+/** Returns false if this directory (or a descendant root) could not be read. */
+function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs: string) => void): boolean {
+  if (!existsSync(rootAbs)) return true // absent ≠ unreadable; caller decides
   let entries: string[]
-  try { entries = readdirSync(rootAbs) } catch { return }
+  try { entries = readdirSync(rootAbs) } catch { return false }
+  let ok = true
   for (const name of entries) {
     const abs = join(rootAbs, name)
     let lst
@@ -33,87 +47,113 @@ function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs
     let st
     try { st = statSync(abs) } catch { continue }
     if (st.isDirectory()) {
-      walk(abs, [...prefixParts, name], cb)
+      if (!walk(abs, [...prefixParts, name], cb)) ok = false
     } else if (st.isFile()) {
       const rel = posix.join(...prefixParts, name)
       cb(rel, abs)
     }
   }
+  return ok
 }
 
-/** Walks ~/.claude, returns synced file entries.
- *  `claudeProjects` is the registry of `(name, absLocalPath)` pairs; entries
- *  under `projects/<encoded>/memory/` are emitted under `claude/projects/<name>/`
- *  iff the encoded segment matches a registered project. Unregistered projects
- *  are skipped (they're effectively "not opted into sync"). */
+/** Walks ~/.claude, returns synced file entries gated by syncGlobal. Per-project
+ *  memory walks are gated by each project's `syncMemory` flag. */
 export async function enumClaudeSource(
   claudePath: string,
   claudeProjects: ClaudeProject[] = [],
-): Promise<FileEntry[]> {
-  if (!existsSync(claudePath)) return []
+  syncGlobal: ClaudeGlobalSyncFlags = { claudeMd: true, commands: true, skills: true, settings: true },
+): Promise<EnumResult> {
+  if (!existsSync(claudePath)) return { entries: [], unreadable: [] }
   const idx = projectIndex(claudeProjects)
   const out: FileEntry[] = []
-  walk(claudePath, [], (rel, abs) => {
-    if (isClaudePathIgnored(rel)) return
-    if (!isClaudePathSynced(rel)) return
-    let st
-    try { st = statSync(abs) } catch { return }
-    if (st.size > MAX_BYTES) return
-    let content: Buffer
-    try { content = readFileSync(abs) } catch { return }
-    if (rel === 'settings.json') {
-      try { content = canonicalizeSettings(content) } catch { return }
-    }
-    // Translate projects/<encoded>/memory/... → projects/<name>/memory/... for
-    // the repo. surfacePath keeps the on-disk shape so writes/reads still hit
-    // the right encoded directory locally.
-    let repoRel = rel
+  const unreadable: string[] = []
+
+  // Resolve a disk-relative path to its repoPath, honoring memory translation.
+  // Returns null when the path is outside the tracked set (e.g. unregistered
+  // project or memory toggle off) — such paths are not tracked, so an
+  // unreadable error on them is irrelevant.
+  const toRepoRel = (rel: string): string | null => {
     const m = rel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
     if (m) {
-      const encoded = m[1]!
-      const tail = m[2]!
-      const name = idx.get(encoded)
-      if (!name) return // unregistered project — skip
-      repoRel = `projects/${name}/${tail}`
+      const proj = idx.get(m[1]!)
+      if (!proj || !proj.syncMemory) return null
+      return `projects/${proj.name}/${m[2]!}`
+    }
+    return rel
+  }
+
+  walk(claudePath, [], (rel, abs) => {
+    if (isClaudePathIgnored(rel)) return
+    if (!isClaudePathSynced(rel, syncGlobal)) return
+    const repoRel = toRepoRel(rel)
+    if (repoRel === null) return // not tracked
+    const repoPath = `claude/${repoRel}`
+    let st
+    try { st = statSync(abs) } catch { unreadable.push(repoPath); return }
+    if (st.size > MAX_BYTES) { unreadable.push(repoPath); return }
+    let content: Buffer
+    try { content = readFileSync(abs) } catch { unreadable.push(repoPath); return }
+    if (rel === 'settings.json') {
+      try { content = canonicalizeSettings(content) } catch { unreadable.push(repoPath); return }
     }
     const sha1 = sha1OfBlob(content)
-    out.push({
-      repoPath: `claude/${repoRel}`,
-      surfacePath: rel,
-      sha1,
-      mode: '100644',
-      size: content.length,
-    })
+    out.push({ repoPath, surfacePath: rel, sha1, mode: '100644', size: content.length })
   })
-  return out
+  return { entries: out, unreadable }
+}
+
+/** Walks <project>/.claude/, returns synced file entries. Used when
+ *  project.syncDotClaude=true. settings.json is canonicalized identically to
+ *  the global one. */
+export async function enumClaudeProjectDotClaudeSource(
+  projectPath: string,
+  projectName: string,
+): Promise<EnumResult> {
+  const root = join(projectPath, '.claude')
+  if (!existsSync(root)) return { entries: [], unreadable: [] }
+  const out: FileEntry[] = []
+  const unreadable: string[] = []
+  walk(root, [], (rel, abs) => {
+    if (!isProjectDotClaudePathSynced(rel)) return
+    const repoPath = `claude/projects/${projectName}/.claude/${rel}`
+    let st
+    try { st = statSync(abs) } catch { unreadable.push(repoPath); return }
+    if (st.size > MAX_BYTES) { unreadable.push(repoPath); return }
+    let content: Buffer
+    try { content = readFileSync(abs) } catch { unreadable.push(repoPath); return }
+    if (rel === 'settings.json') {
+      try { content = canonicalizeSettings(content) } catch { unreadable.push(repoPath); return }
+    }
+    const sha1 = sha1OfBlob(content)
+    out.push({ repoPath, surfacePath: `.claude/${rel}`, sha1, mode: '100644', size: content.length })
+  })
+  return { entries: out, unreadable }
 }
 
 /** Walks a Cursor project root, returns synced .cursor/* + .cursorrules entries. */
-export async function enumCursorProjectSource(projectPath: string, projectName: string): Promise<FileEntry[]> {
-  if (!existsSync(projectPath)) return []
+export async function enumCursorProjectSource(projectPath: string, projectName: string): Promise<EnumResult> {
+  if (!existsSync(projectPath)) return { entries: [], unreadable: [] }
   const out: FileEntry[] = []
+  const unreadable: string[] = []
   walk(projectPath, [], (rel, abs) => {
     if (!isCursorPathSynced(rel)) return
+    const repoPath = `cursor/projects/${projectName}/${rel}`
     let st
-    try { st = statSync(abs) } catch { return }
-    if (st.size > MAX_BYTES) return
+    try { st = statSync(abs) } catch { unreadable.push(repoPath); return }
+    if (st.size > MAX_BYTES) { unreadable.push(repoPath); return }
     let content: Buffer
-    try { content = readFileSync(abs) } catch { return }
+    try { content = readFileSync(abs) } catch { unreadable.push(repoPath); return }
     const sha1 = sha1OfBlob(content)
-    out.push({
-      repoPath: `cursor/projects/${projectName}/${rel}`,
-      surfacePath: rel,
-      sha1,
-      mode: '100644',
-      size: content.length,
-    })
+    out.push({ repoPath, surfacePath: rel, sha1, mode: '100644', size: content.length })
   })
-  return out
+  return { entries: out, unreadable }
 }
 
 /** Helper used by IndexBuilder: read raw bytes of a source file (with canonicalization for settings.json). */
 export function readSourceForCommit(surfaceAbsPath: string, surfaceRelPath: string): Buffer {
   const raw = readFileSync(surfaceAbsPath)
-  if (surfaceRelPath === 'settings.json') return canonicalizeSettings(raw)
+  if (surfaceRelPath === 'settings.json' || surfaceRelPath === '.claude/settings.json') {
+    return canonicalizeSettings(raw)
+  }
   return raw
 }

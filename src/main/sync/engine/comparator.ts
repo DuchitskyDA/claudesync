@@ -15,7 +15,11 @@ function deriveSurfacePath(
   repoPath: string,
   claudeProjects: ClaudeProject[],
 ): string {
-  if (source.kind === 'claude') {
+  if (source.kind === 'claude-global') {
+    const rel = repoPath.startsWith('claude/') ? repoPath.slice('claude/'.length) : repoPath
+    return rel
+  }
+  if (source.kind === 'claude-project-memory') {
     const rel = repoPath.startsWith('claude/') ? repoPath.slice('claude/'.length) : repoPath
     const m = rel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
     if (!m) return rel
@@ -24,6 +28,12 @@ function deriveSurfacePath(
     const proj = claudeProjects.find((p) => p.name === name)
     if (!proj) return rel // unmatched — caller should treat as skip via surfaceAbsPath
     return `projects/${encodeClaudeProjectSegment(proj.path)}/${tail}`
+  }
+  if (source.kind === 'claude-project-dotclaude') {
+    const rel = repoPath.startsWith('claude/') ? repoPath.slice('claude/'.length) : repoPath
+    const m = rel.match(/^projects\/[^/]+\/\.claude\/(.*)$/)
+    if (!m) return rel
+    return `.claude/${m[1]!}`
   }
   const prefix = `cursor/projects/${source.projectName}/`
   return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : repoPath
@@ -34,15 +44,24 @@ export function compare(
   src: FileEntry[],
   head: HeadLike[],
   claudeProjects: ClaudeProject[] = [],
+  unreadable: Set<string> = new Set(),
 ): DiffEntry[] {
   const srcMap = new Map(src.map((e) => [e.repoPath, e]))
   const headMap = new Map(head.map((e) => [e.repoPath, e]))
-  const allPaths = new Set([...srcMap.keys(), ...headMap.keys()])
+  const allPaths = new Set([...srcMap.keys(), ...headMap.keys(), ...unreadable])
   const out: DiffEntry[] = []
   for (const repoPath of allPaths) {
     const s = srcMap.get(repoPath)
     const h = headMap.get(repoPath)
     const surfacePath = s?.surfacePath ?? deriveSurfacePath(source, repoPath, claudeProjects)
+    // Unreadable wins over any deleted-inference: the file exists on disk, we
+    // just couldn't read it. Keep the HEAD version (if any), never delete.
+    if (unreadable.has(repoPath)) {
+      out.push(h
+        ? { source, repoPath, surfacePath, status: 'unreadable', headSha: h.sha }
+        : { source, repoPath, surfacePath, status: 'unreadable' })
+      continue
+    }
     if (s && h) {
       out.push({
         source, repoPath, surfacePath,
@@ -55,7 +74,6 @@ export function compare(
       out.push({ source, repoPath, surfacePath, status: 'deleted', headSha: h.sha })
     }
   }
-  // Stable order for UI
   out.sort((a, b) => a.repoPath.localeCompare(b.repoPath))
   return out
 }

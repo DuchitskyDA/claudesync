@@ -29,7 +29,7 @@ export async function generateClaudeStructure(
   claudeProjects: ClaudeProject[] = [],
 ): Promise<void> {
   mkdirSync(join(repoPath, 'claude'), { recursive: true })
-  const entries = await enumClaudeSource(claudePath, claudeProjects)
+  const { entries } = await enumClaudeSource(claudePath, claudeProjects)
   for (const e of entries) {
     const srcAbs = join(claudePath, e.surfacePath)
     const dstAbs = join(repoPath, e.repoPath)

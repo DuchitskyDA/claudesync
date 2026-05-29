@@ -62,9 +62,9 @@ export function App() {
   const configComplete =
     state.repoUrl !== null && state.repoPath !== null && state.rulesTarget !== null
 
-  const handlePush = async (msg: string, includeSecrets: boolean) => {
+  const handlePush = async (msg: string, includeSecrets: boolean, approvedDeletions: string[]) => {
     setPushOpen(false)
-    await runPush(msg, includeSecrets)
+    await runPush(msg, includeSecrets, approvedDeletions)
   }
 
   const handleInstall = async (opts: { installClaude: boolean; cursorProjectNames: string[] }) => {
@@ -234,7 +234,7 @@ export function App() {
         onPull={() => void handlePull()}
         onResolve={() => setConflictOpen(true)}
         onDiscard={async () => {
-          await window.api.discardLocalChanges()
+          await window.api.discardLocalChanges(false)
           await refreshSyncStatus()
         }}
       />

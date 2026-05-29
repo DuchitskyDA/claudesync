@@ -1,9 +1,13 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { SyncStatus } from '@shared/api'
+import type { SyncStatus, ClaudeConfig } from '@shared/api'
 import type { ClaudeProject, CursorProject } from '@shared/api'
 import { refreshStatus } from './sync/engine/engine'
 import { loadToken } from './safe-storage'
+
+const DEFAULT_SYNC_GLOBAL: ClaudeConfig['syncGlobal'] = {
+  claudeMd: true, commands: true, skills: true, settings: true,
+}
 
 export type SyncStatusOpts = {
   repoPath: string | null
@@ -12,6 +16,7 @@ export type SyncStatusOpts = {
   cursorProjects: CursorProject[]
   userDataDir: string
   doFetch: boolean
+  syncGlobal?: ClaudeConfig['syncGlobal']
 }
 
 /** Adapter: maps EngineStatus → SyncStatus (existing IPC contract). */
@@ -27,6 +32,7 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
     cursorProjects: opts.cursorProjects,
     token,
     doFetch: opts.doFetch,
+    syncGlobal: opts.syncGlobal ?? DEFAULT_SYNC_GLOBAL,
   })
   const out: SyncStatus = {
     state: s.state,

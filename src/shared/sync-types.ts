@@ -1,11 +1,18 @@
 // src/shared/sync-types.ts
 
 /** What kind of source surface this entry belongs to. */
-export type SourceKind = 'claude' | 'cursor-project'
+export type SourceKind =
+  | 'claude-global'
+  | 'claude-project-memory'
+  | 'claude-project-dotclaude'
+  | 'cursor-project'
 
-/** Reference to a surface — either Claude global or a named Cursor project. */
+/** Reference to a surface — either Claude global, Claude per-project memory,
+ *  Claude per-project .claude/, or a named Cursor project. */
 export type SourceRef =
-  | { kind: 'claude' }
+  | { kind: 'claude-global' }
+  | { kind: 'claude-project-memory'; projectName: string }
+  | { kind: 'claude-project-dotclaude'; projectName: string }
   | { kind: 'cursor-project'; projectName: string }
 
 /** A single file in source or HEAD. */
@@ -14,15 +21,15 @@ export type FileEntry = {
   repoPath: string
   /** Path within the source surface, e.g. 'CLAUDE.md' or '.cursorrules'. */
   surfacePath: string
-  /** SHA-1 of canonical content (settings.json filtered + 2-space stringify; everything else raw bytes). */
+  /** SHA-1 of canonical content. */
   sha1: string
-  /** Posix file mode — 100644 for regular file, 100755 for executable. */
+  /** Posix file mode. */
   mode: '100644' | '100755'
   /** Byte size of canonical content. */
   size: number
 }
 
-export type DiffStatus = 'added' | 'modified' | 'deleted' | 'same'
+export type DiffStatus = 'added' | 'modified' | 'deleted' | 'same' | 'unreadable'
 
 export type DiffEntry = {
   source: SourceRef

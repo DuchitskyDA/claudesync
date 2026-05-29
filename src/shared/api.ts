@@ -29,6 +29,17 @@ export type ClaudeProject = {
    *  between the encoded segment in ~/.claude/projects/<encoded>/ and the
    *  cross-device-stable `name`. */
   path: string
+  /** Whether ~/.claude/projects/<encoded>/memory/ is synced for this project. */
+  syncMemory: boolean
+  /** Whether <project>/.claude/ is synced for this project. */
+  syncDotClaude: boolean
+}
+
+export type ClaudeGlobalSyncFlags = {
+  claudeMd: boolean
+  commands: boolean
+  skills: boolean
+  settings: boolean
 }
 
 export type ClaudeConfig = {
@@ -38,6 +49,8 @@ export type ClaudeConfig = {
    *  segment is decoded to an abs path and matched against `path` to translate
    *  to/from the stable `name` used in the repo. Auto-seeded on first run. */
   projects: ClaudeProject[]
+  /** Per-category toggles for ~/.claude top-level entries. All true = legacy behavior. */
+  syncGlobal: ClaudeGlobalSyncFlags
 }
 
 export type CursorConfig = {
@@ -152,7 +165,7 @@ export interface AppApi {
    *  additions not yet pushed. The user can always Push to commit them or
    *  manually delete them. Reverse-mirror is additive: never deletes
    *  local-only files. */
-  discardLocalChanges(): Promise<RunResult>
+  discardLocalChanges(deleteAdded?: boolean): Promise<RunResult>
   /** Open a file in the user's default app, given a path relative to the
    *  sync repo root. Used to inspect a single changed file from the
    *  status popover. */
@@ -292,6 +305,8 @@ export type InitWizardOptions = CreateRepoOptions
 export type PushOptions = {
   commitMessage: string
   includeSecrets: boolean
+  /** repoPath's the user explicitly approved for deletion. */
+  approvedDeletions: string[]
 }
 
 export type InstallOptions = {
@@ -312,9 +327,22 @@ export type ScanResult = {
   totalSize: number
 }
 
+export type RepoStatusFloorVerdict = {
+  source: string
+  headCount: number
+  deleting: number
+  reason: 'source-empty' | 'ratio-exceeded'
+}
+
 export type RepoStatus = {
-  changedFiles: string[]
   clean: boolean
+  /** repoPath's grouped by push intent. */
+  added: string[]
+  modified: string[]
+  deletions: string[]
+  unreadable: string[]
+  /** Present and non-empty when the mass-deletion floor blocked the push. */
+  floorBlocked: RepoStatusFloorVerdict[]
 }
 
 export type SyncStatusState =

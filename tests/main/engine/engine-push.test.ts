@@ -33,14 +33,16 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('Engine.push', () => {
   it('preview lists modified files; execute commits and pushes; WT == HEAD', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'new\n')
-    const preview = await computePushPreview({ repoPath, claudePath, cursorProjects: [], token: null })
+    const preview = await computePushPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(preview.kind).toBe('preview')
     if (preview.kind !== 'preview') throw new Error('expected preview')
     expect(preview.items.find((d) => d.repoPath === 'claude/CLAUDE.md')?.status).toBe('modified')
 
     const result = await executePush({
-      repoPath, claudePath, cursorProjects: [], token: null,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       commitMessage: 'update CLAUDE.md',
+      approvedDeletions: [],
     })
     expect(result.kind).toBe('ok')
     expect(readFileSync(join(repoPath, 'claude', 'CLAUDE.md'), 'utf8')).toBe('new\n')
@@ -52,7 +54,7 @@ describe('Engine.push', () => {
 
   it('returns nothing-to-push when source matches HEAD', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'old\n')
-    const r = await executePush({ repoPath, claudePath, cursorProjects: [], token: null, commitMessage: 'noop' })
+    const r = await executePush({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true }, commitMessage: 'noop', approvedDeletions: [] })
     expect(r.kind).toBe('nothing-to-push')
   })
 
@@ -67,7 +69,61 @@ describe('Engine.push', () => {
 
     // Local has its own change
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'local-change\n')
-    const p = await computePushPreview({ repoPath, claudePath, cursorProjects: [], token: null })
+    const p = await computePushPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(p.kind).toBe('diverged')
+  })
+})
+
+describe('Engine.push — safeguards', () => {
+  const SG = { claudeMd: true, commands: true, skills: true, settings: true }
+
+  it('floor-blocks when a source loses >=50% of >=5 tracked files', async () => {
+    mkdirSync(join(repoPath, 'claude', 'commands'), { recursive: true })
+    for (let i = 0; i < 8; i++) writeFileSync(join(repoPath, 'claude', 'commands', `c${i}.md`), `v${i}\n`)
+    git(repoPath, ['add', '-A']); git(repoPath, ['commit', '-q', '-m', 'seed'])
+    git(repoPath, ['push', '-q'])
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'old\n')
+    const p = await computePushPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG })
+    expect(p.kind).toBe('floor-blocked')
+  })
+
+  it('deletion is applied only when in approvedDeletions', async () => {
+    writeFileSync(join(repoPath, 'claude', 'note.md'), 'note\n')
+    git(repoPath, ['add', '-A']); git(repoPath, ['commit', '-q', '-m', 'add note'])
+    git(repoPath, ['push', '-q'])
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'old\n')
+
+    const r1 = await executePush({
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: SG, commitMessage: 'no-delete', approvedDeletions: [],
+    })
+    // The only pending change is an unapproved deletion → nothing is committed.
+    expect(r1.kind).toBe('nothing-to-push')
+    const after1 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/note.md'])
+    expect(after1.status).toBe(0) // note.md preserved in HEAD
+
+    const r2 = await executePush({
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: SG, commitMessage: 'delete note', approvedDeletions: ['claude/note.md'],
+    })
+    expect(r2.kind).toBe('ok')
+    const after2 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/note.md'])
+    expect(after2.status).not.toBe(0)
+  })
+
+  it('unreadable file keeps its HEAD version (not deleted, not changed)', async () => {
+    const valid = '{\n  "permissions": {\n    "allow": [\n      "x"\n    ]\n  }\n}'
+    writeFileSync(join(repoPath, 'claude', 'settings.json'), valid)
+    git(repoPath, ['add', '-A']); git(repoPath, ['commit', '-q', '-m', 'add settings'])
+    git(repoPath, ['push', '-q'])
+    writeFileSync(join(claudePath, 'CLAUDE.md'), 'old\n')
+    writeFileSync(join(claudePath, 'settings.json'), '{ broken ')
+    const r = await executePush({
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: SG, commitMessage: 'noop', approvedDeletions: [],
+    })
+    expect(r.kind).toBe('nothing-to-push')
+    const head = spawnSync('git', ['-C', repoPath, 'cat-file', '-p', 'HEAD:claude/settings.json'], { encoding: 'utf8' })
+    expect(head.stdout).toBe(valid)
   })
 })

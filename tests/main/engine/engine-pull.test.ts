@@ -45,7 +45,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 describe('Engine.pull', () => {
   it('preview lists files behind, apply writes to source and advances HEAD', async () => {
-    const preview = await computePullPreview({ repoPath, claudePath, cursorProjects: [], token: null })
+    const preview = await computePullPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(preview.kind).toBe('preview')
     if (preview.kind !== 'preview') throw new Error('expected preview')
     const claudeMd = preview.items.find((i) => i.repoPath === 'claude/CLAUDE.md')
@@ -54,7 +54,8 @@ describe('Engine.pull', () => {
     expect(newMd?.status).toBe('added')
 
     const r = await executePullApply({
-      repoPath, claudePath, cursorProjects: [], token: null,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       deletionsToApply: [],
     })
     expect(r.kind).toBe('ok')
@@ -64,7 +65,7 @@ describe('Engine.pull', () => {
 
   it('blocks when diverged', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'local-edit\n')
-    const p = await computePullPreview({ repoPath, claudePath, cursorProjects: [], token: null })
+    const p = await computePullPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(p.kind).toBe('diverged')
   })
 
@@ -74,14 +75,15 @@ describe('Engine.pull', () => {
     // This is actually tested implicitly in the first test, so here we test the opt-out path
     // by checking that when we DON'T include a deletion in deletionsToApply, it's skipped
 
-    const preview = await computePullPreview({ repoPath, claudePath, cursorProjects: [], token: null })
+    const preview = await computePullPreview({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
     expect(preview.kind).toBe('preview')
     if (preview.kind !== 'preview') throw new Error('expected preview')
 
     // We know from first test that NEW.md and CLAUDE.md are in preview items
     // Apply WITHOUT including any deletions (even though there might not be any in this simple case)
     const r = await executePullApply({
-      repoPath, claudePath, cursorProjects: [], token: null,
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       deletionsToApply: [],  // opt out of all deletions
     })
     expect(r.kind).toBe('ok')

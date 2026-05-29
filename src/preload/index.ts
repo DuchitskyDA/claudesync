@@ -120,8 +120,8 @@ const api: AppApi = {
     ipcRenderer.invoke('check-install-needed'),
   listRepoCursorSubdirs: (): Promise<string[]> =>
     ipcRenderer.invoke('list-repo-cursor-subdirs'),
-  discardLocalChanges: (): Promise<RunResult> =>
-    ipcRenderer.invoke('discard-local-changes'),
+  discardLocalChanges: (deleteAdded?: boolean): Promise<RunResult> =>
+    ipcRenderer.invoke('discard-local-changes', deleteAdded),
   openRepoFile: (relPath: string): Promise<void> =>
     ipcRenderer.invoke('open-repo-file', relPath),
   runPush: (opts: PushOptions): Promise<RunResult> =>

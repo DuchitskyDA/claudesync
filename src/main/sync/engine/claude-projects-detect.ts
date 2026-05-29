@@ -77,7 +77,7 @@ export function detectClaudeProjects(
     if (usedNames.has(name)) name = `${name}-${shortHash(absPath)}`
     usedNames.add(name)
     byPath.add(absPath)
-    additions.push({ name, path: absPath })
+    additions.push({ name, path: absPath, syncMemory: true, syncDotClaude: false })
   }
 
   return additions.length === 0 ? existing : [...existing, ...additions]

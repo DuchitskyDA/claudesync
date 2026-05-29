@@ -150,7 +150,7 @@ describe('generateGlobalStructure', () => {
     mkdirSync(join(rulesTarget, 'projects', '-p1', 'sessions'))
     writeFileSync(join(rulesTarget, 'projects', '-p1', 'sessions', 'a.jsonl'), 's')
 
-    await generateGlobalStructure(rulesTarget, repoPath, [{ name: 'p1', path: '/p1' }])
+    await generateGlobalStructure(rulesTarget, repoPath, [{ name: 'p1', path: '/p1', syncMemory: true, syncDotClaude: false }])
     expect(
       readFileSync(join(repoPath, 'claude', 'projects', 'p1', 'memory', 'm.md'), 'utf8'),
     ).toBe('M')

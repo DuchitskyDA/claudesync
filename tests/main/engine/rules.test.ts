@@ -3,18 +3,21 @@ import { describe, it, expect } from 'vitest'
 import {
   isClaudePathSynced,
   isClaudePathIgnored,
+  isProjectDotClaudePathSynced,
   filterSettingsObject,
   encodeClaudeProjectSegment,
   decodeClaudeProjectSegment,
   defaultClaudeProjectName,
 } from '../../../src/main/sync/engine/rules'
 
+const ALL_ON_PRE = { claudeMd: true, commands: true, skills: true, settings: true }
+
 describe('SyncRules — Claude top-level', () => {
   it('CLAUDE.md, settings.json, commands/, skills/ are synced', () => {
-    expect(isClaudePathSynced('CLAUDE.md')).toBe(true)
-    expect(isClaudePathSynced('settings.json')).toBe(true)
-    expect(isClaudePathSynced('commands/a.md')).toBe(true)
-    expect(isClaudePathSynced('skills/foo/SKILL.md')).toBe(true)
+    expect(isClaudePathSynced('CLAUDE.md', ALL_ON_PRE)).toBe(true)
+    expect(isClaudePathSynced('settings.json', ALL_ON_PRE)).toBe(true)
+    expect(isClaudePathSynced('commands/a.md', ALL_ON_PRE)).toBe(true)
+    expect(isClaudePathSynced('skills/foo/SKILL.md', ALL_ON_PRE)).toBe(true)
   })
   it('plugins/, sessions/, history.jsonl, credentials, settings.local.json are ignored', () => {
     expect(isClaudePathIgnored('plugins/cache/x')).toBe(true)
@@ -25,7 +28,7 @@ describe('SyncRules — Claude top-level', () => {
     expect(isClaudePathIgnored('statsig/anything')).toBe(true)
   })
   it('projects/<hash>/memory/ is synced, projects/<hash>/sessions/ is ignored', () => {
-    expect(isClaudePathSynced('projects/abc123/memory/note.md')).toBe(true)
+    expect(isClaudePathSynced('projects/abc123/memory/note.md', ALL_ON_PRE)).toBe(true)
     expect(isClaudePathIgnored('projects/abc123/sessions/s.jsonl')).toBe(true)
     expect(isClaudePathIgnored('projects/abc123/x.jsonl')).toBe(true)
   })
@@ -33,6 +36,73 @@ describe('SyncRules — Claude top-level', () => {
     expect(isClaudePathIgnored('CLAUDE.md.backup.20260101-120000')).toBe(true)
     expect(isClaudePathIgnored('.DS_Store')).toBe(true)
     expect(isClaudePathIgnored('Thumbs.db')).toBe(true)
+  })
+})
+
+const ALL_ON = { claudeMd: true, commands: true, skills: true, settings: true }
+
+describe('SyncRules — global gating via syncGlobal', () => {
+  it('all-true behaves like before', () => {
+    expect(isClaudePathSynced('CLAUDE.md', ALL_ON)).toBe(true)
+    expect(isClaudePathSynced('commands/a.md', ALL_ON)).toBe(true)
+    expect(isClaudePathSynced('skills/foo/SKILL.md', ALL_ON)).toBe(true)
+    expect(isClaudePathSynced('settings.json', ALL_ON)).toBe(true)
+  })
+  it('claudeMd=false drops CLAUDE.md only', () => {
+    const f = { ...ALL_ON, claudeMd: false }
+    expect(isClaudePathSynced('CLAUDE.md', f)).toBe(false)
+    expect(isClaudePathSynced('commands/a.md', f)).toBe(true)
+    expect(isClaudePathSynced('settings.json', f)).toBe(true)
+  })
+  it('commands=false drops commands/*', () => {
+    const f = { ...ALL_ON, commands: false }
+    expect(isClaudePathSynced('commands/a.md', f)).toBe(false)
+    expect(isClaudePathSynced('commands/nested/b.md', f)).toBe(false)
+    expect(isClaudePathSynced('CLAUDE.md', f)).toBe(true)
+  })
+  it('skills=false drops skills/*', () => {
+    const f = { ...ALL_ON, skills: false }
+    expect(isClaudePathSynced('skills/foo/SKILL.md', f)).toBe(false)
+    expect(isClaudePathSynced('CLAUDE.md', f)).toBe(true)
+  })
+  it('settings=false drops settings.json', () => {
+    const f = { ...ALL_ON, settings: false }
+    expect(isClaudePathSynced('settings.json', f)).toBe(false)
+    expect(isClaudePathSynced('CLAUDE.md', f)).toBe(true)
+  })
+  it('per-project memory remains gated by sync entry — not by syncGlobal', () => {
+    expect(isClaudePathSynced('projects/abc/memory/x.md', ALL_ON)).toBe(true)
+    const off = { claudeMd: false, commands: false, skills: false, settings: false }
+    expect(isClaudePathSynced('projects/abc/memory/x.md', off)).toBe(true)
+  })
+})
+
+describe('SyncRules — project .claude path rules', () => {
+  it('allows CLAUDE.md, settings.json, commands/, skills/', () => {
+    expect(isProjectDotClaudePathSynced('CLAUDE.md')).toBe(true)
+    expect(isProjectDotClaudePathSynced('settings.json')).toBe(true)
+    expect(isProjectDotClaudePathSynced('commands/a.md')).toBe(true)
+    expect(isProjectDotClaudePathSynced('skills/foo/SKILL.md')).toBe(true)
+  })
+  it('ignores same service files as global', () => {
+    expect(isProjectDotClaudePathSynced('settings.local.json')).toBe(false)
+    expect(isProjectDotClaudePathSynced('.credentials.json')).toBe(false)
+    expect(isProjectDotClaudePathSynced('plugins/x')).toBe(false)
+    expect(isProjectDotClaudePathSynced('sessions/s.jsonl')).toBe(false)
+    expect(isProjectDotClaudePathSynced('history.jsonl')).toBe(false)
+    expect(isProjectDotClaudePathSynced('cache/x')).toBe(false)
+    expect(isProjectDotClaudePathSynced('ide/x')).toBe(false)
+    expect(isProjectDotClaudePathSynced('statsig/x')).toBe(false)
+    expect(isProjectDotClaudePathSynced('.DS_Store')).toBe(false)
+    expect(isProjectDotClaudePathSynced('CLAUDE.md.backup.20260101-120000')).toBe(false)
+  })
+  it('ignores project-local service files (worktrees/, scheduled_tasks.lock)', () => {
+    expect(isProjectDotClaudePathSynced('worktrees/foo/bar')).toBe(false)
+    expect(isProjectDotClaudePathSynced('scheduled_tasks.lock')).toBe(false)
+  })
+  it('rejects unknown top-level entries (conservative allow-list)', () => {
+    expect(isProjectDotClaudePathSynced('random.json')).toBe(false)
+    expect(isProjectDotClaudePathSynced('agents/x')).toBe(false)
   })
 })
 

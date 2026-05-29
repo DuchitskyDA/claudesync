@@ -41,7 +41,12 @@ function defaultsBase(): AppConfig {
     includeSecretsInPush: false,
     locale: null,
     lastDismissedUpdate: null,
-    claude: { enabled: false, path: null, projects: [] },
+    claude: {
+      enabled: false,
+      path: null,
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    },
     cursor: { enabled: false, projects: [] },
     catalogUrl: null,
     rulesTarget: null,
@@ -57,10 +62,28 @@ function readClaudeProjects(raw: unknown): ClaudeProject[] {
       typeof (p as { name?: unknown }).name === 'string' &&
       typeof (p as { path?: unknown }).path === 'string'
     ) {
-      return [{ name: (p as { name: string }).name, path: (p as { path: string }).path }]
+      const obj = p as { name: string; path: string; syncMemory?: unknown; syncDotClaude?: unknown }
+      return [{
+        name: obj.name,
+        path: obj.path,
+        syncMemory: obj.syncMemory === false ? false : true,
+        syncDotClaude: obj.syncDotClaude === false ? false : true,
+      }]
     }
     return []
   })
+}
+
+function readSyncGlobal(raw: unknown): ClaudeConfig['syncGlobal'] {
+  const def = { claudeMd: true, commands: true, skills: true, settings: true }
+  if (!raw || typeof raw !== 'object') return def
+  const r = raw as Record<string, unknown>
+  return {
+    claudeMd: r.claudeMd === false ? false : true,
+    commands: r.commands === false ? false : true,
+    skills: r.skills === false ? false : true,
+    settings: r.settings === false ? false : true,
+  }
 }
 
 function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
@@ -71,12 +94,23 @@ function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
       enabled: b.enabled === true,
       path: typeof b.path === 'string' ? b.path : null,
       projects: readClaudeProjects(b.projects),
+      syncGlobal: readSyncGlobal(b.syncGlobal),
     }
   }
   if (typeof parsed.rulesTarget === 'string') {
-    return { enabled: true, path: parsed.rulesTarget, projects: [] }
+    return {
+      enabled: true,
+      path: parsed.rulesTarget,
+      projects: [],
+      syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+    }
   }
-  return { enabled: false, path: null, projects: [] }
+  return {
+    enabled: false,
+    path: null,
+    projects: [],
+    syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+  }
 }
 
 function readCursorBlock(parsed: Record<string, unknown>): CursorConfig {

@@ -1,15 +1,16 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import type { ClaudeProject, CursorProject } from '@shared/api'
+import type { ClaudeProject, CursorProject, ClaudeConfig } from '@shared/api'
 import type { EngineStatus, DiffEntry, SourceRef, PreviewItem } from '@shared/sync-types'
-import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit } from './source-enum'
+import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit, enumClaudeProjectDotClaudeSource } from './source-enum'
 import { enumHead } from './head-enum'
 import { compare } from './comparator'
 import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob } from './git-ops'
 import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
 import { encodeClaudeProjectSegment } from './rules'
+import { checkFloor, refKey, DEFAULT_FLOOR_THRESHOLDS, type FloorThresholds, type FloorSourceVerdict } from './safety-floor'
 
 export type RefreshArgs = {
   repoPath: string | null
@@ -18,26 +19,10 @@ export type RefreshArgs = {
   cursorProjects: CursorProject[]
   token: string | null
   doFetch?: boolean
-}
-
-/**
- * Translate a repo-side `claude/...` path into the local on-disk relative path
- * under `~/.claude`. For `projects/<name>/memory/...` we swap `<name>` for the
- * locally-registered encoded directory. Returns null when the project name is
- * present in the repo but not registered on this device (caller treats as skip,
- * same pattern we already use for unregistered Cursor projects).
- */
-function claudeRepoRelToSurfaceRel(
-  repoRel: string,
-  claudeProjects: ClaudeProject[],
-): string | null {
-  const m = repoRel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
-  if (!m) return repoRel
-  const name = m[1]!
-  const tail = m[2]!
-  const proj = claudeProjects.find((p) => p.name === name)
-  if (!proj) return null
-  return `projects/${encodeClaudeProjectSegment(proj.path)}/${tail}`
+  /** Global category toggles for ~/.claude top-level entries. */
+  syncGlobal: ClaudeConfig['syncGlobal']
+  /** Optional override of mass-deletion floor thresholds. */
+  floorThresholds?: FloorThresholds
 }
 
 const EMPTY_STATUS: EngineStatus = {
@@ -52,30 +37,114 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
 
   // Claude
   if (claudePath) {
-    const src: SourceRef = { kind: 'claude' }
-    const srcEntries = await enumClaudeSource(claudePath, args.claudeProjects)
+    type Entry = { ref: SourceRef; file: import('@shared/sync-types').FileEntry }
+    const allSrc: Entry[] = []
+    const unreadableSet = new Set<string>()
+    const globalRes = await enumClaudeSource(claudePath, args.claudeProjects, args.syncGlobal)
+    for (const u of globalRes.unreadable) unreadableSet.add(u)
+    for (const f of globalRes.entries) {
+      const m = f.repoPath.match(/^claude\/projects\/([^/]+)\/memory\//)
+      if (m) {
+        allSrc.push({ ref: { kind: 'claude-project-memory', projectName: m[1]! }, file: f })
+      } else {
+        allSrc.push({ ref: { kind: 'claude-global' }, file: f })
+      }
+    }
+    for (const proj of args.claudeProjects) {
+      if (!proj.syncDotClaude) continue
+      const dotRes = await enumClaudeProjectDotClaudeSource(proj.path, proj.name)
+      for (const u of dotRes.unreadable) unreadableSet.add(u)
+      for (const f of dotRes.entries) {
+        allSrc.push({ ref: { kind: 'claude-project-dotclaude', projectName: proj.name }, file: f })
+      }
+    }
+
+    // HEAD entries with filtering by toggles.
     const headEntries = await enumHead(repoPath, 'claude/', 'claude/')
-    // Filter HEAD entries belonging to claude/projects/<name> where <name> is
-    // not registered locally — otherwise compare() would see them as
-    // "deleted-on-source" and try to wipe data the user never opted in to.
     const filteredHead = headEntries.filter((h) => {
       const rel = h.repoPath.startsWith('claude/') ? h.repoPath.slice('claude/'.length) : h.repoPath
-      return claudeRepoRelToSurfaceRel(rel, args.claudeProjects) !== null
+      if (!rel.startsWith('projects/')) {
+        if (rel === 'CLAUDE.md') return args.syncGlobal.claudeMd
+        if (rel === 'settings.json') return args.syncGlobal.settings
+        if (rel.startsWith('commands/')) return args.syncGlobal.commands
+        if (rel.startsWith('skills/')) return args.syncGlobal.skills
+        return true
+      }
+      const mDot = rel.match(/^projects\/([^/]+)\/\.claude\//)
+      if (mDot) {
+        const proj = args.claudeProjects.find((p) => p.name === mDot[1])
+        return !!proj && proj.syncDotClaude
+      }
+      const mMem = rel.match(/^projects\/([^/]+)\/memory\//)
+      if (mMem) {
+        const proj = args.claudeProjects.find((p) => p.name === mMem[1])
+        return !!proj && proj.syncMemory
+      }
+      return false
     })
-    const part = compare(src, srcEntries, filteredHead.map((h) => ({ ...h, sha: h.sha1 })), args.claudeProjects)
-    diffs.push(...part)
+
+    // Group source entries by SourceRef, group HEAD entries similarly, run compare per group.
+    const byRefKey = new Map<string, { ref: SourceRef; files: Entry['file'][] }>()
+    for (const e of allSrc) {
+      const key = e.ref.kind === 'claude-global'
+        ? 'claude-global'
+        : `${e.ref.kind}::${(e.ref as { projectName: string }).projectName}`
+      let bucket = byRefKey.get(key)
+      if (!bucket) {
+        bucket = { ref: e.ref, files: [] }
+        byRefKey.set(key, bucket)
+      }
+      bucket.files.push(e.file)
+    }
+    function refForRepoPath(p: string): SourceRef | null {
+      const rel = p.startsWith('claude/') ? p.slice('claude/'.length) : p
+      if (!rel.startsWith('projects/')) return { kind: 'claude-global' }
+      const mDot = rel.match(/^projects\/([^/]+)\/\.claude\//)
+      if (mDot) return { kind: 'claude-project-dotclaude', projectName: mDot[1]! }
+      const mMem = rel.match(/^projects\/([^/]+)\/memory\//)
+      if (mMem) return { kind: 'claude-project-memory', projectName: mMem[1]! }
+      return null
+    }
+    function refKeyForRepoPath(p: string): string {
+      const ref = refForRepoPath(p)
+      if (!ref) return ''
+      return ref.kind === 'claude-global' ? 'claude-global' : `${ref.kind}::${ref.projectName}`
+    }
+    const headByKey = new Map<string, typeof filteredHead>()
+    for (const h of filteredHead) {
+      const ref = refForRepoPath(h.repoPath)
+      if (!ref) continue
+      const key = ref.kind === 'claude-global'
+        ? 'claude-global'
+        : `${ref.kind}::${(ref as { projectName: string }).projectName}`
+      if (!byRefKey.has(key)) byRefKey.set(key, { ref, files: [] })
+      if (!headByKey.has(key)) headByKey.set(key, [])
+      headByKey.get(key)!.push(h)
+    }
+    for (const [key, bucket] of byRefKey) {
+      const heads = headByKey.get(key) ?? []
+      // unreadable repoPaths that belong to this ref-group
+      const groupUnreadable = new Set<string>()
+      for (const u of unreadableSet) {
+        if (refKeyForRepoPath(u) === key) groupUnreadable.add(u)
+      }
+      const part = compare(bucket.ref, bucket.files,
+        heads.map((h) => ({ ...h, sha: h.sha1 })), args.claudeProjects, groupUnreadable)
+      diffs.push(...part)
+    }
   }
 
   // Cursor projects
   for (const proj of cursorProjects) {
     const src: SourceRef = { kind: 'cursor-project', projectName: proj.name }
-    const srcEntries = await enumCursorProjectSource(proj.path, proj.name)
+    const res = await enumCursorProjectSource(proj.path, proj.name)
     const headEntries = await enumHead(repoPath, `cursor/projects/${proj.name}/`, `cursor/projects/${proj.name}/`)
-    const part = compare(src, srcEntries, headEntries.map((h) => ({ ...h, sha: h.sha1 })))
+    const part = compare(src, res.entries, headEntries.map((h) => ({ ...h, sha: h.sha1 })),
+      [], new Set(res.unreadable))
     diffs.push(...part)
   }
 
-  const localChanges = diffs.filter((d) => d.status !== 'same').length
+  const localChanges = diffs.filter((d) => d.status !== 'same' && d.status !== 'unreadable').length
 
   // Remote
   let fetchedAt: number | null = null
@@ -110,21 +179,11 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
 }
 
 export type PushPreview =
-  | { kind: 'preview'; items: DiffEntry[] }
+  | { kind: 'preview'; items: DiffEntry[]; unreadable: DiffEntry[]; deletions: DiffEntry[] }
   | { kind: 'nothing-to-push' }
   | { kind: 'diverged' }
   | { kind: 'offline' }
-
-export type PushArgs = RefreshArgs & { commitMessage: string }
-
-export async function computePushPreview(args: RefreshArgs): Promise<PushPreview> {
-  const status = await refreshStatus({ ...args, doFetch: true })
-  if (status.state === 'offline') return { kind: 'offline' }
-  if (status.state === 'diverged') return { kind: 'diverged' }
-  const items = status.diffs.filter((d) => d.status !== 'same')
-  if (items.length === 0 && status.ahead === 0) return { kind: 'nothing-to-push' }
-  return { kind: 'preview', items }
-}
+  | { kind: 'floor-blocked'; verdicts: FloorSourceVerdict[] }
 
 export type PushResult =
   | { kind: 'ok' }
@@ -134,17 +193,63 @@ export type PushResult =
   | { kind: 'race'; retry: boolean }
   | { kind: 'auth'; message: string }
   | { kind: 'error'; message: string }
+  | { kind: 'floor-blocked'; verdicts: FloorSourceVerdict[] }
+
+export type PushArgs = RefreshArgs & { commitMessage: string; approvedDeletions: string[] }
+
+/** HEAD file count per source, derived from the already-toggle-filtered diffs.
+ *  A diff with a `headSha` is present in HEAD. Deriving from diffs (rather than
+ *  re-enumerating HEAD) guarantees the floor's denominator matches exactly the
+ *  set that can actually produce deletions — disabled categories are excluded. */
+function headCountsBySource(diffs: DiffEntry[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const d of diffs) {
+    if (!d.headSha) continue // not present in HEAD (e.g. 'added' or unreadable-new)
+    const key = refKey(d.source)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
+export async function computePushPreview(args: RefreshArgs): Promise<PushPreview> {
+  const status = await refreshStatus({ ...args, doFetch: true })
+  if (status.state === 'offline') return { kind: 'offline' }
+  if (status.state === 'diverged') return { kind: 'diverged' }
+  const thresholds = args.floorThresholds ?? DEFAULT_FLOOR_THRESHOLDS
+  const heads = headCountsBySource(status.diffs)
+  const floor = checkFloor(status.diffs, heads, thresholds)
+  if (!floor.ok) return { kind: 'floor-blocked', verdicts: floor.blocked }
+  const changed = status.diffs.filter((d) => d.status === 'added' || d.status === 'modified')
+  const deletions = status.diffs.filter((d) => d.status === 'deleted')
+  const unreadable = status.diffs.filter((d) => d.status === 'unreadable')
+  if (changed.length === 0 && deletions.length === 0 && status.ahead === 0) {
+    return { kind: 'nothing-to-push' }
+  }
+  return { kind: 'preview', items: [...changed, ...deletions], unreadable, deletions }
+}
 
 /** Resolve the absolute source path for a diff entry. Returns null when the
  *  entry belongs to a Cursor project that isn't registered on this machine —
  *  callers must treat this as "skip" rather than throw. This happens cross-
  *  machine when machine A pushed a project that machine B never registered. */
 function surfaceAbsPath(args: RefreshArgs, d: DiffEntry): string | null {
-  if (d.source.kind === 'claude') {
+  if (d.source.kind === 'claude-global') {
     if (!args.claudePath) return null
     return join(args.claudePath, d.surfacePath)
   }
-  const projectName = d.source.projectName
+  if (d.source.kind === 'claude-project-memory') {
+    if (!args.claudePath) return null
+    return join(args.claudePath, d.surfacePath)
+  }
+  if (d.source.kind === 'claude-project-dotclaude') {
+    const src = d.source
+    const proj = args.claudeProjects.find((p) => p.name === src.projectName)
+    if (!proj) return null
+    return join(proj.path, d.surfacePath)
+  }
+  // cursor-project
+  const src = d.source
+  const projectName = src.projectName
   const proj = args.cursorProjects.find((p) => p.name === projectName)
   if (!proj) return null
   return join(proj.path, d.surfacePath)
@@ -156,14 +261,26 @@ export async function executePush(args: PushArgs): Promise<PushResult> {
   const status = await refreshStatus({ ...args, doFetch: true })
   if (status.state === 'offline') return { kind: 'offline' }
   if (status.state === 'diverged') return { kind: 'diverged' }
-  const items = status.diffs.filter((d) => d.status !== 'same')
-  if (items.length === 0 && status.ahead === 0) return { kind: 'nothing-to-push' }
+  const thresholds = args.floorThresholds ?? DEFAULT_FLOOR_THRESHOLDS
+  const heads = headCountsBySource(status.diffs)
+  const floor = checkFloor(status.diffs, heads, thresholds)
+  if (!floor.ok) return { kind: 'floor-blocked', verdicts: floor.blocked }
+
+  const approved = new Set(args.approvedDeletions)
+  // Build set: changes + only-approved deletions. Unreadable are never built
+  // (their HEAD blob stays in the tree because readTreeIntoIndex seeds from HEAD).
+  // Unapproved deletions are simply omitted → they keep their HEAD blob, and the
+  // push reports nothing-to-push if they were the only pending change.
+  const toBuild = status.diffs.filter((d) =>
+    d.status === 'added' || d.status === 'modified' ||
+    (d.status === 'deleted' && approved.has(d.repoPath)))
+  if (toBuild.length === 0 && status.ahead === 0) return { kind: 'nothing-to-push' }
 
   const indexFile = join(args.repoPath, '.git', `tmp-index-${process.pid}-${Date.now()}`)
   try {
     await buildAndCommitFromSource({
       repoPath: args.repoPath,
-      diffs: items,
+      diffs: toBuild,
       sourceContent: (d) => {
         if (d.status === 'deleted') return null
         const abs = surfaceAbsPath(args, d)
@@ -241,13 +358,33 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     if (!path) continue
 
     let surfacePath: string
-    let source: { kind: 'claude' } | { kind: 'cursor-project'; projectName: string }
+    let source: SourceRef
     if (path.startsWith('claude/')) {
-      source = { kind: 'claude' }
       const repoRel = path.slice('claude/'.length)
-      const mapped = claudeRepoRelToSurfaceRel(repoRel, args.claudeProjects)
-      if (mapped === null) continue // project in repo not registered locally — skip
-      surfacePath = mapped
+      if (!repoRel.startsWith('projects/')) {
+        source = { kind: 'claude-global' }
+        if (repoRel === 'CLAUDE.md' && !args.syncGlobal.claudeMd) continue
+        if (repoRel === 'settings.json' && !args.syncGlobal.settings) continue
+        if (repoRel.startsWith('commands/') && !args.syncGlobal.commands) continue
+        if (repoRel.startsWith('skills/') && !args.syncGlobal.skills) continue
+        surfacePath = repoRel
+      } else {
+        const mDot = repoRel.match(/^projects\/([^/]+)\/\.claude\/(.*)$/)
+        const mMem = repoRel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
+        if (mDot) {
+          const proj = args.claudeProjects.find((p) => p.name === mDot[1])
+          if (!proj || !proj.syncDotClaude) continue
+          source = { kind: 'claude-project-dotclaude', projectName: mDot[1]! }
+          surfacePath = `.claude/${mDot[2]!}`
+        } else if (mMem) {
+          const proj = args.claudeProjects.find((p) => p.name === mMem[1])
+          if (!proj || !proj.syncMemory) continue
+          source = { kind: 'claude-project-memory', projectName: mMem[1]! }
+          surfacePath = `projects/${encodeClaudeProjectSegment(proj.path)}/${mMem[2]!}`
+        } else {
+          continue
+        }
+      }
     } else {
       const m = path.match(/^cursor\/projects\/([^/]+)\/(.*)$/)
       if (!m) continue
@@ -266,11 +403,14 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     if (st !== 'deleted' && sb && sb !== '0000000000000000000000000000000000000000') {
       newContent = await catFileBlob(args.repoPath!, sb)
     }
-    // Map repo path → source absolute path. Skip cursor entries whose project
+    // Map repo path → source absolute path. Skip entries whose project
     // is not registered on this machine: there's no source dir to read/write.
     let srcAbs: string | null
-    if (source.kind === 'claude') {
+    if (source.kind === 'claude-global' || source.kind === 'claude-project-memory') {
       srcAbs = args.claudePath ? join(args.claudePath, surfacePath) : null
+    } else if (source.kind === 'claude-project-dotclaude') {
+      const proj = args.claudeProjects.find((p) => p.name === source.projectName)
+      srcAbs = proj ? join(proj.path, surfacePath) : null
     } else {
       const proj = args.cursorProjects.find((p) => p.name === source.projectName)
       srcAbs = proj ? join(proj.path, surfacePath) : null
@@ -311,7 +451,11 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
     if (item.newContent === undefined) continue
 
     let toWrite = item.newContent
-    if (item.source.kind === 'claude' && item.surfacePath === 'settings.json') {
+    const isGlobalSettings =
+      item.source.kind === 'claude-global' && item.surfacePath === 'settings.json'
+    const isProjectSettings =
+      item.source.kind === 'claude-project-dotclaude' && item.surfacePath === '.claude/settings.json'
+    if (isGlobalSettings || isProjectSettings) {
       const currentSrc = readSourceIfExists(surfaceAbs)
       toWrite = mergeSettingsForPull(item.newContent, currentSrc)
     }
@@ -324,19 +468,25 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
   return { kind: 'ok' }
 }
 
-export async function executeDiscard(args: RefreshArgs): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }> {
+export async function executeDiscard(
+  args: RefreshArgs & { deleteAdded?: boolean },
+): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }> {
   if (!args.repoPath) return { kind: 'error', message: 'repoPath required' }
   const status = await refreshStatus({ ...args, doFetch: false })
   for (const d of status.diffs) {
-    if (d.status === 'same') continue
+    if (d.status === 'same' || d.status === 'unreadable') continue
     const surfaceAbs = surfaceAbsPath(args, d)
-    if (!surfaceAbs) continue  // unregistered cursor project — skip silently
+    if (!surfaceAbs) continue
     if (d.status === 'added') {
-      // file in source, not in HEAD → discard means delete from source
-      await applyToSource(surfaceAbs, null)
-    } else if (d.status === 'modified' || d.status === 'deleted') {
-      // pull HEAD's content to source
-      const prefix = d.source.kind === 'claude' ? 'claude/' : `cursor/projects/${d.source.projectName}/`
+      if (args.deleteAdded === true) await applyToSource(surfaceAbs, null)
+      continue
+    }
+    if (d.status === 'modified' || d.status === 'deleted') {
+      let prefix: string
+      if (d.source.kind === 'claude-global') prefix = 'claude/'
+      else if (d.source.kind === 'claude-project-memory') prefix = `claude/projects/${d.source.projectName}/memory/`
+      else if (d.source.kind === 'claude-project-dotclaude') prefix = `claude/projects/${d.source.projectName}/.claude/`
+      else prefix = `cursor/projects/${d.source.projectName}/`
       const head = await enumHead(args.repoPath, prefix, prefix)
       const entry = head.find((h) => h.repoPath === d.repoPath)
       if (entry) {

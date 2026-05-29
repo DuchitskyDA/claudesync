@@ -9,3 +9,10 @@ out
 .env.*
 !.env.example
 release/
+
+# Compiled TS/TSX output some tsc/build runs emit next to sources
+src/**/*.js
+
+# Claude Code local worktrees and runtime locks
+.claude/worktrees/
+.claude/scheduled_tasks.lock

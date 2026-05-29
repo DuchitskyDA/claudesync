@@ -1,7 +1,8 @@
-// src/main/sync/engine/pull-apply.ts
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { SETTINGS_KEY_ALLOW_LIST } from './rules'
+
+let atomicCounter = 0
 
 export async function applyToSource(absPath: string, content: Buffer | null): Promise<void> {
   if (content === null) {
@@ -11,7 +12,17 @@ export async function applyToSource(absPath: string, content: Buffer | null): Pr
     return
   }
   mkdirSync(dirname(absPath), { recursive: true })
-  writeFileSync(absPath, content)
+  // Atomic: write to a temp sibling, then rename over the target. rename within
+  // the same directory is atomic on NTFS and POSIX — a crash never leaves a
+  // half-written target.
+  const tmp = `${absPath}.tmp-${process.pid}-${atomicCounter++}`
+  try {
+    writeFileSync(tmp, content)
+    renameSync(tmp, absPath)
+  } catch (e) {
+    try { if (existsSync(tmp)) unlinkSync(tmp) } catch { /* ignore */ }
+    throw e
+  }
 }
 
 /**
