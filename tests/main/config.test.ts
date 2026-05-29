@@ -33,6 +33,8 @@ const baseDefaults: AppConfig = {
   cursor: { enabled: false, projects: [] },
   catalogUrl: null,
   rulesTarget: null,
+  manifestActivation: {},
+  knownEntryIds: [],
 }
 
 beforeEach(() => {
@@ -524,5 +526,37 @@ describe('readConfig migration to flexible sync toggles', () => {
     }
     writeConfig(f, cfg)
     expect(readConfig(f).claude).toEqual(cfg.claude)
+  })
+})
+
+describe('readConfig manifest device-state migration', () => {
+  it('defaults manifestActivation/knownEntryIds to empty when absent', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(f, JSON.stringify({ claude: { enabled: true, path: '/x', projects: [] } }))
+    const cfg = readConfig(f)
+    expect(cfg.manifestActivation).toEqual({})
+    expect(cfg.knownEntryIds).toEqual([])
+  })
+  it('preserves explicit manifest device-state', () => {
+    const f = join(dir, 'config.json')
+    writeFileSync(f, JSON.stringify({
+      claude: { enabled: true, path: '/x', projects: [] },
+      manifestActivation: { 'claude-global:commands': false },
+      knownEntryIds: ['claude-global:commands'],
+    }))
+    const cfg = readConfig(f)
+    expect(cfg.manifestActivation).toEqual({ 'claude-global:commands': false })
+    expect(cfg.knownEntryIds).toEqual(['claude-global:commands'])
+  })
+  it('writeConfig round-trips device-state', () => {
+    const f = join(dir, 'config.json')
+    const cfg: AppConfig = {
+      ...baseDefaults,
+      manifestActivation: { 'project:erp:memory': true },
+      knownEntryIds: ['project:erp:memory'],
+    }
+    writeConfig(f, cfg)
+    expect(readConfig(f).manifestActivation).toEqual({ 'project:erp:memory': true })
+    expect(readConfig(f).knownEntryIds).toEqual(['project:erp:memory'])
   })
 })

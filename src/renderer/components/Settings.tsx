@@ -123,6 +123,8 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
         },
         cursor,
         catalogUrl: trimmedCatalog || null,
+        manifestActivation: existing.manifestActivation,
+        knownEntryIds: existing.knownEntryIds,
       })
       if (!r.ok) {
         setError(r.error ?? { key: 'settings.error.unknown' })

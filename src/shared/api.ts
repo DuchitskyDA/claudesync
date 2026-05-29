@@ -72,6 +72,10 @@ export type AppConfig = {
    *  default" — the default URL is intentionally not surfaced in the UI;
    *  Settings shows a blank field with a placeholder. */
   catalogUrl: string | null
+  /** Device-local manifest activation: entryId → on/off for THIS device. */
+  manifestActivation: Record<string, boolean>
+  /** entryIds this device has already seen (to make newly-offered entries opt-in). */
+  knownEntryIds: string[]
   /** Legacy field, migrated into `claude` on read, never written. */
   rulesTarget?: string | null
 }

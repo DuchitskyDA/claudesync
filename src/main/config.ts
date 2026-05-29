@@ -49,6 +49,8 @@ function defaultsBase(): AppConfig {
     },
     cursor: { enabled: false, projects: [] },
     catalogUrl: null,
+    manifestActivation: {},
+    knownEntryIds: [],
     rulesTarget: null,
   }
 }
@@ -84,6 +86,20 @@ function readSyncGlobal(raw: unknown): ClaudeConfig['syncGlobal'] {
     skills: r.skills === false ? false : true,
     settings: r.settings === false ? false : true,
   }
+}
+
+function readManifestActivation(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, boolean> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'boolean') out[k] = v
+  }
+  return out
+}
+
+function readKnownEntryIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x): x is string => typeof x === 'string')
 }
 
 function readClaudeBlock(parsed: Record<string, unknown>): ClaudeConfig {
@@ -158,6 +174,8 @@ export function readConfig(filePath: string): AppConfig {
       typeof parsed.catalogUrl === 'string' && parsed.catalogUrl.trim() !== ''
         ? parsed.catalogUrl
         : null,
+    manifestActivation: readManifestActivation(parsed.manifestActivation),
+    knownEntryIds: readKnownEntryIds(parsed.knownEntryIds),
     // Transitional shim: mirror claude.path into rulesTarget so callers that
     // still read `cfg.rulesTarget` keep working until Tasks 2/4/5 land.
     // writeConfig drops this on save.
@@ -176,6 +194,8 @@ export function writeConfig(filePath: string, cfg: AppConfig): void {
     claude: cfg.claude,
     cursor: cfg.cursor,
     catalogUrl: cfg.catalogUrl,
+    manifestActivation: cfg.manifestActivation,
+    knownEntryIds: cfg.knownEntryIds,
   }
   writeFileSync(tmp, JSON.stringify(persisted, null, 2), 'utf8')
   renameSync(tmp, filePath)

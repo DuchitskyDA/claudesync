@@ -211,6 +211,8 @@ export function registerIpc(window: BrowserWindow): void {
         })),
       },
       catalogUrl: normalizedCatalogUrl,
+      manifestActivation: cfg.manifestActivation ?? {},
+      knownEntryIds: cfg.knownEntryIds ?? [],
     }
     if (normalized.repoUrl) {
       const u = validateRepoUrl(normalized.repoUrl)
