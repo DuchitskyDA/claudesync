@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app, shell, screen } from 'electron'
 import type {
@@ -235,21 +235,6 @@ export function registerIpc(window: BrowserWindow): void {
     {
       const cu = validateCatalogUrl(normalized.catalogUrl)
       if (!cu.ok) return { ok: false, error: cu.error }
-    }
-
-    // Clean up working-tree directories of Cursor projects that were removed
-    // in this save. If files were tracked, git status will show them as
-    // deleted; the next push commits the deletion. If untracked (just-added
-    // then-removed case), they're simply gone — no orphaned diff left over.
-    const previous = readConfig(configPath)
-    if (normalized.repoPath) {
-      const newNames = new Set(normalized.cursor.projects.map((p) => p.name))
-      for (const oldP of previous.cursor.projects) {
-        if (!newNames.has(oldP.name)) {
-          const dir = join(normalized.repoPath, 'cursor', 'projects', oldP.name)
-          if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
-        }
-      }
     }
 
     writeConfig(configPath, normalized)

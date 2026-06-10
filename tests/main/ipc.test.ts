@@ -6,8 +6,10 @@ const validateLocalRepoMock = vi.hoisted(() => vi.fn())
 const validateRepoUrlMock = vi.hoisted(() => vi.fn())
 const validateClaudePathMock = vi.hoisted(() => vi.fn())
 const validateCursorProjectMock = vi.hoisted(() => vi.fn())
+const validateCatalogUrlMock = vi.hoisted(() => vi.fn())
 const existsSyncMock = vi.hoisted(() => vi.fn())
 const mkdirSyncMock = vi.hoisted(() => vi.fn())
+const rmSyncMock = vi.hoisted(() => vi.fn())
 const fetchCatalogMock = vi.hoisted(() => vi.fn())
 const getInstalledMock = vi.hoisted(() => vi.fn())
 const applyChangesMock = vi.hoisted(() => vi.fn())
@@ -35,6 +37,7 @@ vi.mock('../../src/main/config', () => ({
   validateRepoUrl: validateRepoUrlMock,
   validateClaudePath: validateClaudePathMock,
   validateCursorProject: validateCursorProjectMock,
+  validateCatalogUrl: validateCatalogUrlMock,
   writeConfig: vi.fn(),
   expandTilde: vi.fn((p: string) => p),
   detectClaudeTarget: vi.fn(() => null),
@@ -56,7 +59,7 @@ vi.mock('../../src/main/plugins', () => ({
 }))
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
-  return { ...actual, existsSync: existsSyncMock, mkdirSync: mkdirSyncMock, writeFileSync: vi.fn() }
+  return { ...actual, existsSync: existsSyncMock, mkdirSync: mkdirSyncMock, rmSync: rmSyncMock, writeFileSync: vi.fn() }
 })
 vi.mock('electron', () => ({
   ipcMain: { handle: ipcMainHandleMock },
@@ -136,13 +139,16 @@ beforeEach(() => {
   validateRepoUrlMock.mockReset()
   validateClaudePathMock.mockReset()
   validateCursorProjectMock.mockReset()
+  validateCatalogUrlMock.mockReset()
   existsSyncMock.mockReset()
   mkdirSyncMock.mockReset()
+  rmSyncMock.mockReset()
   // default: all validators pass
   validateRepoUrlMock.mockReturnValue({ ok: true })
   validateLocalRepoMock.mockReturnValue({ ok: true })
   validateClaudePathMock.mockReturnValue({ ok: true })
   validateCursorProjectMock.mockReturnValue({ ok: true })
+  validateCatalogUrlMock.mockReturnValue({ ok: true })
 })
 
 describe('runSyncHandler', () => {
@@ -382,6 +388,55 @@ describe('registerIpc plugin handlers', () => {
       handler({})
       expect(validateClaudeTargetMock).toHaveBeenCalledWith(null)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// registerIpc — set-config handler
+// ---------------------------------------------------------------------------
+describe('registerIpc set-config', () => {
+  beforeEach(() => {
+    existsSyncMock.mockReset()
+    rmSyncMock.mockReset()
+  })
+
+  it('keeps repo dir of removed cursor project (toggle-off ≠ delete)', async () => {
+    const repoPath = '/repo'
+    const projectName = 'my-cursor-project'
+
+    // Previous config has the cursor project
+    const previousConfig = makeConfig({
+      repoPath,
+      repoUrl: 'https://github.com/org/repo',
+      rulesTarget: '/home/user/.claude',
+    })
+    previousConfig.cursor = {
+      enabled: true,
+      projects: [{ name: projectName }],
+    }
+
+    // New config does NOT have the cursor project (user removed it)
+    const newConfig = makeConfig({
+      repoPath,
+      repoUrl: 'https://github.com/org/repo',
+      rulesTarget: '/home/user/.claude',
+    })
+    newConfig.cursor = { enabled: true, projects: [] }
+
+    // Mock readConfig to return previous config on first call (inside handler)
+    readConfigMock.mockReturnValue(previousConfig)
+
+    // Mock file checks: project dir exists
+    existsSyncMock.mockReturnValue(true)
+
+    const handler = getHandler('set-config')
+    const result = await handler({} /* event */, newConfig)
+
+    // Expect success
+    expect(result).toEqual({ ok: true })
+
+    // CRITICAL: rmSync must NOT be called (repo dir is preserved)
+    expect(rmSyncMock).not.toHaveBeenCalled()
   })
 })
 
