@@ -14,7 +14,10 @@ import { join } from 'node:path'
 const runCommandMock = vi.hoisted(() => vi.fn())
 vi.mock('../../src/main/runner', () => ({
   runCommand: runCommandMock,
-  withRunLock: <T,>(task: () => Promise<T>) => task(),
+}))
+vi.mock('../../src/main/sync/engine/op-lock', () => ({
+  withExclusiveLock: <T,>(_n: string, task: () => Promise<T>) => task(),
+  isLocked: () => false,
 }))
 
 const createRepoMock = vi.hoisted(() => vi.fn())

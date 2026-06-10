@@ -64,14 +64,3 @@ export function runCommand(
   })
 }
 
-let running = false
-
-export async function withRunLock<T>(task: () => Promise<T>): Promise<T> {
-  if (running) throw new Error('Already running')
-  running = true
-  try {
-    return await task()
-  } finally {
-    running = false
-  }
-}

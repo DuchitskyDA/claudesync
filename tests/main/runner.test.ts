@@ -5,7 +5,7 @@ import { Readable } from 'node:stream'
 const spawnMock = vi.hoisted(() => vi.fn())
 vi.mock('node:child_process', () => ({ spawn: spawnMock }))
 
-import { runCommand, withRunLock } from '../../src/main/runner'
+import { runCommand } from '../../src/main/runner'
 import type { LogLine } from '../../src/shared/api'
 
 function fakeProc(stdoutChunks: string[], stderrChunks: string[], exitCode: number) {
@@ -76,26 +76,3 @@ describe('runCommand stderr and exit codes', () => {
   })
 })
 
-describe('withRunLock', () => {
-  it('rejects parallel call with Already running error', async () => {
-    let release!: () => void
-    const inFlight = new Promise<void>((r) => (release = r))
-    const first = withRunLock(async () => {
-      await inFlight
-      return 'ok' as const
-    })
-    await expect(withRunLock(async () => 'second' as const)).rejects.toThrow('Already running')
-    release()
-    await expect(first).resolves.toBe('ok')
-  })
-
-  it('releases lock after success', async () => {
-    await withRunLock(async () => undefined)
-    await expect(withRunLock(async () => 'next' as const)).resolves.toBe('next')
-  })
-
-  it('releases lock after failure', async () => {
-    await expect(withRunLock(async () => { throw new Error('boom') })).rejects.toThrow('boom')
-    await expect(withRunLock(async () => 'after' as const)).resolves.toBe('after')
-  })
-})

@@ -369,6 +369,8 @@ export type SyncStatus = {
   fetchedAt: number | null
   /** error key when state === 'offline' or fetch failed; for diagnostics only */
   errorKey?: string
+  /** true when a mutating operation is in progress; status is stale/cached */
+  busy?: boolean
 }
 
 export type UpdateProgressEvent =

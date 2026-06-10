@@ -15,7 +15,8 @@ import type {
   InitWizardOptions,
   LocalizedMessage,
 } from '@shared/api'
-import { runCommand, withRunLock } from './runner'
+import { runCommand } from './runner'
+import { withExclusiveLock, isLocked } from './sync/engine/op-lock'
 import {
   readConfig,
   writeConfig,
@@ -99,7 +100,7 @@ export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
   const rulesTarget = cfg.claude.path
   const isWin = deps.currentPlatform === 'win32'
 
-  return withRunLock(async () => {
+  return withExclusiveLock('run-sync', async () => {
     const isExistingRepo = existsSync(join(repoPath, '.git'))
     deps.emitStep({ step: 'fetch', status: 'running' })
     if (!isExistingRepo) {
@@ -489,6 +490,7 @@ export function registerIpc(window: BrowserWindow): void {
     fetchedAt: null,
   }
   ipcMain.handle('get-sync-status', async () => {
+    if (isLocked()) return { ...cachedSyncStatus, busy: true }
     const cfg = readConfig(configPath)
     if (cachedSyncStatus.fetchedAt !== null) {
       const fresh = await getSyncStatus({
@@ -515,6 +517,7 @@ export function registerIpc(window: BrowserWindow): void {
     return cachedSyncStatus
   })
   ipcMain.handle('refresh-sync-status', async () => {
+    if (isLocked()) return { ...cachedSyncStatus, busy: true }
     const cfg = readConfig(configPath)
     cachedSyncStatus = await getSyncStatus({
       repoPath: cfg.repoPath,
@@ -570,7 +573,7 @@ export function registerIpc(window: BrowserWindow): void {
     emitPushStep({ step: 'pull', status: 'running' })
     emitPushStep({ step: 'pull', status: 'done' })
     emitPushStep({ step: 'commit', status: 'running' })
-    const r = await executePush({
+    const r = await withExclusiveLock('push', () => executePush({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
@@ -579,7 +582,7 @@ export function registerIpc(window: BrowserWindow): void {
       commitMessage: opts.commitMessage,
       approvedDeletions: opts.approvedDeletions ?? [],
       syncGlobal: cfg.claude.syncGlobal,
-    })
+    }))
     if (r.kind === 'ok') {
       emitPushStep({ step: 'commit', status: 'done' })
       emitPushStep({ step: 'push', status: 'running' })
@@ -670,7 +673,7 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('execute-pull-apply', async (_e, deletionsToApply: string[]) => {
     const cfg = readConfig(configPath)
     emit({ time: nowHHMMSS(), text: '$ engine pull-apply', level: 'info' })
-    const r = await executePullApply({
+    const r = await withExclusiveLock('pull-apply', () => executePullApply({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
@@ -678,7 +681,7 @@ export function registerIpc(window: BrowserWindow): void {
       token: loadToken(userDataDir),
       deletionsToApply,
       syncGlobal: cfg.claude.syncGlobal,
-    })
+    }))
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Pull applied', level: 'success' })
       return { ok: true, exitCode: 0 } as RunResult
@@ -690,7 +693,7 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('discard-local-changes', async (_e, deleteAdded?: boolean): Promise<RunResult> => {
     const cfg = readConfig(configPath)
     emit({ time: nowHHMMSS(), text: '$ engine discard', level: 'info' })
-    const r = await executeDiscard({
+    const r = await withExclusiveLock('discard', () => executeDiscard({
       repoPath: cfg.repoPath,
       claudePath: cfg.claude.enabled ? cfg.claude.path : null,
       claudeProjects: cfg.claude.enabled ? cfg.claude.projects : [],
@@ -698,7 +701,7 @@ export function registerIpc(window: BrowserWindow): void {
       token: loadToken(userDataDir),
       deleteAdded: deleteAdded === true,
       syncGlobal: cfg.claude.syncGlobal,
-    })
+    }))
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
       return { ok: true, exitCode: 0 }
@@ -706,7 +709,7 @@ export function registerIpc(window: BrowserWindow): void {
     return { ok: false, exitCode: -1, error: { key: 'discard.error.failed', fallback: r.message } }
   })
 
-  ipcMain.handle('run-install', async (_e, opts: InstallOptions): Promise<RunResult> => {
+  ipcMain.handle('run-install', (_e, opts: InstallOptions): Promise<RunResult> => withExclusiveLock('install', async () => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) {
       return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }
@@ -772,14 +775,14 @@ export function registerIpc(window: BrowserWindow): void {
 
     emit({ time: nowHHMMSS(), text: '✓ Install done', level: 'success' })
     return { ok: true, exitCode: 0 }
-  })
+  }))
 
   // Conflict resolver (Engine-based)
   ipcMain.handle('resolver-get-state', () => getResolverStateIPC(configPath, userDataDir))
   ipcMain.handle(
     'resolver-execute',
     (_e, commitMessage: string, resolutions: ResolverState) =>
-      executeResolveIPC(configPath, userDataDir, commitMessage, resolutions),
+      withExclusiveLock('resolve', () => executeResolveIPC(configPath, userDataDir, commitMessage, resolutions)),
   )
   ipcMain.handle('resolver-discard', () => {
     discardResolverIPC(userDataDir)

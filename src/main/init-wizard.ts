@@ -12,7 +12,8 @@ import { join, sep, posix, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import type { LogLine, RunResult, StepStatus, InitStep, LocalizedMessage } from '@shared/api'
-import { runCommand, withRunLock } from './runner'
+import { runCommand } from './runner'
+import { withExclusiveLock } from './sync/engine/op-lock'
 import { createRepo as ghCreateRepo } from './github-api'
 import { loadToken } from './safe-storage'
 import type { ScanResult } from '@shared/api'
@@ -305,7 +306,7 @@ export async function initRepo(opts: InitRepoOpts): Promise<InitRepoResult> {
   const token = loadToken(opts.userDataDir)
   if (!token) return fail({ key: 'init.error.notSignedIn' })
 
-  return withRunLock(async () => {
+  return withExclusiveLock('init-repo', async () => {
     // We deliberately create the GitHub repo LAST (step 4). Everything before
     // that is local-only — if any of those steps fail, we wipe the local dir
     // and exit cleanly with no GitHub side-effects. Only step 4+5 can leave

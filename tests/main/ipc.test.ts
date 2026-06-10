@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const runCommandMock = vi.hoisted(() => vi.fn())
-const withRunLockMock = vi.hoisted(() => vi.fn(async (task: () => Promise<unknown>) => task()))
 const readConfigMock = vi.hoisted(() => vi.fn())
 const validateLocalRepoMock = vi.hoisted(() => vi.fn())
 const validateRepoUrlMock = vi.hoisted(() => vi.fn())
@@ -25,7 +24,10 @@ const appGetLocaleMock = vi.hoisted(() => vi.fn(() => 'en-US'))
 
 vi.mock('../../src/main/runner', () => ({
   runCommand: runCommandMock,
-  withRunLock: withRunLockMock,
+}))
+vi.mock('../../src/main/sync/engine/op-lock', () => ({
+  withExclusiveLock: <T,>(_n: string, task: () => Promise<T>) => task(),
+  isLocked: () => false,
 }))
 vi.mock('../../src/main/config', () => ({
   readConfig: readConfigMock,
@@ -136,9 +138,6 @@ beforeEach(() => {
   validateCursorProjectMock.mockReset()
   existsSyncMock.mockReset()
   mkdirSyncMock.mockReset()
-  withRunLockMock.mockClear()
-  withRunLockMock.mockImplementation(async (task: () => Promise<unknown>) => task())
-
   // default: all validators pass
   validateRepoUrlMock.mockReturnValue({ ok: true })
   validateLocalRepoMock.mockReturnValue({ ok: true })
