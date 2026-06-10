@@ -163,4 +163,30 @@ describe('installCursorProjects', () => {
     expect(readFileSync(join(p1, '.cursor', 'rules', 'r.md'), 'utf8')).toBe('1')
     expect(readFileSync(join(p2, '.cursor', 'rules', 'r.md'), 'utf8')).toBe('2')
   })
+
+  it('leaves destination files untouched when preserve fails (fail-closed)', () => {
+    // Set up a repo with a file that will need overwriting
+    const src = join(repoPath, 'cursor', 'projects', 'app')
+    mkdirSync(join(src, 'rules'), { recursive: true })
+    writeFileSync(join(src, 'rules', 'rule.mdc'), 'NEW-CONTENT')
+
+    // Pre-existing destination file with different content
+    mkdirSync(join(projectPath, '.cursor', 'rules'), { recursive: true })
+    writeFileSync(join(projectPath, '.cursor', 'rules', 'rule.mdc'), 'ORIGINAL')
+
+    // Point userDataDir at an existing FILE so mkdirSync inside preserve() throws
+    const fileAsDir = join(dir, 'blocker-file')
+    writeFileSync(fileAsDir, 'i am a file, not a dir')
+
+    const before = readFileSync(join(projectPath, '.cursor', 'rules', 'rule.mdc'), 'utf8')
+
+    expect(() =>
+      installCursorProjects(repoPath, [{ name: 'app', path: projectPath }], fileAsDir),
+    ).toThrow()
+
+    // Phase B threw before Phase C ran — destination must be unchanged
+    const after = readFileSync(join(projectPath, '.cursor', 'rules', 'rule.mdc'), 'utf8')
+    expect(after).toBe(before)
+    expect(after).toBe('ORIGINAL')
+  })
 })

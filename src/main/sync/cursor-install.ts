@@ -5,33 +5,37 @@ import { beginSnapshot, type SnapshotSession } from './engine/safety-snapshot'
 
 const IGNORED_NAME = /^\.DS_Store$|^Thumbs\.db$/i
 
+type PlannedCopy = { src: string; dst: string; preserveNeeded: boolean }
+
 /**
- * Additive copy: overwrite files that exist on both sides, but **never**
- * remove entries from `dst` that aren't present in `src`. Reverse-mirror
- * (repo → project) must not destroy the user's local-only files; that's
- * what made Discard turn into a data-loss action before this fix.
+ * Phase A – collect: walk src recursively and build a flat list of planned
+ * file copies. No mutations happen here.
  */
-function syncDirCopy(src: string, dst: string, session: SnapshotSession): void {
+function collectDirCopies(src: string, dst: string, out: PlannedCopy[]): void {
   if (!existsSync(src)) return
-  mkdirSync(dst, { recursive: true })
   for (const entry of readdirSync(src)) {
     if (IGNORED_NAME.test(entry)) continue
     const s = join(src, entry)
     const d = join(dst, entry)
     const stat = statSync(s)
-    if (stat.isDirectory()) syncDirCopy(s, d, session)
+    if (stat.isDirectory()) collectDirCopies(s, d, out)
     else {
-      if (existsSync(d) && !readFileSync(d).equals(readFileSync(s))) session.preserve(d)
-      cpSync(s, d)
+      out.push({
+        src: s,
+        dst: d,
+        preserveNeeded: existsSync(d) && !readFileSync(d).equals(readFileSync(s)),
+      })
     }
   }
 }
 
-function copyFileIfExists(src: string, dst: string, session: SnapshotSession): void {
+function collectFileCopy(src: string, dst: string, out: PlannedCopy[]): void {
   if (!existsSync(src)) return
-  mkdirSync(join(dst, '..'), { recursive: true })
-  if (existsSync(dst) && !readFileSync(dst).equals(readFileSync(src))) session.preserve(dst)
-  cpSync(src, dst)
+  out.push({
+    src,
+    dst,
+    preserveNeeded: existsSync(dst) && !readFileSync(dst).equals(readFileSync(src)),
+  })
 }
 
 function nowHHMMSS(): string {
@@ -50,6 +54,9 @@ function nowHHMMSS(): string {
  * Skips silently if the source subdir doesn't exist in sync-repo (project
  * was registered but never pushed) or the destination project path
  * disappeared on disk.
+ *
+ * Fail-closed: all preserve() calls complete before any cpSync so that a
+ * snapshot error leaves live files untouched (spec §3.3).
  */
 export function installCursorProject(
   repoPath: string,
@@ -75,9 +82,24 @@ export function installCursorProject(
     return
   }
   const destDotCursor = join(project.path, '.cursor')
-  syncDirCopy(join(src, 'rules'), join(destDotCursor, 'rules'), session)
-  syncDirCopy(join(src, 'skills'), join(destDotCursor, 'skills'), session)
-  copyFileIfExists(join(src, '.cursorrules'), join(project.path, '.cursorrules'), session)
+
+  // Phase A – collect all planned copies (no mutations)
+  const planned: PlannedCopy[] = []
+  collectDirCopies(join(src, 'rules'), join(destDotCursor, 'rules'), planned)
+  collectDirCopies(join(src, 'skills'), join(destDotCursor, 'skills'), planned)
+  collectFileCopy(join(src, '.cursorrules'), join(project.path, '.cursorrules'), planned)
+
+  // Phase B – preserve all differing-overwrite targets BEFORE any mutation
+  for (const p of planned) {
+    if (p.preserveNeeded) session.preserve(p.dst)
+  }
+
+  // Phase C – create destination dirs and copy files
+  for (const p of planned) {
+    mkdirSync(join(p.dst, '..'), { recursive: true })
+    cpSync(p.src, p.dst)
+  }
+
   emit?.({
     time: nowHHMMSS(),
     text: `cursor: installed "${project.name}" -> ${project.path}/.cursor/`,
