@@ -1,6 +1,6 @@
 // src/main/sync/engine/op-lock.ts
 // Single in-process FIFO mutex for ALL mutating sync operations (engine push/
-// pull/discard/resolve, install, init-repo, legacy run-sync). Electron main is
+// pull/discard/resolve, install, init-repo). Electron main is
 // a single process and the app holds a single-instance lock, so an in-process
 // queue is sufficient — no on-disk lock files (those rot after crashes).
 

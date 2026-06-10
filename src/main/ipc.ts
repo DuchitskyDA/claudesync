@@ -1,12 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { ipcMain, dialog, BrowserWindow, app, shell, screen } from 'electron'
 import type {
   LogLine,
   RunResult,
   AppConfig,
   SetConfigResult,
-  StepEvent,
   ApplyPluginChanges,
   InitStepEvent,
   InstallOptions,
@@ -60,100 +59,10 @@ import { loadToken } from './safe-storage'
 
 const LOG_LIMIT = 200
 
-export type RunSyncDeps = {
-  currentPlatform: NodeJS.Platform
-  configPath: string
-  emit: (line: LogLine) => void
-  emitStep: (e: StepEvent) => void
-}
-
 function nowHHMMSS(): string {
   const d = new Date()
   const pad = (n: number) => n.toString().padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-function fail(error: LocalizedMessage): RunResult {
-  return { ok: false, exitCode: -1, error }
-}
-
-function failWithExit(prefix: string, exitCode: number, emit: (l: LogLine) => void): RunResult {
-  emit({ time: nowHHMMSS(), text: `✗ ${prefix} (exit ${exitCode})`, level: 'error' })
-  return { ok: false, exitCode }
-}
-
-export async function runSyncHandler(deps: RunSyncDeps): Promise<RunResult> {
-  const cfg = readConfig(deps.configPath)
-  if (!cfg.repoUrl) return fail({ key: 'config.error.urlRequired', fallback: 'Repo URL not configured. Open Settings.' })
-  if (!cfg.repoPath) return fail({ key: 'config.error.localRepoRequired', fallback: 'Local repo path not configured. Open Settings.' })
-  if (!cfg.claude.enabled || !cfg.claude.path) return fail({ key: 'config.error.targetRequired', fallback: 'Claude config folder not configured. Open Settings.' })
-
-  const u = validateRepoUrl(cfg.repoUrl)
-  if (!u.ok) return fail(u.error)
-  const p = validateLocalRepo(cfg.repoPath)
-  if (!p.ok) return fail(p.error)
-  const t = validateClaudePath(cfg.claude.path)
-  if (!t.ok) return fail(t.error)
-
-  const repoUrl = cfg.repoUrl
-  const repoPath = cfg.repoPath
-  const rulesTarget = cfg.claude.path
-  const isWin = deps.currentPlatform === 'win32'
-
-  return withExclusiveLock('run-sync', async () => {
-    const isExistingRepo = existsSync(join(repoPath, '.git'))
-    deps.emitStep({ step: 'fetch', status: 'running' })
-    if (!isExistingRepo) {
-      deps.emit({ time: nowHHMMSS(), text: `$ git clone ${repoUrl} ${repoPath}`, level: 'info' })
-      mkdirSync(dirname(repoPath), { recursive: true })
-      const clone = await runCommand('git', ['clone', repoUrl, repoPath], {
-        cwd: dirname(repoPath),
-        onLine: deps.emit,
-      })
-      if (clone.exitCode !== 0) {
-        deps.emitStep({ step: 'fetch', status: 'failed', message: { key: 'sync.error.cloneFailed', params: { exitCode: clone.exitCode }, fallback: `git clone failed (exit ${clone.exitCode})` } })
-        return failWithExit('git clone failed', clone.exitCode, deps.emit)
-      }
-    } else {
-      deps.emit({ time: nowHHMMSS(), text: '$ git pull', level: 'info' })
-      const pull = await runCommand('git', ['pull'], { cwd: repoPath, onLine: deps.emit })
-      if (pull.exitCode !== 0) {
-        deps.emitStep({ step: 'fetch', status: 'failed', message: { key: 'sync.error.pullFailed', params: { exitCode: pull.exitCode }, fallback: `git pull failed (exit ${pull.exitCode})` } })
-        return failWithExit('git pull failed', pull.exitCode, deps.emit)
-      }
-    }
-    deps.emitStep({ step: 'fetch', status: 'done' })
-
-    const scriptName = isWin ? 'install.ps1' : 'install.sh'
-    const scriptPath = join(repoPath, scriptName)
-    if (!existsSync(scriptPath)) {
-      return fail({ key: 'sync.error.scriptNotFound', params: { scriptName }, fallback: `${scriptName} not found in repo root` })
-    }
-
-    deps.emit({
-      time: nowHHMMSS(),
-      text: `$ ${scriptName} (RULES_TARGET=${rulesTarget})`,
-      level: 'info',
-    })
-
-    deps.emitStep({ step: 'install', status: 'running' })
-    const env = { RULES_TARGET: rulesTarget }
-    const inst = isWin
-      ? await runCommand(
-          'powershell',
-          ['-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-          { cwd: repoPath, env, onLine: deps.emit },
-        )
-      : await runCommand('bash', [scriptPath], { cwd: repoPath, env, onLine: deps.emit })
-
-    if (inst.exitCode !== 0) {
-      deps.emitStep({ step: 'install', status: 'failed', message: { key: 'sync.error.installFailed', params: { exitCode: inst.exitCode }, fallback: `install failed (exit ${inst.exitCode})` } })
-      return failWithExit('install failed', inst.exitCode, deps.emit)
-    }
-    deps.emitStep({ step: 'install', status: 'done' })
-    deps.emit({ time: nowHHMMSS(), text: '✓ DONE (exit 0)', level: 'success' })
-    return { ok: true, exitCode: 0 }
-  }).catch((e: Error) => ({ ok: false, exitCode: -1, error: { key: 'sync.error.unexpected', fallback: e.message } as LocalizedMessage }))
 }
 
 export function registerIpc(window: BrowserWindow): void {
@@ -177,14 +86,6 @@ export function registerIpc(window: BrowserWindow): void {
       // ignore disk errors
     }
   }
-  const emitStep = (e: StepEvent) => {
-    if (!window.isDestroyed()) window.webContents.send('step', e)
-  }
-
-  ipcMain.handle('run-sync', () =>
-    runSyncHandler({ currentPlatform: process.platform, configPath, emit, emitStep }),
-  )
-
   ipcMain.handle('get-config', (): AppConfig => readConfig(configPath))
 
   ipcMain.handle('set-config', (_e, cfg: AppConfig): SetConfigResult => {

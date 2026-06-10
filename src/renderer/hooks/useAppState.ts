@@ -4,7 +4,6 @@ import type {
   GitHubAuthState,
   LocalizedMessage,
   LogLine,
-  RunResult,
   StepName,
   StepStatus,
   SyncStatus,
@@ -270,9 +269,6 @@ export function useAppState() {
     })
 
     const unsub = window.api.onLog((line) => dispatch({ type: 'append-log', line }))
-    const unsubStep = window.api.onStep((e) =>
-      dispatch({ type: 'set-step', step: e.step, status: e.status, message: e.message }),
-    )
     const unsubInitStep = window.api.onInitStep(() => {
       /* InitWizard owns its own ProgressStep */
     })
@@ -302,7 +298,6 @@ export function useAppState() {
 
     return () => {
       unsub()
-      unsubStep()
       unsubInitStep()
       unsubPushStep()
       unsubUpdate()
@@ -312,24 +307,6 @@ export function useAppState() {
       window.clearInterval(updateInterval)
     }
   }, [])
-
-  const syncNow = async (): Promise<RunResult> => {
-    dispatch({ type: 'run-start' })
-    try {
-      const r = await window.api.runSync()
-      if (!r.ok && r.error) {
-        const errText = r.error.fallback ?? r.error.key
-        dispatch({
-          type: 'append-log',
-          line: { time: now(), text: errText, level: 'error' },
-        })
-      }
-      return r
-    } finally {
-      dispatch({ type: 'run-end' })
-      void refreshSyncStatus(true)
-    }
-  }
 
   const runPush = async (commitMessage: string, includeSecrets: boolean, approvedDeletions: string[] = []) => {
     dispatch({ type: 'run-start' })
@@ -367,7 +344,6 @@ export function useAppState() {
 
   return {
     state,
-    syncNow,
     runPush,
     clearLog: () => dispatch({ type: 'clear-log' }),
     openSettings: () => dispatch({ type: 'open-settings' }),

@@ -5,7 +5,6 @@ import type {
   AppConfig,
   RunResult,
   SetConfigResult,
-  StepEvent,
   PluginCatalog,
   InstalledPluginsState,
   ApplyPluginChanges,
@@ -29,8 +28,6 @@ import type {
 import type { ResolverState } from '@shared/sync-types'
 
 const api: AppApi = {
-  runSync: (): Promise<RunResult> =>
-    ipcRenderer.invoke('run-sync'),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   setConfig: (c: AppConfig): Promise<SetConfigResult> => ipcRenderer.invoke('set-config', c),
   pickRepoPath: (): Promise<string | null> => ipcRenderer.invoke('pick-repo-path'),
@@ -44,11 +41,6 @@ const api: AppApi = {
   resizeWindowBy: (delta: number): Promise<void> => ipcRenderer.invoke('resize-window-by', delta),
   getSystemLocale: (): Promise<string> => ipcRenderer.invoke('get-system-locale'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
-  onStep: (callback: (e: StepEvent) => void): (() => void) => {
-    const listener = (_: unknown, e: StepEvent) => callback(e)
-    ipcRenderer.on('step', listener)
-    return () => ipcRenderer.off('step', listener)
-  },
   getPluginCatalog: (force?: boolean): Promise<PluginCatalog> =>
     ipcRenderer.invoke('get-plugin-catalog', force),
   getInstalledPlugins: (): Promise<InstalledPluginsState> =>

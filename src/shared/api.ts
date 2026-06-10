@@ -86,7 +86,6 @@ export type StepStatus = 'idle' | 'running' | 'done' | 'failed'
 export type StepEvent = { step: StepName; status: StepStatus; message?: LocalizedMessage }
 
 export interface AppApi {
-  runSync(): Promise<RunResult>
   getConfig(): Promise<AppConfig>
   setConfig(c: AppConfig): Promise<SetConfigResult>
   pickRepoPath(): Promise<string | null>
@@ -99,7 +98,6 @@ export interface AppApi {
   resizeWindowBy(delta: number): Promise<void>
   getSystemLocale(): Promise<string>
   openExternal(url: string): Promise<void>
-  onStep(callback: (e: StepEvent) => void): () => void
   getPluginCatalog(force?: boolean): Promise<PluginCatalog>
   getInstalledPlugins(): Promise<InstalledPluginsState>
   applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }>
