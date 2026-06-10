@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { ClaudeProject, CursorProject, ClaudeConfig } from '@shared/api'
 import type { EngineStatus, DiffEntry, SourceRef, PreviewItem } from '@shared/sync-types'
-import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit, enumClaudeProjectDotClaudeSource } from './source-enum'
+import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit, enumClaudeProjectDotClaudeSource, repoPathUnderFailed } from './source-enum'
 import { enumHead } from './head-enum'
 import { compare } from './comparator'
 import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob } from './git-ops'
@@ -57,10 +57,12 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
         allSrc.push({ ref: { kind: 'claude-global' }, file: f })
       }
     }
+    const dotFailed: string[] = []
     for (const proj of args.claudeProjects) {
       if (!proj.syncDotClaude) continue
       const dotRes = await enumClaudeProjectDotClaudeSource(proj.path, proj.name)
       for (const u of dotRes.unreadable) unreadableSet.add(u)
+      dotFailed.push(...dotRes.failed)
       for (const f of dotRes.entries) {
         allSrc.push({ ref: { kind: 'claude-project-dotclaude', projectName: proj.name }, file: f })
       }
@@ -74,6 +76,17 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
       if ('ok' in c) filteredHead.push(h)
       else if (c.skip === 'unknown-path') foreignPaths.push(h.repoPath)
       // toggle-off / unregistered-project: excluded symmetrically (≠ deletion)
+    }
+
+    // HEAD files under failed directories must be treated as 'unreadable', never 'deleted'.
+    for (const h of filteredHead) {
+      const c = classifyRepoPath(h.repoPath, membershipCtx)
+      if (!('ok' in c)) continue
+      const kind = c.ok.source.kind
+      if ((kind === 'claude-global' || kind === 'claude-project-memory') &&
+          repoPathUnderFailed(h.repoPath, globalRes.failed)) unreadableSet.add(h.repoPath)
+      if (kind === 'claude-project-dotclaude' &&
+          repoPathUnderFailed(h.repoPath, dotFailed)) unreadableSet.add(h.repoPath)
     }
 
     // Group source entries by SourceRef, group HEAD entries similarly, run compare per group.
@@ -127,8 +140,12 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
     const src: SourceRef = { kind: 'cursor-project', projectName: proj.name }
     const res = await enumCursorProjectSource(proj.path, proj.name)
     const headEntries = await enumHead(repoPath, `cursor/projects/${proj.name}/`, `cursor/projects/${proj.name}/`)
+    const cursorUnreadable = new Set(res.unreadable)
+    for (const h of headEntries) {
+      if (repoPathUnderFailed(h.repoPath, res.failed)) cursorUnreadable.add(h.repoPath)
+    }
     const part = compare(src, res.entries, headEntries.map((h) => ({ ...h, sha: h.sha1 })),
-      [], new Set(res.unreadable))
+      [], cursorUnreadable)
     diffs.push(...part)
   }
 

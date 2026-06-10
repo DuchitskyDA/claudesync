@@ -31,29 +31,38 @@ export type EnumResult = {
   /** repoPath's of files that exist on disk but couldn't be read/canonicalized
    *  or exceed MAX_BYTES. Never silently dropped → never inferred as deletion. */
   unreadable: string[]
+  /** repoPath-prefixes whose directory could not be enumerated (readdir/lstat/
+   *  stat failure). HEAD files under these prefixes must be treated as
+   *  'unreadable', never 'deleted'. A trailing-slash entry covers a subtree;
+   *  'claude/' covers the whole surface. */
+  failed: string[]
 }
 
-/** Returns false if this directory (or a descendant root) could not be read. */
-function walk(rootAbs: string, prefixParts: string[], cb: (relPosix: string, abs: string) => void): boolean {
-  if (!existsSync(rootAbs)) return true // absent ≠ unreadable; caller decides
+function walk(
+  rootAbs: string,
+  prefixParts: string[],
+  cb: (relPosix: string, abs: string) => void,
+  failedRel: string[],
+): void {
+  if (!existsSync(rootAbs)) return // absent ≠ unreadable; caller decides
   let entries: string[]
-  try { entries = readdirSync(rootAbs) } catch { return false }
-  let ok = true
+  try { entries = readdirSync(rootAbs) } catch {
+    failedRel.push(prefixParts.length ? posix.join(...prefixParts) : '')
+    return
+  }
   for (const name of entries) {
     const abs = join(rootAbs, name)
     let lst
-    try { lst = lstatSync(abs) } catch { continue }
+    try { lst = lstatSync(abs) } catch { failedRel.push(posix.join(...prefixParts, name)); continue }
     if (lst.isSymbolicLink() && !existsSync(abs)) continue
     let st
-    try { st = statSync(abs) } catch { continue }
+    try { st = statSync(abs) } catch { failedRel.push(posix.join(...prefixParts, name)); continue }
     if (st.isDirectory()) {
-      if (!walk(abs, [...prefixParts, name], cb)) ok = false
+      walk(abs, [...prefixParts, name], cb, failedRel)
     } else if (st.isFile()) {
-      const rel = posix.join(...prefixParts, name)
-      cb(rel, abs)
+      cb(posix.join(...prefixParts, name), abs)
     }
   }
-  return ok
 }
 
 /** Walks ~/.claude, returns synced file entries gated by syncGlobal. Per-project
@@ -63,7 +72,7 @@ export async function enumClaudeSource(
   claudeProjects: ClaudeProject[] = [],
   syncGlobal: ClaudeGlobalSyncFlags = { claudeMd: true, commands: true, skills: true, settings: true },
 ): Promise<EnumResult> {
-  if (!existsSync(claudePath)) return { entries: [], unreadable: [] }
+  if (!existsSync(claudePath)) return { entries: [], unreadable: [], failed: [] }
   const idx = projectIndex(claudeProjects)
   const out: FileEntry[] = []
   const unreadable: string[] = []
@@ -82,6 +91,7 @@ export async function enumClaudeSource(
     return rel
   }
 
+  const failedRel: string[] = []
   walk(claudePath, [], (rel, abs) => {
     if (isClaudePathIgnored(rel)) return
     if (!isClaudePathSynced(rel, syncGlobal)) return
@@ -98,8 +108,22 @@ export async function enumClaudeSource(
     }
     const sha1 = sha1OfBlob(content)
     out.push({ repoPath, surfacePath: rel, sha1, mode: '100644', size: content.length })
-  })
-  return { entries: out, unreadable }
+  }, failedRel)
+  const failed: string[] = []
+  for (const rel of failedRel) {
+    if (rel === '') { failed.push('claude/'); continue }
+    if (rel === 'projects') { failed.push('claude/projects/'); continue }
+    const m = rel.match(/^projects\/([^/]+)(\/.*)?$/)
+    if (m) {
+      const proj = idx.get(m[1]!)
+      if (!proj || !proj.syncMemory) continue // untracked subtree — irrelevant
+      failed.push(`claude/projects/${proj.name}${m[2] ?? ''}`)
+      continue
+    }
+    if (isClaudePathIgnored(rel)) continue
+    failed.push(`claude/${rel}`)
+  }
+  return { entries: out, unreadable, failed }
 }
 
 /** Walks <project>/.claude/, returns synced file entries. Used when
@@ -110,9 +134,10 @@ export async function enumClaudeProjectDotClaudeSource(
   projectName: string,
 ): Promise<EnumResult> {
   const root = join(projectPath, '.claude')
-  if (!existsSync(root)) return { entries: [], unreadable: [] }
+  if (!existsSync(root)) return { entries: [], unreadable: [], failed: [] }
   const out: FileEntry[] = []
   const unreadable: string[] = []
+  const failedRel: string[] = []
   walk(root, [], (rel, abs) => {
     if (!isProjectDotClaudePathSynced(rel)) return
     const repoPath = `claude/projects/${projectName}/.claude/${rel}`
@@ -126,15 +151,22 @@ export async function enumClaudeProjectDotClaudeSource(
     }
     const sha1 = sha1OfBlob(content)
     out.push({ repoPath, surfacePath: `.claude/${rel}`, sha1, mode: '100644', size: content.length })
-  })
-  return { entries: out, unreadable }
+  }, failedRel)
+  const failed: string[] = []
+  for (const rel of failedRel) {
+    if (rel === '') { failed.push(`claude/projects/${projectName}/.claude/`); continue }
+    if (!isProjectDotClaudePathSynced(rel) && rel.includes('/')) continue // nested under ignored top
+    failed.push(`claude/projects/${projectName}/.claude/${rel}`)
+  }
+  return { entries: out, unreadable, failed }
 }
 
 /** Walks a Cursor project root, returns synced .cursor/* + .cursorrules entries. */
 export async function enumCursorProjectSource(projectPath: string, projectName: string): Promise<EnumResult> {
-  if (!existsSync(projectPath)) return { entries: [], unreadable: [] }
+  if (!existsSync(projectPath)) return { entries: [], unreadable: [], failed: [] }
   const out: FileEntry[] = []
   const unreadable: string[] = []
+  const failedRel: string[] = []
   walk(projectPath, [], (rel, abs) => {
     if (!isCursorPathSynced(rel)) return
     const repoPath = `cursor/projects/${projectName}/${rel}`
@@ -145,8 +177,21 @@ export async function enumCursorProjectSource(projectPath: string, projectName: 
     try { content = readFileSync(abs) } catch { unreadable.push(repoPath); return }
     const sha1 = sha1OfBlob(content)
     out.push({ repoPath, surfacePath: rel, sha1, mode: '100644', size: content.length })
+  }, failedRel)
+  const failed: string[] = []
+  for (const rel of failedRel) {
+    if (rel === '') { failed.push(`cursor/projects/${projectName}/`); continue }
+    failed.push(`cursor/projects/${projectName}/${rel}`)
+  }
+  return { entries: out, unreadable, failed }
+}
+
+/** True when repoPath is exactly a failed path or lies under a failed prefix. */
+export function repoPathUnderFailed(repoPath: string, failed: string[]): boolean {
+  return failed.some((f) => {
+    if (f.endsWith('/')) return repoPath.startsWith(f)
+    return repoPath === f || repoPath.startsWith(f + '/')
   })
-  return { entries: out, unreadable }
 }
 
 /** Helper used by IndexBuilder: read raw bytes of a source file (with canonicalization for settings.json). */
