@@ -63,8 +63,7 @@ describe('foreign paths under claude/ (К4)', () => {
     git(repoPath, ['push', 'origin', 'main'])
     git(repoPath, ['reset', '--hard', 'HEAD~1'])
 
-    // NB: после Task 8 в args добавится userDataDir (Task 8, Step 8)
-    const args = { ...baseArgs(repoPath, home), deletionsToApply: [] as string[] }
+    const args = { ...baseArgs(repoPath, home), deletionsToApply: [] as string[], userDataDir: join(root, 'ud') }
     const preview = await computePullPreview(args)
     expect(preview.kind).toBe('preview')
     if (preview.kind !== 'preview') return

@@ -3,17 +3,21 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { installCursorProject, installCursorProjects } from '../../src/main/sync/cursor-install'
+import { beginSnapshot } from '../../src/main/sync/engine/safety-snapshot'
 
 let dir: string
 let repoPath: string
 let projectPath: string
+let userDataDir: string
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'csync-ci-'))
   repoPath = join(dir, 'repo')
   projectPath = join(dir, 'app')
+  userDataDir = join(dir, 'ud')
   mkdirSync(repoPath, { recursive: true })
   mkdirSync(projectPath, { recursive: true })
+  mkdirSync(userDataDir, { recursive: true })
 })
 
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
@@ -27,7 +31,9 @@ describe('installCursorProject', () => {
     writeFileSync(join(src, 'skills', 'sk', 'SKILL.md'), 'S')
     writeFileSync(join(src, '.cursorrules'), 'legacy')
 
-    installCursorProject(repoPath, { name: 'app', path: projectPath })
+    const session = beginSnapshot(userDataDir, 'test')
+    installCursorProject(repoPath, { name: 'app', path: projectPath }, session)
+    session.commit()
 
     expect(readFileSync(join(projectPath, '.cursor', 'rules', 'a.mdc'), 'utf8')).toBe('R')
     expect(readFileSync(join(projectPath, '.cursor', 'skills', 'sk', 'SKILL.md'), 'utf8')).toBe('S')
@@ -42,7 +48,9 @@ describe('installCursorProject', () => {
     mkdirSync(join(projectPath, '.cursor', 'rules'), { recursive: true })
     writeFileSync(join(projectPath, '.cursor', 'rules', 'a.mdc'), 'OLD')
 
-    installCursorProject(repoPath, { name: 'app', path: projectPath })
+    const session = beginSnapshot(userDataDir, 'test')
+    installCursorProject(repoPath, { name: 'app', path: projectPath }, session)
+    session.commit()
 
     expect(readFileSync(join(projectPath, '.cursor', 'rules', 'a.mdc'), 'utf8')).toBe('NEW')
     // No .backup files anywhere
@@ -64,7 +72,9 @@ describe('installCursorProject', () => {
     writeFileSync(join(projectPath, '.cursor', 'rules', 'keep.mdc'), 'OLD')
     writeFileSync(join(projectPath, '.cursor', 'rules', 'local-only.mdc'), 'KEEP-ME')
 
-    installCursorProject(repoPath, { name: 'app', path: projectPath })
+    const session = beginSnapshot(userDataDir, 'test')
+    installCursorProject(repoPath, { name: 'app', path: projectPath }, session)
+    session.commit()
 
     // Repo wins on shared file (overwrite).
     expect(readFileSync(join(projectPath, '.cursor', 'rules', 'keep.mdc'), 'utf8')).toBe('K')
@@ -78,7 +88,9 @@ describe('installCursorProject', () => {
     mkdirSync(join(repoPath, 'cursor', 'projects', 'app'), { recursive: true })
     writeFileSync(join(projectPath, '.cursorrules'), 'local-legacy')
 
-    installCursorProject(repoPath, { name: 'app', path: projectPath })
+    const session = beginSnapshot(userDataDir, 'test')
+    installCursorProject(repoPath, { name: 'app', path: projectPath }, session)
+    session.commit()
 
     // Same rule as above: reverse-mirror is additive only, never destructive.
     expect(readFileSync(join(projectPath, '.cursorrules'), 'utf8')).toBe('local-legacy')
@@ -87,23 +99,48 @@ describe('installCursorProject', () => {
   it('skips with warning when project path is missing', () => {
     mkdirSync(join(repoPath, 'cursor', 'projects', 'gone'), { recursive: true })
     const lines: string[] = []
+    const session = beginSnapshot(userDataDir, 'test')
     installCursorProject(
       repoPath,
       { name: 'gone', path: join(dir, 'does-not-exist') },
+      session,
       (l) => lines.push(l.text),
     )
+    session.commit()
     expect(lines.some((t) => t.includes('path missing'))).toBe(true)
   })
 
   it('skips with info when no synced data exists in repo', () => {
     const lines: string[] = []
+    const session = beginSnapshot(userDataDir, 'test')
     installCursorProject(
       repoPath,
       { name: 'fresh', path: projectPath },
+      session,
       (l) => lines.push(l.text),
     )
+    session.commit()
     expect(lines.some((t) => t.includes('no synced data'))).toBe(true)
     expect(existsSync(join(projectPath, '.cursor'))).toBe(false)
+  })
+
+  it('preserves pre-existing file with different content in snapshot before overwrite', () => {
+    const src = join(repoPath, 'cursor', 'projects', 'app')
+    mkdirSync(join(src, 'rules'), { recursive: true })
+    writeFileSync(join(src, 'rules', 'rule.mdc'), 'NEW-CONTENT')
+    mkdirSync(join(projectPath, '.cursor', 'rules'), { recursive: true })
+    writeFileSync(join(projectPath, '.cursor', 'rules', 'rule.mdc'), 'OLD-CONTENT')
+
+    installCursorProjects(repoPath, [{ name: 'app', path: projectPath }], userDataDir)
+
+    const snapDir = join(userDataDir, 'safety-snapshots')
+    const sessions = readdirSync(snapDir)
+    expect(sessions.length).toBeGreaterThanOrEqual(1)
+    const manifest = JSON.parse(readFileSync(join(snapDir, sessions[0]!, 'manifest.json'), 'utf8'))
+    const originals = manifest.entries.map((e: { original: string }) => e.original)
+    expect(originals).toContain(join(projectPath, '.cursor', 'rules', 'rule.mdc'))
+    const entry = manifest.entries.find((e: { original: string }) => e.original === join(projectPath, '.cursor', 'rules', 'rule.mdc'))
+    expect(readFileSync(entry.stored, 'utf8')).toBe('OLD-CONTENT')
   })
 })
 
@@ -121,7 +158,7 @@ describe('installCursorProjects', () => {
     installCursorProjects(repoPath, [
       { name: 'one', path: p1 },
       { name: 'two', path: p2 },
-    ])
+    ], userDataDir)
 
     expect(readFileSync(join(p1, '.cursor', 'rules', 'r.md'), 'utf8')).toBe('1')
     expect(readFileSync(join(p2, '.cursor', 'rules', 'r.md'), 'utf8')).toBe('2')

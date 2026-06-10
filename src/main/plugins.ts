@@ -6,6 +6,7 @@ import type {
   ClaudeTargetCheck,
   InstalledPluginsState,
 } from '@shared/api'
+import { beginSnapshot } from './sync/engine/safety-snapshot'
 
 type ClaudeSettings = Record<string, unknown> & {
   enabledPlugins?: Record<string, boolean>
@@ -60,6 +61,7 @@ export function getInstalled(settingsPath: string): InstalledPluginsState {
 export function applyChanges(
   settingsPath: string,
   changes: ApplyPluginChanges,
+  userDataDir: string,
 ): { ok: boolean; error?: string } {
   let current: ClaudeSettings
   try {
@@ -88,11 +90,13 @@ export function applyChanges(
     if (v) next.env[k] = v
   }
 
-  // Atomic write
   try {
+    const session = beginSnapshot(userDataDir, 'plugins-apply')
+    session.preserve(settingsPath)
     const tmp = `${settingsPath}.tmp`
     writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf8')
     renameSync(tmp, settingsPath)
+    session.commit()
     return { ok: true }
   } catch (e) {
     return { ok: false, error: `Write failed: ${(e as Error).message}` }

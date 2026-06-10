@@ -359,7 +359,7 @@ describe('registerIpc plugin handlers', () => {
       const changes = { enable: [], disable: ['old-plugin'], envValues: {} }
       const handler = getHandler('apply-plugin-changes')
       const result = handler({}, changes)
-      expect(applyChangesMock).toHaveBeenCalledWith('/home/user/.claude/settings.json', changes)
+      expect(applyChangesMock).toHaveBeenCalledWith('/home/user/.claude/settings.json', changes, '/tmp/userData')
       expect(result).toEqual({ ok: true })
     })
   })

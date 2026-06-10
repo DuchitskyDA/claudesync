@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { computePullPreview, executePullApply } from '../../../src/main/sync/engine/engine'
 
-let dir: string, claudePath: string, repoPath: string, remotePath: string
+let dir: string, claudePath: string, repoPath: string, remotePath: string, userDataDir: string
 
 function git(cwd: string, args: string[]) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
@@ -16,6 +16,7 @@ function git(cwd: string, args: string[]) {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'cs-pull-'))
   claudePath = join(dir, '.claude'); mkdirSync(claudePath)
+  userDataDir = join(dir, 'ud'); mkdirSync(userDataDir)
   remotePath = join(dir, 'remote.git'); mkdirSync(remotePath)
   git(remotePath, ['init', '--bare', '-q', '-b', 'main'])
   repoPath = join(dir, 'repo'); mkdirSync(repoPath)
@@ -58,6 +59,7 @@ describe('Engine.pull', () => {
       repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
       syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       deletionsToApply: [],
+      userDataDir,
     })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('v2 from other\n')
@@ -86,6 +88,7 @@ describe('Engine.pull', () => {
       repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
       syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
       deletionsToApply: [],  // opt out of all deletions
+      userDataDir,
     })
     expect(r.kind).toBe('ok')
     // Verify that files still exist after apply (since we didn't opt in to deletions)

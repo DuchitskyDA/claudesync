@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, statSync, readdirSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync, readdirSync, readFileSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CursorProject, LogLine } from '@shared/api'
+import { beginSnapshot, type SnapshotSession } from './engine/safety-snapshot'
 
 const IGNORED_NAME = /^\.DS_Store$|^Thumbs\.db$/i
 
@@ -10,7 +11,7 @@ const IGNORED_NAME = /^\.DS_Store$|^Thumbs\.db$/i
  * (repo → project) must not destroy the user's local-only files; that's
  * what made Discard turn into a data-loss action before this fix.
  */
-function syncDirCopy(src: string, dst: string): void {
+function syncDirCopy(src: string, dst: string, session: SnapshotSession): void {
   if (!existsSync(src)) return
   mkdirSync(dst, { recursive: true })
   for (const entry of readdirSync(src)) {
@@ -18,14 +19,18 @@ function syncDirCopy(src: string, dst: string): void {
     const s = join(src, entry)
     const d = join(dst, entry)
     const stat = statSync(s)
-    if (stat.isDirectory()) syncDirCopy(s, d)
-    else cpSync(s, d)
+    if (stat.isDirectory()) syncDirCopy(s, d, session)
+    else {
+      if (existsSync(d) && !readFileSync(d).equals(readFileSync(s))) session.preserve(d)
+      cpSync(s, d)
+    }
   }
 }
 
-function copyFileIfExists(src: string, dst: string): void {
+function copyFileIfExists(src: string, dst: string, session: SnapshotSession): void {
   if (!existsSync(src)) return
   mkdirSync(join(dst, '..'), { recursive: true })
+  if (existsSync(dst) && !readFileSync(dst).equals(readFileSync(src))) session.preserve(dst)
   cpSync(src, dst)
 }
 
@@ -49,6 +54,7 @@ function nowHHMMSS(): string {
 export function installCursorProject(
   repoPath: string,
   project: CursorProject,
+  session: SnapshotSession,
   emit?: (l: LogLine) => void,
 ): void {
   if (!existsSync(project.path)) {
@@ -69,9 +75,9 @@ export function installCursorProject(
     return
   }
   const destDotCursor = join(project.path, '.cursor')
-  syncDirCopy(join(src, 'rules'), join(destDotCursor, 'rules'))
-  syncDirCopy(join(src, 'skills'), join(destDotCursor, 'skills'))
-  copyFileIfExists(join(src, '.cursorrules'), join(project.path, '.cursorrules'))
+  syncDirCopy(join(src, 'rules'), join(destDotCursor, 'rules'), session)
+  syncDirCopy(join(src, 'skills'), join(destDotCursor, 'skills'), session)
+  copyFileIfExists(join(src, '.cursorrules'), join(project.path, '.cursorrules'), session)
   emit?.({
     time: nowHHMMSS(),
     text: `cursor: installed "${project.name}" -> ${project.path}/.cursor/`,
@@ -82,9 +88,10 @@ export function installCursorProject(
 export function installCursorProjects(
   repoPath: string,
   projects: CursorProject[],
+  userDataDir: string,
   emit?: (l: LogLine) => void,
 ): void {
-  for (const p of projects) {
-    installCursorProject(repoPath, p, emit)
-  }
+  const session = beginSnapshot(userDataDir, 'cursor-install')
+  for (const p of projects) installCursorProject(repoPath, p, session, emit)
+  session.commit()
 }

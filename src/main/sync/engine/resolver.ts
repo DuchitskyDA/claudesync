@@ -8,6 +8,7 @@ import { refreshStatus } from './engine'
 import { catFileBlob, mergeBase, revParse, readTreeMergeAggressive, updateIndexAdd, updateIndexRemove, writeTree, commitTree, updateRef, syncWtToHead, pushOrigin, hashObjectWrite, classifyRemoteError, lsTree } from './git-ops'
 import { applyToSource, readSourceIfExists } from './pull-apply'
 import { canonicalizeSettings } from './settings-canonical'
+import { beginSnapshot } from './safety-snapshot'
 
 const STATE_FILE = 'sync-engine-resolve.json'
 
@@ -185,9 +186,9 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
   const { repoPath, resolutions } = args
   const indexFile = join(repoPath, '.git', `tmp-index-${process.pid}-${Date.now()}`)
   try {
-    // 1. Write source
+    // 1. Collect targets and preserve before any mutation
+    const targets: Array<{ f: ResolverFile; abs: string }> = []
     for (const f of resolutions.files) {
-      const final = finalContent(f)
       const source = f.source
       let surfaceAbs: string | null
       if (source.kind === 'claude-global' || source.kind === 'claude-project-memory') {
@@ -199,11 +200,17 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
         const proj = args.cursorProjects.find((p) => p.name === source.projectName)
         surfaceAbs = proj ? join(proj.path, f.surfacePath) : null
       }
-      if (!surfaceAbs) continue  // unregistered project — skip writing to source
-      await applyToSource(surfaceAbs, final)
+      if (!surfaceAbs) continue // unregistered project — skip writing to source
+      targets.push({ f, abs: surfaceAbs })
     }
 
-    // 2. Build merge commit
+    const session = beginSnapshot(args.userDataDir, 'resolve')
+    for (const t of targets) session.preserve(t.abs)
+
+    // 2. Write source
+    for (const t of targets) await applyToSource(t.abs, finalContent(t.f))
+
+    // 3. Build merge commit
     await readTreeMergeAggressive(repoPath, resolutions.baseSha, resolutions.headSha, resolutions.theirsSha, indexFile)
     for (const f of resolutions.files) {
       const final = finalContent(f)
@@ -224,6 +231,7 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
       const kind = classifyRemoteError(push.stderr)
       return { kind: 'error', message: `push failed (${kind}): ${push.stderr}` }
     }
+    session.commit()
     clearResolverState(args.userDataDir)
     return { kind: 'ok' }
   } catch (e) {

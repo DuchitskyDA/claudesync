@@ -160,8 +160,9 @@ export function registerIpc(window: BrowserWindow): void {
   // Configure auto-updater on first registration. macOS is a no-op inside.
   setupAutoUpdater(window)
 
-  const configPath = join(app.getPath('userData'), 'config.json')
-  const logFile = join(app.getPath('userData'), 'last-run.log')
+  const userDataDir = app.getPath('userData')
+  const configPath = join(userDataDir, 'config.json')
+  const logFile = join(userDataDir, 'last-run.log')
   const logBuffer: LogLine[] = []
   const emit = (line: LogLine) => {
     if (!window.isDestroyed()) window.webContents.send('log', line)
@@ -306,7 +307,7 @@ export function registerIpc(window: BrowserWindow): void {
     if (!cfg.claude.path) return { ok: false, error: { key: 'config.error.targetRequired' } as LocalizedMessage }
     const settingsPath = settingsPathFor(cfg.claude.path)
     try {
-      return applyChanges(settingsPath, changes)
+      return applyChanges(settingsPath, changes, userDataDir)
     } catch (e) {
       return { ok: false, error: { key: 'plugins.error.applyFailed', params: { reason: (e as Error).message }, fallback: (e as Error).message } as LocalizedMessage }
     }
@@ -353,8 +354,6 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('suggest-repo-path', (_e, url: string) =>
     defaultManagedRepoPath(url, app.getPath('userData')),
   )
-
-  const userDataDir = app.getPath('userData')
 
   // Auth
   ipcMain.handle('get-auth-state', () => getAuthState(userDataDir))
@@ -681,6 +680,7 @@ export function registerIpc(window: BrowserWindow): void {
       token: loadToken(userDataDir),
       deletionsToApply,
       syncGlobal: cfg.claude.syncGlobal,
+      userDataDir,
     }))
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Pull applied', level: 'success' })
@@ -701,6 +701,7 @@ export function registerIpc(window: BrowserWindow): void {
       token: loadToken(userDataDir),
       deleteAdded: deleteAdded === true,
       syncGlobal: cfg.claude.syncGlobal,
+      userDataDir,
     }))
     if (r.kind === 'ok') {
       emit({ time: nowHHMMSS(), text: '✓ Local changes discarded', level: 'success' })
@@ -763,7 +764,7 @@ export function registerIpc(window: BrowserWindow): void {
         opts.cursorProjectNames.includes(p.name),
       )
       try {
-        installCursorProjects(repoPath, selected, emit)
+        installCursorProjects(repoPath, selected, userDataDir, emit)
       } catch (e) {
         return {
           ok: false,

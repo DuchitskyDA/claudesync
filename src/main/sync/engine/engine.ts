@@ -11,6 +11,7 @@ import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
 import { checkFloor, refKey, DEFAULT_FLOOR_THRESHOLDS, type FloorThresholds, type FloorSourceVerdict } from './safety-floor'
 import { classifyRepoPath, type MembershipCtx } from './path-membership'
+import { beginSnapshot } from './safety-snapshot'
 
 export type RefreshArgs = {
   repoPath: string | null
@@ -401,7 +402,7 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
   return { kind: 'preview', items }
 }
 
-export type PullApplyArgs = RefreshArgs & { deletionsToApply: string[] }
+export type PullApplyArgs = RefreshArgs & { deletionsToApply: string[]; userDataDir: string }
 
 export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok' } | { kind: 'error'; message: string } | { kind: 'diverged' }> {
   const preview = await computePullPreview(args)
@@ -411,51 +412,69 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
   }
   const deletionsSet = new Set(args.deletionsToApply)
 
+  type Planned = { abs: string; item: (typeof preview.items)[number] }
+  const planned: Planned[] = []
   for (const item of preview.items) {
     if (item.status === 'skipped-unreadable') continue
-
-    const surfaceAbs = surfaceAbsPath(args, item)
-    if (!surfaceAbs) continue  // unregistered cursor project — skip silently
-
+    const abs = surfaceAbsPath(args, item)
+    if (!abs) continue // unregistered project — skip silently
     if (item.status === 'deleted') {
-      if (deletionsSet.has(item.repoPath)) {
-        await applyToSource(surfaceAbs, null)
-      }
+      if (deletionsSet.has(item.repoPath)) planned.push({ abs, item })
       continue
     }
     if (item.newContent === undefined) continue
-
-    let toWrite = item.newContent
-    const isGlobalSettings =
-      item.source.kind === 'claude-global' && item.surfacePath === 'settings.json'
-    const isProjectSettings =
-      item.source.kind === 'claude-project-dotclaude' && item.surfacePath === '.claude/settings.json'
-    if (isGlobalSettings || isProjectSettings) {
-      const currentSrc = readSourceIfExists(surfaceAbs)
-      const merged = mergeSettingsForPull(item.newContent, currentSrc)
-      if (merged === null) continue // unreadable local settings — skip, never overwrite
-      toWrite = merged
-    }
-    await applyToSource(surfaceAbs, toWrite)
+    planned.push({ abs, item })
   }
 
-  // fast-forward HEAD to origin/main
-  await updateRef(args.repoPath!, 'refs/heads/main', await revParse(args.repoPath!, 'origin/main'))
-  await syncWtToHead(args.repoPath!)
+  try {
+    const session = beginSnapshot(args.userDataDir, 'pull-apply')
+    for (const p of planned) session.preserve(p.abs) // fail-closed: throws BEFORE mutations
+
+    for (const { abs, item } of planned) {
+      if (item.status === 'deleted') {
+        await applyToSource(abs, null)
+        continue
+      }
+      let toWrite = item.newContent!
+      const isGlobalSettings =
+        item.source.kind === 'claude-global' && item.surfacePath === 'settings.json'
+      const isProjectSettings =
+        item.source.kind === 'claude-project-dotclaude' && item.surfacePath === '.claude/settings.json'
+      if (isGlobalSettings || isProjectSettings) {
+        const merged = mergeSettingsForPull(item.newContent!, readSourceIfExists(abs))
+        if (merged === null) continue
+        toWrite = merged
+      }
+      await applyToSource(abs, toWrite)
+    }
+    session.commit()
+    // fast-forward HEAD to origin/main — only on success
+    await updateRef(args.repoPath!, 'refs/heads/main', await revParse(args.repoPath!, 'origin/main'))
+    await syncWtToHead(args.repoPath!)
+  } catch (e) {
+    return { kind: 'error', message: `snapshot/apply failed: ${(e as Error).message}` }
+  }
   return { kind: 'ok' }
 }
 
 export async function executeDiscard(
-  args: RefreshArgs & { deleteAdded?: boolean },
+  args: RefreshArgs & { deleteAdded?: boolean; userDataDir: string },
 ): Promise<{ kind: 'ok' } | { kind: 'error'; message: string }> {
   if (!args.repoPath) return { kind: 'error', message: 'repoPath required' }
   const status = await refreshStatus({ ...args, doFetch: false })
+
+  // Collect planned mutations with their restore data
+  type PlannedDiscard =
+    | { kind: 'delete'; abs: string }
+    | { kind: 'restore'; abs: string; blob: Buffer }
+
+  const planned: PlannedDiscard[] = []
   for (const d of status.diffs) {
     if (d.status === 'same' || d.status === 'unreadable') continue
     const surfaceAbs = surfaceAbsPath(args, d)
     if (!surfaceAbs) continue
     if (d.status === 'added') {
-      if (args.deleteAdded === true) await applyToSource(surfaceAbs, null)
+      if (args.deleteAdded === true) planned.push({ kind: 'delete', abs: surfaceAbs })
       continue
     }
     if (d.status === 'modified' || d.status === 'deleted') {
@@ -468,9 +487,25 @@ export async function executeDiscard(
       const entry = head.find((h) => h.repoPath === d.repoPath)
       if (entry) {
         const blob = await catFileBlob(args.repoPath, entry.sha1)
-        await applyToSource(surfaceAbs, blob)
+        planned.push({ kind: 'restore', abs: surfaceAbs, blob })
       }
     }
+  }
+
+  try {
+    const session = beginSnapshot(args.userDataDir, 'discard')
+    for (const p of planned) session.preserve(p.abs) // fail-closed: throws BEFORE mutations
+
+    for (const p of planned) {
+      if (p.kind === 'delete') {
+        await applyToSource(p.abs, null)
+      } else {
+        await applyToSource(p.abs, p.blob)
+      }
+    }
+    session.commit()
+  } catch (e) {
+    return { kind: 'error', message: `snapshot/discard failed: ${(e as Error).message}` }
   }
   return { kind: 'ok' }
 }

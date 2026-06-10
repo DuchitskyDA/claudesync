@@ -130,7 +130,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: {},
     }
-    const r = applyChanges(sp, changes)
+    const r = applyChanges(sp, changes, tmpDir)
     expect(r.ok).toBe(true)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
@@ -144,7 +144,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: {},
     }
-    applyChanges(sp, changes)
+    applyChanges(sp, changes, tmpDir)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
     expect((written.enabledPlugins as Record<string, boolean>)['mp-plugin']).toBe(true)
@@ -160,7 +160,7 @@ describe('applyChanges', () => {
     }), 'utf8')
 
     const changes: ApplyPluginChanges = { enable: [], disable: ['plugin-a'], envValues: {} }
-    const r = applyChanges(sp, changes)
+    const r = applyChanges(sp, changes, tmpDir)
     expect(r.ok).toBe(true)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
@@ -178,7 +178,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: { NEW_KEY: 'new-value', EXISTING: 'updated' },
     }
-    applyChanges(sp, changes)
+    applyChanges(sp, changes, tmpDir)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
     const env = written.env as Record<string, string>
@@ -193,7 +193,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: { EMPTY_KEY: '' },
     }
-    applyChanges(sp, changes)
+    applyChanges(sp, changes, tmpDir)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
     const env = written.env as Record<string, string> | undefined
@@ -214,7 +214,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: {},
     }
-    applyChanges(sp, changes)
+    applyChanges(sp, changes, tmpDir)
 
     const written = JSON.parse(readFileSync(sp, 'utf8')) as Record<string, unknown>
     expect(written.permissions).toEqual({ allow: ['Bash'] })
@@ -230,7 +230,7 @@ describe('applyChanges', () => {
       disable: [],
       envValues: { KEY: 'val' },
     }
-    const r = applyChanges(sp, changes)
+    const r = applyChanges(sp, changes, tmpDir)
     expect(r.ok).toBe(true)
 
     // No .tmp file should remain

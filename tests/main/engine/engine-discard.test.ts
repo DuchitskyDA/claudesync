@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { executeDiscard, refreshStatus } from '../../../src/main/sync/engine/engine'
 
-let dir: string, claudePath: string, repoPath: string
+let dir: string, claudePath: string, repoPath: string, userDataDir: string
 
 function git(cwd: string, args: string[]) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
@@ -15,6 +15,7 @@ function git(cwd: string, args: string[]) {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'cs-dsc-'))
   claudePath = join(dir, '.claude'); mkdirSync(claudePath)
+  userDataDir = join(dir, 'ud'); mkdirSync(userDataDir)
   repoPath = join(dir, 'repo'); mkdirSync(repoPath)
   git(repoPath, ['init', '-q', '-b', 'main'])
   git(repoPath, ['config', 'user.email', 't@t']); git(repoPath, ['config', 'user.name', 't'])
@@ -28,7 +29,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('executeDiscard', () => {
   it('overwrites source with HEAD content', async () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'local mess\n')
-    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true } })
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true }, userDataDir })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('committed\n')
     const status = await refreshStatus({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true }, doFetch: false })
@@ -45,7 +46,7 @@ describe('executeDiscard — added handling', () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'committed\n')
     mkdirSync(join(claudePath, 'commands'))
     writeFileSync(join(claudePath, 'commands', 'new-note.md'), 'brand new\n')
-    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG })
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, userDataDir })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'commands', 'new-note.md'), 'utf8')).toBe('brand new\n')
   })
@@ -53,7 +54,7 @@ describe('executeDiscard — added handling', () => {
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'committed\n')
     mkdirSync(join(claudePath, 'commands'))
     writeFileSync(join(claudePath, 'commands', 'new-note.md'), 'brand new\n')
-    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true })
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true, userDataDir })
     expect(r.kind).toBe('ok')
     expect(existsSync(join(claudePath, 'commands', 'new-note.md'))).toBe(false)
   })
@@ -64,7 +65,7 @@ describe('executeDiscard — added handling', () => {
     writeFileSync(join(claudePath, '.credentials.json'), 'SECRET')
     mkdirSync(join(claudePath, 'sessions'))
     writeFileSync(join(claudePath, 'sessions', 's.jsonl'), 'session-data')
-    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true })
+    const r = await executeDiscard({ repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, syncGlobal: SG, deleteAdded: true, userDataDir })
     expect(r.kind).toBe('ok')
     expect(existsSync(join(claudePath, '.credentials.json'))).toBe(true)
     expect(existsSync(join(claudePath, 'sessions', 's.jsonl'))).toBe(true)
