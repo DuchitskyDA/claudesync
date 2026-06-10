@@ -88,7 +88,8 @@ describe('Engine.push — safeguards', () => {
   })
 
   it('deletion is applied only when in approvedDeletions', async () => {
-    writeFileSync(join(repoPath, 'claude', 'note.md'), 'note\n')
+    mkdirSync(join(repoPath, 'claude', 'commands'), { recursive: true })
+    writeFileSync(join(repoPath, 'claude', 'commands', 'note.md'), 'note\n')
     git(repoPath, ['add', '-A']); git(repoPath, ['commit', '-q', '-m', 'add note'])
     git(repoPath, ['push', '-q'])
     writeFileSync(join(claudePath, 'CLAUDE.md'), 'old\n')
@@ -99,15 +100,15 @@ describe('Engine.push — safeguards', () => {
     })
     // The only pending change is an unapproved deletion → nothing is committed.
     expect(r1.kind).toBe('nothing-to-push')
-    const after1 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/note.md'])
+    const after1 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/commands/note.md'])
     expect(after1.status).toBe(0) // note.md preserved in HEAD
 
     const r2 = await executePush({
       repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null,
-      syncGlobal: SG, commitMessage: 'delete note', approvedDeletions: ['claude/note.md'],
+      syncGlobal: SG, commitMessage: 'delete note', approvedDeletions: ['claude/commands/note.md'],
     })
     expect(r2.kind).toBe('ok')
-    const after2 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/note.md'])
+    const after2 = spawnSync('git', ['-C', repoPath, 'cat-file', '-e', 'HEAD:claude/commands/note.md'])
     expect(after2.status).not.toBe(0)
   })
 

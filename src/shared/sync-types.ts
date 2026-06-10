@@ -72,5 +72,8 @@ export type EngineStatus = {
   localChanges: number
   diffs: DiffEntry[]
   fetchedAt: number | null
+  /** Paths present under claude/ in HEAD that match no sync rule. Never
+   *  deleted, never pulled — surfaced as a warning only. */
+  foreignPaths: string[]
   errorKey?: string
 }

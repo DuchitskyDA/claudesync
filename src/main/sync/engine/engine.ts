@@ -9,8 +9,8 @@ import { compare } from './comparator'
 import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob } from './git-ops'
 import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
-import { encodeClaudeProjectSegment } from './rules'
 import { checkFloor, refKey, DEFAULT_FLOOR_THRESHOLDS, type FloorThresholds, type FloorSourceVerdict } from './safety-floor'
+import { classifyRepoPath, type MembershipCtx } from './path-membership'
 
 export type RefreshArgs = {
   repoPath: string | null
@@ -26,12 +26,19 @@ export type RefreshArgs = {
 }
 
 const EMPTY_STATUS: EngineStatus = {
-  state: 'no-remote', ahead: 0, behind: 0, localChanges: 0, diffs: [], fetchedAt: null,
+  state: 'no-remote', ahead: 0, behind: 0, localChanges: 0, diffs: [], fetchedAt: null, foreignPaths: [],
 }
 
 export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
   const { repoPath, claudePath, cursorProjects, token } = args
   if (!repoPath || !existsSync(join(repoPath, '.git'))) return EMPTY_STATUS
+
+  const membershipCtx: MembershipCtx = {
+    claudeProjects: args.claudeProjects,
+    cursorProjects: args.cursorProjects,
+    syncGlobal: args.syncGlobal,
+  }
+  const foreignPaths: string[] = []
 
   const diffs: DiffEntry[] = []
 
@@ -59,29 +66,15 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
       }
     }
 
-    // HEAD entries with filtering by toggles.
+    // HEAD entries with filtering by toggles via classifyRepoPath.
     const headEntries = await enumHead(repoPath, 'claude/', 'claude/')
-    const filteredHead = headEntries.filter((h) => {
-      const rel = h.repoPath.startsWith('claude/') ? h.repoPath.slice('claude/'.length) : h.repoPath
-      if (!rel.startsWith('projects/')) {
-        if (rel === 'CLAUDE.md') return args.syncGlobal.claudeMd
-        if (rel === 'settings.json') return args.syncGlobal.settings
-        if (rel.startsWith('commands/')) return args.syncGlobal.commands
-        if (rel.startsWith('skills/')) return args.syncGlobal.skills
-        return true
-      }
-      const mDot = rel.match(/^projects\/([^/]+)\/\.claude\//)
-      if (mDot) {
-        const proj = args.claudeProjects.find((p) => p.name === mDot[1])
-        return !!proj && proj.syncDotClaude
-      }
-      const mMem = rel.match(/^projects\/([^/]+)\/memory\//)
-      if (mMem) {
-        const proj = args.claudeProjects.find((p) => p.name === mMem[1])
-        return !!proj && proj.syncMemory
-      }
-      return false
-    })
+    const filteredHead: typeof headEntries = []
+    for (const h of headEntries) {
+      const c = classifyRepoPath(h.repoPath, membershipCtx)
+      if ('ok' in c) filteredHead.push(h)
+      else if (c.skip === 'unknown-path') foreignPaths.push(h.repoPath)
+      // toggle-off / unregistered-project: excluded symmetrically (≠ deletion)
+    }
 
     // Group source entries by SourceRef, group HEAD entries similarly, run compare per group.
     const byRefKey = new Map<string, { ref: SourceRef; files: Entry['file'][] }>()
@@ -97,13 +90,8 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
       bucket.files.push(e.file)
     }
     function refForRepoPath(p: string): SourceRef | null {
-      const rel = p.startsWith('claude/') ? p.slice('claude/'.length) : p
-      if (!rel.startsWith('projects/')) return { kind: 'claude-global' }
-      const mDot = rel.match(/^projects\/([^/]+)\/\.claude\//)
-      if (mDot) return { kind: 'claude-project-dotclaude', projectName: mDot[1]! }
-      const mMem = rel.match(/^projects\/([^/]+)\/memory\//)
-      if (mMem) return { kind: 'claude-project-memory', projectName: mMem[1]! }
-      return null
+      const c = classifyRepoPath(p, membershipCtx)
+      return 'ok' in c ? c.ok.source : null
     }
     function refKeyForRepoPath(p: string): string {
       const ref = refForRepoPath(p)
@@ -175,7 +163,7 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
   else if (ahead > 0) state = 'ahead'
   else state = 'in-sync'
 
-  return { state, ahead, behind, localChanges, diffs, fetchedAt }
+  return { state, ahead, behind, localChanges, diffs, fetchedAt, foreignPaths }
 }
 
 export type PushPreview =
@@ -232,7 +220,7 @@ export async function computePushPreview(args: RefreshArgs): Promise<PushPreview
  *  entry belongs to a Cursor project that isn't registered on this machine —
  *  callers must treat this as "skip" rather than throw. This happens cross-
  *  machine when machine A pushed a project that machine B never registered. */
-function surfaceAbsPath(args: RefreshArgs, d: DiffEntry): string | null {
+function surfaceAbsPath(args: RefreshArgs, d: Pick<DiffEntry, 'source' | 'surfacePath'>): string | null {
   if (d.source.kind === 'claude-global') {
     if (!args.claudePath) return null
     return join(args.claudePath, d.surfacePath)
@@ -357,40 +345,14 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     i += 2
     if (!path) continue
 
-    let surfacePath: string
-    let source: SourceRef
-    if (path.startsWith('claude/')) {
-      const repoRel = path.slice('claude/'.length)
-      if (!repoRel.startsWith('projects/')) {
-        source = { kind: 'claude-global' }
-        if (repoRel === 'CLAUDE.md' && !args.syncGlobal.claudeMd) continue
-        if (repoRel === 'settings.json' && !args.syncGlobal.settings) continue
-        if (repoRel.startsWith('commands/') && !args.syncGlobal.commands) continue
-        if (repoRel.startsWith('skills/') && !args.syncGlobal.skills) continue
-        surfacePath = repoRel
-      } else {
-        const mDot = repoRel.match(/^projects\/([^/]+)\/\.claude\/(.*)$/)
-        const mMem = repoRel.match(/^projects\/([^/]+)\/(memory\/.*)$/)
-        if (mDot) {
-          const proj = args.claudeProjects.find((p) => p.name === mDot[1])
-          if (!proj || !proj.syncDotClaude) continue
-          source = { kind: 'claude-project-dotclaude', projectName: mDot[1]! }
-          surfacePath = `.claude/${mDot[2]!}`
-        } else if (mMem) {
-          const proj = args.claudeProjects.find((p) => p.name === mMem[1])
-          if (!proj || !proj.syncMemory) continue
-          source = { kind: 'claude-project-memory', projectName: mMem[1]! }
-          surfacePath = `projects/${encodeClaudeProjectSegment(proj.path)}/${mMem[2]!}`
-        } else {
-          continue
-        }
-      }
-    } else {
-      const m = path.match(/^cursor\/projects\/([^/]+)\/(.*)$/)
-      if (!m) continue
-      source = { kind: 'cursor-project', projectName: m[1]! }
-      surfacePath = m[2]!
-    }
+    const c = classifyRepoPath(path, {
+      claudeProjects: args.claudeProjects,
+      cursorProjects: args.cursorProjects,
+      syncGlobal: args.syncGlobal,
+    })
+    if (!('ok' in c)) continue // unknown-path / toggle-off / unregistered — symmetric with push
+    const source = c.ok.source
+    const surfacePath = c.ok.surfacePath
 
     let st: PreviewItem['status']
     if (status === 'A') st = 'added'
@@ -403,18 +365,7 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     if (st !== 'deleted' && sb && sb !== '0000000000000000000000000000000000000000') {
       newContent = await catFileBlob(args.repoPath!, sb)
     }
-    // Map repo path → source absolute path. Skip entries whose project
-    // is not registered on this machine: there's no source dir to read/write.
-    let srcAbs: string | null
-    if (source.kind === 'claude-global' || source.kind === 'claude-project-memory') {
-      srcAbs = args.claudePath ? join(args.claudePath, surfacePath) : null
-    } else if (source.kind === 'claude-project-dotclaude') {
-      const proj = args.claudeProjects.find((p) => p.name === source.projectName)
-      srcAbs = proj ? join(proj.path, surfacePath) : null
-    } else {
-      const proj = args.cursorProjects.find((p) => p.name === source.projectName)
-      srcAbs = proj ? join(proj.path, surfacePath) : null
-    }
+    const srcAbs = surfaceAbsPath(args, { source, surfacePath })
     if (!srcAbs) continue
     const currentContent = readSourceIfExists(srcAbs) ?? undefined
 

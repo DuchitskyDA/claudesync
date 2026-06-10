@@ -33,7 +33,8 @@ beforeEach(() => {
   git(remotePath, ['clone', '.', other])
   git(other, ['config', 'core.autocrlf', 'false'])
   writeFileSync(join(other, 'claude', 'CLAUDE.md'), 'v2 from other\n')
-  writeFileSync(join(other, 'claude', 'NEW.md'), 'new file\n')
+  mkdirSync(join(other, 'claude', 'commands'), { recursive: true })
+  writeFileSync(join(other, 'claude', 'commands', 'NEW.md'), 'new file\n')
   git(other, ['config', 'user.email', 'o@o']); git(other, ['config', 'user.name', 'o'])
   git(other, ['add', '-A']); git(other, ['commit', '-q', '-m', 'v2'])
   git(other, ['push', '-q'])
@@ -50,7 +51,7 @@ describe('Engine.pull', () => {
     if (preview.kind !== 'preview') throw new Error('expected preview')
     const claudeMd = preview.items.find((i) => i.repoPath === 'claude/CLAUDE.md')
     expect(claudeMd?.status).toBe('modified')
-    const newMd = preview.items.find((i) => i.repoPath === 'claude/NEW.md')
+    const newMd = preview.items.find((i) => i.repoPath === 'claude/commands/NEW.md')
     expect(newMd?.status).toBe('added')
 
     const r = await executePullApply({
@@ -60,7 +61,7 @@ describe('Engine.pull', () => {
     })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('v2 from other\n')
-    expect(readFileSync(join(claudePath, 'NEW.md'), 'utf8')).toBe('new file\n')
+    expect(readFileSync(join(claudePath, 'commands', 'NEW.md'), 'utf8')).toBe('new file\n')
   })
 
   it('blocks when diverged', async () => {
