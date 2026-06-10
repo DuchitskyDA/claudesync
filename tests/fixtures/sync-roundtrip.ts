@@ -245,13 +245,13 @@ export async function roundTrip(cfg: RoundTripConfig): Promise<RoundTripResult> 
       if (!tp) continue
       let toWrite = blob
       if (entry.surfacePath === '.claude/settings.json') {
-        toWrite = mergeSettingsForPull(blob, null)
+        toWrite = mergeSettingsForPull(blob, null) ?? blob
       }
       await applyToSource(join(tp, entry.surfacePath), toWrite)
     } else {
       let toWrite = blob
       if (entry.surfacePath === 'settings.json') {
-        toWrite = mergeSettingsForPull(blob, null)
+        toWrite = mergeSettingsForPull(blob, null) ?? blob
       }
       await applyToSource(join(targetHome, entry.surfacePath), toWrite)
     }

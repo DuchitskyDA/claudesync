@@ -31,15 +31,21 @@ export async function applyToSource(absPath: string, content: Buffer | null): Pr
  * - everything else (env + volatile telemetry) is preserved from the source.
  * If allow-list key exists in source but NOT in HEAD's blob, it's removed
  * (means another machine intentionally removed it).
+ *
+ * Returns null when currentSrc is present but unparseable (e.g. truncated
+ * mid-edit with env secrets). null means "skip this file" — callers must
+ * never overwrite in this case; the file will sync once it becomes valid JSON.
  */
-export function mergeSettingsForPull(headBlob: Buffer, currentSrc: Buffer | null): Buffer {
+export function mergeSettingsForPull(headBlob: Buffer, currentSrc: Buffer | null): Buffer | null {
   const newParsed = JSON.parse(headBlob.toString('utf8')) as Record<string, unknown>
   if (currentSrc === null) return headBlob
   let currentParsed: Record<string, unknown>
   try {
     currentParsed = JSON.parse(currentSrc.toString('utf8')) as Record<string, unknown>
   } catch {
-    return headBlob
+    // Local settings.json is unreadable mid-edit — overwriting it would
+    // destroy env secrets and local edits. Skip; it syncs once it parses.
+    return null
   }
   const result: Record<string, unknown> = { ...currentParsed }
   for (const key of SETTINGS_KEY_ALLOW_LIST) {

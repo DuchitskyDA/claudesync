@@ -31,6 +31,8 @@ export type FileEntry = {
 
 export type DiffStatus = 'added' | 'modified' | 'deleted' | 'same' | 'unreadable'
 
+export type PullItemStatus = DiffStatus | 'skipped-unreadable'
+
 export type DiffEntry = {
   source: SourceRef
   repoPath: string
@@ -40,7 +42,8 @@ export type DiffEntry = {
   headSha?: string
 }
 
-export type PreviewItem = DiffEntry & {
+export type PreviewItem = Omit<DiffEntry, 'status'> & {
+  status: PullItemStatus
   /** Raw file content from origin/main, ready to write to source. */
   newContent?: Buffer
   /** Current source content for "before" view, when available. */

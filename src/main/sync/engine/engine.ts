@@ -324,6 +324,9 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
   if (status.state === 'diverged') return { kind: 'diverged' }
   if (status.behind === 0) return { kind: 'nothing-to-pull' }
 
+  const unreadableNow = new Set(
+    status.diffs.filter((d) => d.status === 'unreadable').map((d) => d.repoPath))
+
   // git diff --raw HEAD..origin/main -- claude/ cursor/projects/<each>/
   const prefixes = ['claude/']
   for (const p of args.cursorProjects) prefixes.push(`cursor/projects/${p.name}/`)
@@ -376,6 +379,8 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     else if (status === 'D') st = 'deleted'
     else st = 'modified'
 
+    const finalStatus: PreviewItem['status'] = unreadableNow.has(path) ? 'skipped-unreadable' : st
+
     const sa = parts[2]
     const sb = parts[3]
     let newContent: Buffer | undefined
@@ -387,7 +392,7 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
     const currentContent = readSourceIfExists(srcAbs) ?? undefined
 
     items.push({
-      source, repoPath: path, surfacePath, status: st,
+      source, repoPath: path, surfacePath, status: finalStatus,
       sourceSha: sa, headSha: sb,
       newContent, currentContent,
     })
@@ -407,6 +412,8 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
   const deletionsSet = new Set(args.deletionsToApply)
 
   for (const item of preview.items) {
+    if (item.status === 'skipped-unreadable') continue
+
     const surfaceAbs = surfaceAbsPath(args, item)
     if (!surfaceAbs) continue  // unregistered cursor project — skip silently
 
@@ -425,7 +432,9 @@ export async function executePullApply(args: PullApplyArgs): Promise<{ kind: 'ok
       item.source.kind === 'claude-project-dotclaude' && item.surfacePath === '.claude/settings.json'
     if (isGlobalSettings || isProjectSettings) {
       const currentSrc = readSourceIfExists(surfaceAbs)
-      toWrite = mergeSettingsForPull(item.newContent, currentSrc)
+      const merged = mergeSettingsForPull(item.newContent, currentSrc)
+      if (merged === null) continue // unreadable local settings — skip, never overwrite
+      toWrite = merged
     }
     await applyToSource(surfaceAbs, toWrite)
   }
