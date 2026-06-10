@@ -204,8 +204,13 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
       targets.push({ f, abs: surfaceAbs })
     }
 
-    const session = beginSnapshot(args.userDataDir, 'resolve')
-    for (const t of targets) session.preserve(t.abs)
+    let session
+    try {
+      session = beginSnapshot(args.userDataDir, 'resolve')
+      for (const t of targets) session.preserve(t.abs)
+    } catch (e) {
+      return { kind: 'error', message: `snapshot/resolve failed: ${(e as Error).message}` }
+    }
 
     // 2. Write source
     for (const t of targets) await applyToSource(t.abs, finalContent(t.f))
