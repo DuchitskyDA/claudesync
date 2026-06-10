@@ -85,4 +85,39 @@ describe('Resolver', () => {
     const log = spawnSync('git', ['--git-dir', remotePath, 'log', '--pretty=%P', '-n', '1', 'main'], { encoding: 'utf8' })
     expect(log.stdout.trim().split(' ')).toHaveLength(2)
   })
+
+  it('manual choice without editedContent returns validation error and does not modify source', async () => {
+    const state = await computeResolverState({
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
+    })
+    // Preserve source content before resolution
+    const filePath = join(claudePath, 'CLAUDE.md')
+    const contentBefore = readFileSync(filePath)
+
+    // Get HEAD SHA before
+    const headBefore = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf8' })
+    const headShaBefore = headBefore.stdout.trim()
+
+    // Set choice to manual but do NOT set editedContent
+    state.files[0]!.choice = 'manual'
+    // editedContent is undefined, which is what we want to test
+
+    const r = await executeResolve({
+      repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
+      commitMessage: 'attempt manual without content', resolutions: state,
+    })
+
+    // Expect validation error
+    expect(r.kind).toBe('error')
+    expect(r.message).toMatch(/manual/i)
+
+    // Verify source was not modified
+    const contentAfter = readFileSync(filePath)
+    expect(contentAfter).toEqual(contentBefore)
+
+    // Verify HEAD did not move
+    const headAfter = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf8' })
+    const headShaAfter = headAfter.stdout.trim()
+    expect(headShaAfter).toBe(headShaBefore)
+  })
 })

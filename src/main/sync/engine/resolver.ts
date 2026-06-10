@@ -186,6 +186,13 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
   const { repoPath, resolutions } = args
   const indexFile = join(repoPath, '.git', `tmp-index-${process.pid}-${Date.now()}`)
   try {
+    // 0. Validate: manual choice must have editedContent
+    for (const f of resolutions.files) {
+      if (f.choice === 'manual' && !f.editedContent) {
+        return { kind: 'error', message: `manual resolution for ${f.repoPath} has no content` }
+      }
+    }
+
     // 1. Collect targets and preserve before any mutation
     const targets: Array<{ f: ResolverFile; abs: string }> = []
     for (const f of resolutions.files) {
