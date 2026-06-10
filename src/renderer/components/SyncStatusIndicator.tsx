@@ -343,6 +343,7 @@ function StateSummary({ status }: { status: SyncStatus }) {
       cls: 'text-foreground',
     })
   }
+  const foreignCount = status.foreignPaths?.length ?? 0
   return (
     <div className="space-y-1">
       {lines.map((l) => (
@@ -351,6 +352,12 @@ function StateSummary({ status }: { status: SyncStatus }) {
           <span className={cn('tabular-nums font-medium', l.cls)}>{l.value}</span>
         </div>
       ))}
+      {foreignCount > 0 && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-amber-600 dark:text-amber-500">{t('sync.popover.foreignPaths')}</span>
+          <span className="tabular-nums font-medium text-amber-600 dark:text-amber-500">{foreignCount}</span>
+        </div>
+      )}
     </div>
   )
 }

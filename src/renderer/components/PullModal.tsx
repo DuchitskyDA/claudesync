@@ -29,6 +29,7 @@ export function PullModal({ open, preview, onClose, onApply }: Props) {
   const added = items.filter((i) => i.status === 'added')
   const modified = items.filter((i) => i.status === 'modified')
   const deleted = items.filter((i) => i.status === 'deleted')
+  const skipped = items.filter((i) => i.status === 'skipped-unreadable')
 
   const toggleDeletion = (path: string) => {
     setAcceptedDeletions((s) => {
@@ -109,6 +110,22 @@ export function PullModal({ open, preview, onClose, onApply }: Props) {
                       {i.repoPath}
                     </span>
                   </label>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {skipped.length > 0 && (
+            <section>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-500">
+                {t('pull.modal.skipped', { n: skipped.length })}
+              </h3>
+              <p className="text-xs text-muted-foreground mb-2">{t('pull.modal.skippedHint')}</p>
+              <div className="max-h-32 min-w-0 overflow-y-auto rounded-md border border-amber-500/40 p-2 font-mono text-xs">
+                {skipped.map((i) => (
+                  <div key={i.repoPath} className="truncate" title={i.repoPath}>
+                    {i.repoPath}
+                  </div>
                 ))}
               </div>
             </section>

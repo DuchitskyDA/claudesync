@@ -42,5 +42,6 @@ export async function getSyncStatus(opts: SyncStatusOpts): Promise<SyncStatus> {
     fetchedAt: s.fetchedAt,
   }
   if (s.errorKey) out.errorKey = s.errorKey
+  if (s.foreignPaths.length > 0) out.foreignPaths = s.foreignPaths
   return out
 }

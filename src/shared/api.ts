@@ -371,6 +371,8 @@ export type SyncStatus = {
   errorKey?: string
   /** true when a mutating operation is in progress; status is stale/cached */
   busy?: boolean
+  /** repo paths that don't belong to any registered sync target on this machine */
+  foreignPaths?: string[]
 }
 
 export type UpdateProgressEvent =
