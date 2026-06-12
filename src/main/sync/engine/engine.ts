@@ -1,12 +1,11 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import type { ClaudeProject, CursorProject, ClaudeConfig } from '@shared/api'
 import type { EngineStatus, DiffEntry, SourceRef, PreviewItem } from '@shared/sync-types'
 import { enumClaudeSource, enumCursorProjectSource, readSourceForCommit, enumClaudeProjectDotClaudeSource, repoPathUnderFailed } from './source-enum'
 import { enumHead } from './head-enum'
 import { compare } from './comparator'
-import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob } from './git-ops'
+import { fetchOrigin, revListCount, revParse, pushOrigin, updateRef, syncWtToHead, classifyRemoteError, catFileBlob, diffRawZ } from './git-ops'
 import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
 import { checkFloor, refKey, DEFAULT_FLOOR_THRESHOLDS, type FloorThresholds, type FloorSourceVerdict } from './safety-floor'
@@ -333,26 +332,7 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
   for (const p of args.cursorProjects) prefixes.push(`cursor/projects/${p.name}/`)
   const items: PreviewItem[] = []
 
-  const diff = await new Promise<string>((resolve, reject) => {
-    const proc = spawn(
-      'git',
-      ['-C', args.repoPath!, 'diff', '--raw', '-z', 'HEAD..origin/main', '--', ...prefixes],
-      {
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_ASKPASS: '',
-          GCM_INTERACTIVE: 'Never',
-        } as NodeJS.ProcessEnv,
-      },
-    )
-    let out = ''
-    let err = ''
-    proc.stdout.on('data', (b) => out += b.toString())
-    proc.stderr.on('data', (b) => err += b.toString())
-    proc.on('exit', (code) => code === 0 ? resolve(out) : reject(new Error(`git diff exit ${code}: ${err.trim()}`)))
-    proc.on('error', reject)
-  })
+  const diff = await diffRawZ(args.repoPath!, 'HEAD..origin/main', prefixes)
   // diff --raw -z output: records separated by \0, each is
   //   ":<modea> <modeb> <shaa> <shab> <status>\0<path>\0"   for non-rename
   const tokens = diff.split('\0').filter(Boolean)

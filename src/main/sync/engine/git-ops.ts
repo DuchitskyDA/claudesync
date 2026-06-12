@@ -1,5 +1,7 @@
 // src/main/sync/engine/git-ops.ts
 import { spawn } from 'node:child_process'
+import { statSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 
 export type LsTreeEntry = {
   mode: '100644' | '100755'
@@ -20,11 +22,65 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
   GCM_INTERACTIVE: 'Never',
 }
 
+/** A git process exceeded its timeout and was SIGKILLed. Callers that return
+ *  result objects (e.g. pushOrigin) convert this into ok:false; everyone else
+ *  lets it propagate like any other git failure. The op-lock is safe either
+ *  way — withExclusiveLock releases in finally, only a never-settling promise
+ *  starves it. */
+export class GitTimeoutError extends Error {}
+
+/** Local plumbing (ls-tree, read-tree, diff, …) — generous, these are
+ *  filesystem-only and normally finish in milliseconds. */
+export const PLUMBING_TIMEOUT_MS = 30_000
+/** Network push — large first pushes are legal, but a credential prompt or a
+ *  dead connection must not hold the op-lock forever. */
+export const PUSH_TIMEOUT_MS = 60_000
+
+/** Best-effort removal of .git lock files a SIGKILLed git can leave behind
+ *  (notably on Windows, where kill is TerminateProcess — no cleanup handlers
+ *  run). Only locks with mtime newer than our spawn start are touched, so a
+ *  lock owned by a concurrent manual git is never deleted. Leftover locks fail
+ *  fast on the next op rather than hang, so this is QoL, not correctness. */
+function cleanupStaleGitLocks(repoPath: string, sinceMs: number, indexFile?: string): void {
+  const candidates = [
+    join(repoPath, '.git', 'index.lock'),
+    join(repoPath, '.git', 'packed-refs.lock'),
+    join(repoPath, '.git', 'config.lock'),
+    join(repoPath, '.git', 'HEAD.lock'),
+    join(repoPath, '.git', 'shallow.lock'),
+    join(repoPath, '.git', 'refs', 'heads', 'main.lock'),
+    join(repoPath, '.git', 'refs', 'remotes', 'origin', 'main.lock'),
+  ]
+  if (indexFile) candidates.push(`${indexFile}.lock`)
+  for (const p of candidates) {
+    try {
+      // 2s slack for filesystem mtime granularity vs Date.now().
+      if (statSync(p).mtimeMs >= sinceMs - 2000) unlinkSync(p)
+    } catch { /* missing or unreadable — nothing to clean */ }
+  }
+}
+
+/** Kill a timed-out git. On Windows SIGKILL is TerminateProcess on the parent
+ *  only — an orphaned git-remote-http child would keep the network op running
+ *  (and keep repo handles open), so kill the whole tree via taskkill. POSIX
+ *  keeps plain SIGKILL — same semantics fetchOrigin always had. */
+function killGitTree(proc: ReturnType<typeof spawn>): void {
+  if (process.platform === 'win32' && proc.pid) {
+    try {
+      spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
+      return
+    } catch { /* fall through to plain kill */ }
+  }
+  try { proc.kill('SIGKILL') } catch { /* already gone */ }
+}
+
 function runGit(
   cwd: string,
   args: string[],
-  opts: { stdin?: Buffer; env?: Record<string, string> } = {},
+  opts: { stdin?: Buffer; env?: Record<string, string>; timeoutMs?: number } = {},
 ): Promise<{ exitCode: number; stdout: Buffer; stderr: string }> {
+  const timeoutMs = opts.timeoutMs ?? PLUMBING_TIMEOUT_MS
+  const startedAt = Date.now()
   return new Promise((resolve, reject) => {
     const proc = spawn('git', args, {
       cwd,
@@ -33,11 +89,29 @@ function runGit(
     })
     const out: Buffer[] = []
     let err = ''
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      killGitTree(proc)
+      // Clean locks only after the killed process actually releases its
+      // handles; if it never exits there is nothing safe to do anyway.
+      proc.once('exit', () => cleanupStaleGitLocks(cwd, startedAt, opts.env?.GIT_INDEX_FILE))
+      reject(new GitTimeoutError(`git ${args.join(' ')} timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
     proc.stdout.on('data', (b: Buffer) => out.push(b))
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (s: string) => { err += s })
-    proc.on('error', reject)
+    proc.on('error', (e) => {
+      clearTimeout(timer)
+      if (settled) return
+      settled = true
+      reject(e)
+    })
     proc.on('exit', (code) => {
+      clearTimeout(timer)
+      if (settled) return
+      settled = true
       resolve({ exitCode: code ?? 1, stdout: Buffer.concat(out), stderr: err })
     })
     if (opts.stdin) {
@@ -87,7 +161,7 @@ export async function hashObjectWrite(repoPath: string, content: Buffer): Promis
 }
 
 /** Internal — used by index-builder etc. */
-export const _internal = { runGit }
+export const _internal = { runGit, cleanupStaleGitLocks }
 
 export async function readTreeIntoIndex(repoPath: string, ref: string, indexFile: string): Promise<void> {
   const r = await runGit(repoPath, ['read-tree', ref], { env: { GIT_INDEX_FILE: indexFile } })
@@ -209,6 +283,7 @@ function authArgs(token: string | null): string[] {
 }
 
 export async function fetchOrigin(repoPath: string, token: string | null, timeoutMs = 8000): Promise<{ ok: boolean; stderr: string }> {
+  const startedAt = Date.now()
   return new Promise((resolve) => {
     const proc = spawn(
       'git',
@@ -218,16 +293,39 @@ export async function fetchOrigin(repoPath: string, token: string | null, timeou
     let stderr = ''
     let settled = false
     const settle = (ok: boolean) => { if (settled) return; settled = true; resolve({ ok, stderr }) }
-    const t = setTimeout(() => { try { proc.kill('SIGKILL') } catch {/*noop*/} settle(false) }, timeoutMs)
+    const t = setTimeout(() => {
+      killGitTree(proc)
+      proc.once('exit', () => cleanupStaleGitLocks(repoPath, startedAt))
+      settle(false)
+    }, timeoutMs)
     proc.stderr?.on('data', (b: Buffer) => { stderr += b.toString() })
     proc.on('exit', (code: number | null) => { clearTimeout(t); settle(code === 0) })
     proc.on('error', () => { clearTimeout(t); settle(false) })
   })
 }
 
-export async function pushOrigin(repoPath: string, branch: string, token: string | null): Promise<{ ok: boolean; stderr: string }> {
-  const r = await _internal.runGit(repoPath, [...authArgs(token), 'push', 'origin', branch])
-  return { ok: r.exitCode === 0, stderr: r.stderr }
+export async function pushOrigin(
+  repoPath: string,
+  branch: string,
+  token: string | null,
+  timeoutMs = PUSH_TIMEOUT_MS,
+): Promise<{ ok: boolean; stderr: string }> {
+  try {
+    const r = await _internal.runGit(repoPath, [...authArgs(token), 'push', 'origin', branch], { timeoutMs })
+    return { ok: r.exitCode === 0, stderr: r.stderr }
+  } catch (e) {
+    if (e instanceof GitTimeoutError) return { ok: false, stderr: e.message }
+    throw e
+  }
+}
+
+/** `git diff --raw -z <range> -- <prefixes...>` → raw stdout (utf8).
+ *  Replaces the former inline spawn in computePullPreview — same command, env
+ *  and error message, but with the standard plumbing timeout. */
+export async function diffRawZ(repoPath: string, range: string, prefixes: string[]): Promise<string> {
+  const r = await _internal.runGit(repoPath, ['diff', '--raw', '-z', range, '--', ...prefixes])
+  if (r.exitCode !== 0) throw new Error(`git diff exit ${r.exitCode}: ${r.stderr.trim()}`)
+  return r.stdout.toString('utf8')
 }
 
 export async function mergeBase(repoPath: string, a: string, b: string): Promise<string> {
