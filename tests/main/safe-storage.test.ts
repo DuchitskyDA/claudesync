@@ -54,7 +54,10 @@ describe('safe-storage on macOS (no Keychain — plaintext + 0600)', () => {
     expect(encryptStringMock).not.toHaveBeenCalled()
   })
 
-  it('saveToken sets file permissions to 0600', () => {
+  // POSIX file modes don't exist on Windows: chmod(0600) is a no-op there
+  // and statSync reports 0666, so this assertion is only meaningful on a
+  // real darwin/linux host (CI runs ubuntu — coverage is kept there).
+  it.skipIf(originalPlatform === 'win32')('saveToken sets file permissions to 0600', () => {
     saveToken(dir, 'gho_abc123')
     const path = join(dir, 'github-credentials.bin')
     const mode = statSync(path).mode & 0o777
@@ -79,7 +82,11 @@ describe('safe-storage on macOS (no Keychain — plaintext + 0600)', () => {
     // After load, the file must be rewritten as plaintext+0600 so the next
     // launch never has to talk to the keychain again.
     expect(readFileSync(path, 'utf8')).toBe('plaintext:gho_legacy')
-    expect(statSync(path).mode & 0o777).toBe(0o600)
+    if (originalPlatform !== 'win32') {
+      // chmod is a no-op on Windows (mode reads back 0666) — the migration
+      // behavior above is still verified there; only the mode bits are not.
+      expect(statSync(path).mode & 0o777).toBe(0o600)
+    }
 
     // Subsequent load (cache cleared) reads plaintext directly.
     _resetCache()
