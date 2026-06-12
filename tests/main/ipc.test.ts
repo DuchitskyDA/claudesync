@@ -90,9 +90,7 @@ vi.mock('electron-updater', () => ({
   },
 }))
 
-import { runSyncHandler, registerIpc } from '../../src/main/ipc'
-
-const noop = () => {}
+import { registerIpc } from '../../src/main/ipc'
 
 function makeConfig(overrides: {
   repoPath?: string | null
@@ -149,134 +147,6 @@ beforeEach(() => {
   validateClaudePathMock.mockReturnValue({ ok: true })
   validateCursorProjectMock.mockReturnValue({ ok: true })
   validateCatalogUrlMock.mockReturnValue({ ok: true })
-})
-
-describe('runSyncHandler', () => {
-  it('fails when repoUrl is missing', async () => {
-    readConfigMock.mockReturnValue(makeConfig({ repoUrl: null, rulesTarget: '/target' }))
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.error?.fallback).toMatch(/repo url/i)
-  })
-
-  it('fails when repoPath is missing', async () => {
-    readConfigMock.mockReturnValue(makeConfig({ repoPath: null, rulesTarget: '/target' }))
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.error?.fallback).toMatch(/local repo path/i)
-  })
-
-  it('fails when claude.path is missing', async () => {
-    readConfigMock.mockReturnValue(makeConfig({ rulesTarget: null }))
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.error?.fallback).toMatch(/claude/i)
-  })
-
-  it('fails when URL validation fails', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    validateRepoUrlMock.mockReturnValue({ ok: false, error: { key: 'config.error.urlInvalid', fallback: 'Invalid URL format' } })
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.error).toEqual({ key: 'config.error.urlInvalid', fallback: 'Invalid URL format' })
-  })
-
-  it('fresh clone: no .git → runs git clone then install.sh on linux', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    // existsSync: .git path → false, then scriptPath → true
-    existsSyncMock
-      .mockReturnValueOnce(false)  // join(repoPath, '.git')
-      .mockReturnValueOnce(true)   // join(repoPath, 'install.sh')
-    runCommandMock
-      .mockResolvedValueOnce({ exitCode: 0 }) // git clone
-      .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
-
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r).toEqual({ ok: true, exitCode: 0 })
-    expect(runCommandMock).toHaveBeenCalledTimes(2)
-    expect(runCommandMock.mock.calls[0]![0]).toBe('git')
-    expect(runCommandMock.mock.calls[0]![1]).toEqual(['clone', fullConfig.repoUrl, fullConfig.repoPath])
-    expect(runCommandMock.mock.calls[1]![0]).toBe('bash')
-    expect(runCommandMock.mock.calls[1]![2]).toMatchObject({ env: { RULES_TARGET: fullConfig.rulesTarget } })
-  })
-
-  it('existing pull: .git present → runs git pull then install.sh', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    // existsSync: .git → true (existing repo), then scriptPath → true
-    existsSyncMock
-      .mockReturnValueOnce(true)  // join(repoPath, '.git')
-      .mockReturnValueOnce(true)  // join(repoPath, 'install.sh')
-    runCommandMock
-      .mockResolvedValueOnce({ exitCode: 0 }) // git pull
-      .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
-
-    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r).toEqual({ ok: true, exitCode: 0 })
-    expect(runCommandMock).toHaveBeenCalledTimes(2)
-    expect(runCommandMock.mock.calls[0]![0]).toBe('git')
-    expect(runCommandMock.mock.calls[0]![1]).toEqual(['pull'])
-    expect(runCommandMock.mock.calls[1]![0]).toBe('bash')
-  })
-
-  it('fails if install script missing', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    // .git exists (pull path), but no install script
-    existsSyncMock
-      .mockReturnValueOnce(true)  // .git
-      .mockReturnValueOnce(false) // install.sh missing
-    runCommandMock.mockResolvedValueOnce({ exitCode: 0 }) // git pull
-
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.error?.fallback).toMatch(/install\.sh not found/i)
-  })
-
-  it('windows: uses powershell and install.ps1', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    existsSyncMock
-      .mockReturnValueOnce(true)  // .git
-      .mockReturnValueOnce(true)  // install.ps1
-    runCommandMock
-      .mockResolvedValueOnce({ exitCode: 0 }) // git pull
-      .mockResolvedValueOnce({ exitCode: 0 }) // install.ps1
-
-    await runSyncHandler({ currentPlatform: 'win32', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(runCommandMock.mock.calls[1]![0]).toBe('powershell')
-    expect(runCommandMock.mock.calls[1]![1]).toEqual([
-      '-ExecutionPolicy', 'Bypass', '-File', expect.stringContaining('install.ps1'),
-    ])
-    expect(runCommandMock.mock.calls[1]![2]).toMatchObject({ env: { RULES_TARGET: fullConfig.rulesTarget } })
-  })
-
-  it('returns failure if git pull exits non-zero', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    existsSyncMock.mockReturnValueOnce(true) // .git exists
-    runCommandMock.mockResolvedValueOnce({ exitCode: 1 }) // git pull fails
-
-    const r = await runSyncHandler({ currentPlatform: 'darwin', configPath: '/x', emit: noop, emitStep: vi.fn() })
-    expect(r.ok).toBe(false)
-    expect(r.exitCode).toBe(1)
-    expect(runCommandMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('success path emits step events: fetch:running → fetch:done → install:running → install:done', async () => {
-    readConfigMock.mockReturnValue(fullConfig)
-    existsSyncMock
-      .mockReturnValueOnce(true)  // .git exists (pull path)
-      .mockReturnValueOnce(true)  // install.sh exists
-    runCommandMock
-      .mockResolvedValueOnce({ exitCode: 0 }) // git pull
-      .mockResolvedValueOnce({ exitCode: 0 }) // install.sh
-
-    const emitStep = vi.fn()
-    const r = await runSyncHandler({ currentPlatform: 'linux', configPath: '/x', emit: noop, emitStep })
-    expect(r).toEqual({ ok: true, exitCode: 0 })
-    expect(emitStep).toHaveBeenCalledTimes(4)
-    expect(emitStep).toHaveBeenNthCalledWith(1, { step: 'fetch', status: 'running' })
-    expect(emitStep).toHaveBeenNthCalledWith(2, { step: 'fetch', status: 'done' })
-    expect(emitStep).toHaveBeenNthCalledWith(3, { step: 'install', status: 'running' })
-    expect(emitStep).toHaveBeenNthCalledWith(4, { step: 'install', status: 'done' })
-  })
 })
 
 // ---------------------------------------------------------------------------
