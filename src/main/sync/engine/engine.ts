@@ -10,6 +10,7 @@ import { buildAndCommitFromSource } from './index-builder'
 import { applyToSource, mergeSettingsForPull, readSourceIfExists } from './pull-apply'
 import { checkFloor, refKey, DEFAULT_FLOOR_THRESHOLDS, type FloorThresholds, type FloorSourceVerdict } from './safety-floor'
 import { classifyRepoPath, type MembershipCtx } from './path-membership'
+import { projectDotClaudeIsGlobal } from './rules'
 import { beginSnapshot } from './safety-snapshot'
 
 export type RefreshArgs = {
@@ -37,6 +38,7 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
     claudeProjects: args.claudeProjects,
     cursorProjects: args.cursorProjects,
     syncGlobal: args.syncGlobal,
+    claudePath: args.claudePath,
   }
   const foreignPaths: string[] = []
 
@@ -60,6 +62,9 @@ export async function refreshStatus(args: RefreshArgs): Promise<EngineStatus> {
     const dotFailed: string[] = []
     for (const proj of args.claudeProjects) {
       if (!proj.syncDotClaude) continue
+      // Skip a project whose .claude IS the global ~/.claude (e.g. home dir) —
+      // enumerating it would duplicate the entire global config.
+      if (projectDotClaudeIsGlobal(proj.path, claudePath)) continue
       const dotRes = await enumClaudeProjectDotClaudeSource(proj.path, proj.name)
       for (const u of dotRes.unreadable) unreadableSet.add(u)
       dotFailed.push(...dotRes.failed)
@@ -350,6 +355,7 @@ export async function computePullPreview(args: RefreshArgs): Promise<PullPreview
       claudeProjects: args.claudeProjects,
       cursorProjects: args.cursorProjects,
       syncGlobal: args.syncGlobal,
+      claudePath: args.claudePath,
     })
     if (!('ok' in c)) continue // unknown-path / toggle-off / unregistered — symmetric with push
     const source = c.ok.source

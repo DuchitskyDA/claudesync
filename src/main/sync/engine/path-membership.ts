@@ -5,12 +5,16 @@
 // replace the internals of classifyRepoPath without touching its callers.
 import type { ClaudeProject, CursorProject, ClaudeGlobalSyncFlags } from '@shared/api'
 import type { SourceRef } from '@shared/sync-types'
-import { encodeClaudeProjectSegment } from './rules'
+import { encodeClaudeProjectSegment, projectDotClaudeIsGlobal } from './rules'
 
 export type MembershipCtx = {
   claudeProjects: ClaudeProject[]
   cursorProjects: CursorProject[]
   syncGlobal: ClaudeGlobalSyncFlags
+  /** Global ~/.claude path. Used to skip a project whose own .claude IS the
+   *  global dir (would otherwise duplicate the global config). Optional —
+   *  absent means the guard is inactive (callers that don't sync projects). */
+  claudePath?: string | null
 }
 
 export type Classified =
@@ -34,6 +38,9 @@ export function classifyRepoPath(repoPath: string, ctx: MembershipCtx): Classifi
       const proj = ctx.claudeProjects.find((p) => p.name === mDot[1])
       if (!proj) return { skip: 'unregistered-project' }
       if (!proj.syncDotClaude) return { skip: 'toggle-off' }
+      // A project whose .claude IS the global dir would duplicate the global
+      // config — never a member.
+      if (projectDotClaudeIsGlobal(proj.path, ctx.claudePath)) return { skip: 'toggle-off' }
       return {
         ok: {
           source: { kind: 'claude-project-dotclaude', projectName: mDot[1]! },

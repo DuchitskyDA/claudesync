@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { classifyRepoPath, type MembershipCtx } from '../../../src/main/sync/engine/path-membership'
 import { encodeClaudeProjectSegment } from '../../../src/main/sync/engine/rules'
 
@@ -54,6 +56,18 @@ describe('classifyRepoPath', () => {
       ok: { source: { kind: 'claude-project-dotclaude', projectName: 'erp' }, surfacePath: '.claude/CLAUDE.md' },
     })
     expect(classifyRepoPath('claude/projects/web/.claude/CLAUDE.md', ctx)).toEqual({ skip: 'toggle-off' })
+  })
+
+  it('project .claude that IS the global dir (home) → toggle-off (no duplication)', () => {
+    const home = join(tmpdir(), 'cs-pm-home')
+    const homeCtx: MembershipCtx = {
+      claudeProjects: [{ name: 'Home', path: home, syncMemory: true, syncDotClaude: true }],
+      cursorProjects: [],
+      syncGlobal: allOn,
+      claudePath: join(home, '.claude'),
+    }
+    expect(classifyRepoPath('claude/projects/Home/.claude/skills/x/SKILL.md', homeCtx))
+      .toEqual({ skip: 'toggle-off' })
   })
 
   it('cursor: registered → ok, unregistered → unregistered-project', () => {

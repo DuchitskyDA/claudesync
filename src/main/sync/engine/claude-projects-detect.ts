@@ -9,10 +9,10 @@
 // user has already registered (matched by absolute path or by name).
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { ClaudeProject } from '@shared/api'
-import { decodeClaudeProjectSegment, defaultClaudeProjectName } from './rules'
+import { projectDotClaudeIsGlobal } from './rules'
 
 /** Find encoded project dirs under <claudePath>/projects/ that look like real
  *  Claude-Code projects. The signal is either a session log (`*.jsonl`) — Claude
@@ -53,6 +53,42 @@ function shortHash(s: string): string {
   return createHash('sha256').update(s).digest('hex').slice(0, 4)
 }
 
+/** Recover the real on-disk absolute path from a Claude-Code-encoded project
+ *  segment, probing the filesystem to disambiguate a literal '-' in a folder
+ *  name from a path separator (the encoding is lossy — both map to '-').
+ *  Returns null when nothing on this machine matches (e.g. a segment encoding
+ *  another machine's path). */
+export function resolveEncodedProjectPath(encoded: string): string | null {
+  let root: string
+  let rest: string
+  const win = encoded.match(/^([A-Za-z])--(.*)$/)
+  if (win) {
+    root = `${win[1]}:\\`
+    rest = win[2]!
+  } else if (encoded.startsWith('-')) {
+    root = '/'
+    rest = encoded.slice(1)
+  } else {
+    return null
+  }
+  if (rest === '') return existsSync(root) ? root : null
+  return probeSegments(root, rest.split('-'), 0)
+}
+
+/** Depth-first match of the remaining tokens against real directories under
+ *  `dir`. Shortest candidate first → treat most '-' as separators (the common
+ *  case), falling back to longer joins only when the short dir doesn't exist. */
+function probeSegments(dir: string, tokens: string[], i: number): string | null {
+  if (i === tokens.length) return existsSync(dir) ? dir : null
+  for (let j = i; j < tokens.length; j++) {
+    const child = join(dir, tokens.slice(i, j + 1).join('-'))
+    if (!existsSync(child)) continue
+    const found = probeSegments(child, tokens, j + 1)
+    if (found !== null) return found
+  }
+  return null
+}
+
 /** Merge auto-detected projects into the existing registry. Returns the new
  *  list. Existing entries are preserved as-is; new entries are appended with
  *  basename-derived names, suffixed by a short path hash when the basename
@@ -67,13 +103,17 @@ export function detectClaudeProjects(
   const additions: ClaudeProject[] = []
 
   for (const encoded of encodedDirs) {
-    const absPath = decodeClaudeProjectSegment(encoded)
+    // Probe the filesystem to recover the real path — handles folder names
+    // containing '-' (which the lossy encoding can't distinguish from a
+    // separator) and naturally skips segments whose path isn't on this
+    // machine (resolves to null). The user can still add those manually.
+    const absPath = resolveEncodedProjectPath(encoded)
+    if (absPath === null) continue
+    // Skip a path whose .claude IS the global ~/.claude (e.g. the home dir) —
+    // registering it would duplicate the entire global config on sync.
+    if (projectDotClaudeIsGlobal(absPath, claudePath)) continue
     if (byPath.has(absPath)) continue
-    // Skip when the decoded path obviously doesn't exist on this machine —
-    // those are entries from old projects we shouldn't auto-register. The
-    // user can still add them manually if they want.
-    if (!existsSync(absPath)) continue
-    let name = defaultClaudeProjectName(encoded)
+    let name = basename(absPath)
     if (usedNames.has(name)) name = `${name}-${shortHash(absPath)}`
     usedNames.add(name)
     byPath.add(absPath)

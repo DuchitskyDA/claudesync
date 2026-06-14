@@ -1,4 +1,5 @@
 // src/main/sync/engine/rules.ts
+import { join, resolve } from 'node:path'
 import type { ClaudeGlobalSyncFlags } from '@shared/api'
 
 /** Top-level entries within ~/.claude that are synced into the repo. */
@@ -183,6 +184,27 @@ export function decodeClaudeProjectSegment(encoded: string): string {
 export function defaultClaudeProjectName(encoded: string): string {
   const i = encoded.lastIndexOf('-')
   return i < 0 ? encoded : encoded.slice(i + 1)
+}
+
+/** Separator-normalized path equality (case-insensitive on Windows). */
+export function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  const norm = (p: string): string => {
+    const r = resolve(p).replace(/[\\/]+$/, '')
+    return process.platform === 'win32' ? r.toLowerCase() : r
+  }
+  return norm(a) === norm(b)
+}
+
+/** True when a registered project's own .claude dir IS the global ~/.claude
+ *  (e.g. the project path is the home dir). Syncing such a project's .claude
+ *  would duplicate the entire global config under projects/<name>/.claude/,
+ *  so detection and the engine must skip it. */
+export function projectDotClaudeIsGlobal(
+  projectPath: string,
+  claudePath: string | null | undefined,
+): boolean {
+  return samePath(join(projectPath, '.claude'), claudePath)
 }
 
 /** Cursor sync paths inside a project root. */
