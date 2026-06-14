@@ -59,7 +59,7 @@ describe('sweepEngineState', () => {
       sn.preserve(dummyFile)
       sn.commit()
       const entries = readdirSync(snapDir).sort()
-      sessionDirs.push(entries[entries.length - 1])
+      sessionDirs.push(entries[entries.length - 1]!)
     }
     // Backdate all sessions to > 30 days ago; then the oldest (first) is a candidate
     for (const name of sessionDirs) {

@@ -109,7 +109,7 @@ describe('Resolver', () => {
 
     // Expect validation error
     expect(r.kind).toBe('error')
-    expect(r.message).toMatch(/manual/i)
+    if (r.kind === 'error') expect(r.message).toMatch(/manual/i)
 
     // Verify source was not modified
     const contentAfter = readFileSync(filePath)
