@@ -74,5 +74,25 @@ describe('runCommand stderr and exit codes', () => {
       env: expect.objectContaining({ FOO: 'bar' }),
     }))
   })
+
+  it('kills the process and resolves non-zero when it exceeds timeoutMs', async () => {
+    const proc = new EventEmitter() as EventEmitter & {
+      stdout: Readable; stderr: Readable; kill: ReturnType<typeof vi.fn>
+    }
+    proc.stdout = Readable.from([])
+    proc.stderr = Readable.from([])
+    // Never emits 'exit' on its own — only a kill (timeout) ends it.
+    proc.kill = vi.fn(() => { proc.emit('exit', null) })
+    spawnMock.mockReturnValue(proc)
+    const r = await runCommand('sleep', ['60'], { cwd: '/tmp', onLine: () => {}, timeoutMs: 50 })
+    expect(proc.kill).toHaveBeenCalled()
+    expect(r.exitCode).not.toBe(0)
+  })
+
+  it('does not arm a timer when timeoutMs is absent (default unchanged)', async () => {
+    spawnMock.mockReturnValue(fakeProc(['ok\n'], [], 0))
+    const r = await runCommand('echo', ['hi'], { cwd: '/tmp', onLine: () => {} })
+    expect(r.exitCode).toBe(0)
+  })
 })
 

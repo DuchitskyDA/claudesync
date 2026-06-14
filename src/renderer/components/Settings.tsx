@@ -315,6 +315,9 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                       <p className="text-xs text-muted-foreground">
                         {t('settings.claude.projects.description')}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('settings.claude.projects.folderHint')}
+                      </p>
                     </div>
                     <Button
                       type="button"
@@ -422,6 +425,7 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
             {tab === 'cursor' && (
               <>
                 <p className="text-xs text-muted-foreground">{t('settings.cursor.description')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.cursor.projects.folderHint')}</p>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"

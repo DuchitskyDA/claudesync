@@ -6,6 +6,11 @@ export type RunOptions = {
   cwd: string
   env?: Record<string, string>
   onLine: (line: LogLine) => void
+  /** If set, SIGKILL the process after this many ms and resolve with a
+   *  non-zero exit code instead of hanging forever. Off by default — callers
+   *  that spawn git over the network (clone, remote lookups) pass it so a
+   *  stalled subprocess can never hang the app. */
+  timeoutMs?: number
 }
 
 export type RunCommandResult = { exitCode: number; stdout: string; stderr: string }
@@ -56,10 +61,15 @@ export function runCommand(
     let stderr = ''
     const outDone = captureStream(proc.stdout, 'info', opts.onLine, (c) => { stdout += c })
     const errDone = captureStream(proc.stderr, 'error', opts.onLine, (c) => { stderr += c })
-    proc.on('error', (err) => reject(err))
+    let timedOut = false
+    const timer = opts.timeoutMs != null
+      ? setTimeout(() => { timedOut = true; try { proc.kill('SIGKILL') } catch {/*noop*/} }, opts.timeoutMs)
+      : null
+    proc.on('error', (err) => { if (timer) clearTimeout(timer); reject(err) })
     proc.on('exit', async (code) => {
+      if (timer) clearTimeout(timer)
       await Promise.all([outDone, errDone])
-      resolve({ exitCode: code ?? 1, stdout, stderr })
+      resolve({ exitCode: timedOut ? -1 : (code ?? 1), stdout, stderr })
     })
   })
 }

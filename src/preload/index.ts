@@ -41,6 +41,14 @@ const api: AppApi = {
   resizeWindowBy: (delta: number): Promise<void> => ipcRenderer.invoke('resize-window-by', delta),
   getSystemLocale: (): Promise<string> => ipcRenderer.invoke('get-system-locale'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
+  runRepoGitDiag: (cmd): Promise<void> => ipcRenderer.invoke('run-repo-git-diag', cmd),
+  openRepoFolder: (): Promise<void> => ipcRenderer.invoke('open-repo-folder'),
+  cloneRepo: (url, targetPath): Promise<import('@shared/api').CloneResult> =>
+    ipcRenderer.invoke('clone-repo', url, targetPath),
+  findExistingClones: (url): Promise<string[]> =>
+    ipcRenderer.invoke('find-existing-clones', url),
+  adoptRepoPath: (path): Promise<{ ok: boolean; error?: import('@shared/api').LocalizedMessage }> =>
+    ipcRenderer.invoke('adopt-repo-path', path),
   getPluginCatalog: (force?: boolean): Promise<PluginCatalog> =>
     ipcRenderer.invoke('get-plugin-catalog', force),
   getInstalledPlugins: (): Promise<InstalledPluginsState> =>

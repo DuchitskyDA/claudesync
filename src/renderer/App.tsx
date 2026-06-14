@@ -11,6 +11,7 @@ import { StatusBar } from './components/StatusBar'
 import { ConflictModal } from './components/ConflictModal'
 import { UpdateProgressModal } from './components/UpdateProgressModal'
 import { InitWizard } from './components/InitWizard'
+import { CloneRepoModal } from './components/CloneRepoModal'
 import { LogConsole } from './components/LogConsole'
 import { StepList } from './components/StepList'
 import { Settings } from './components/Settings'
@@ -53,7 +54,14 @@ export function App() {
   const [pullPreviewData, setPullPreviewData] = useState<PullPreviewResult | null>(null)
   const [installOpen, setInstallOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
+  const [cloneOpen, setCloneOpen] = useState(false)
   const t = useT()
+
+  // repoUrl configured but no local clone (.git absent) → engine reports
+  // 'no-remote'. Surface a prompt instead of silently showing "all in sync".
+  // Reactive to sync status, so it also fires at startup and if the user
+  // deletes the clone folder.
+  const needsClone = state.repoUrl !== null && state.syncStatus.state === 'no-remote'
 
   useEffect(() => {
     if (state.conflictInProgress) setConflictOpen(true)
@@ -118,6 +126,18 @@ export function App() {
             className="bg-amber-600 text-white hover:bg-amber-700"
           >
             {t('conflict.recovery.resolve')}
+          </Button>
+        </div>
+      )}
+      {needsClone && !cloneOpen && (
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          <span>{t('clone.banner.notCloned')}</span>
+          <Button
+            size="sm"
+            onClick={() => setCloneOpen(true)}
+            className="bg-amber-600 text-white hover:bg-amber-700"
+          >
+            {t('clone.banner.cta')}
           </Button>
         </div>
       )}
@@ -237,6 +257,15 @@ export function App() {
           await window.api.discardLocalChanges(false)
           await refreshSyncStatus()
         }}
+        onRunRepoDiag={(cmd) => {
+          // Reveal the log panel (where git output streams) if it's hidden,
+          // matching the toggle's window-resize behavior, then run the command.
+          if (!showDetails) {
+            setShowDetails(true)
+            void window.api.resizeWindowBy(LOG_PANEL_HEIGHT)
+          }
+          void window.api.runRepoGitDiag(cmd)
+        }}
       />
 
       <Settings
@@ -266,6 +295,12 @@ export function App() {
           void window.api.checkInstallNeeded().then((needed) => {
             if (needed) setInstallPending(true)
           })
+          // Just set a repo URL but there's no local clone yet → prompt to
+          // clone right away (the banner also covers this, but offering the
+          // modal at save matches "paste URL → clone now").
+          void window.api.getSyncStatus().then((s) => {
+            if (c.repoUrl && s.state === 'no-remote') setCloneOpen(true)
+          })
         }}
         onSignOut={signOut}
         onSignedIn={() => void refreshAuth()}
@@ -291,6 +326,18 @@ export function App() {
               openSettings()
             }
           })
+        }}
+      />
+
+      <CloneRepoModal
+        open={cloneOpen}
+        repoUrl={state.repoUrl}
+        onClose={() => setCloneOpen(false)}
+        onDone={() => {
+          void window.api.getConfig().then((c) =>
+            setConfigState({ repoUrl: c.repoUrl, repoPath: c.repoPath, rulesTarget: c.claude.path }),
+          )
+          void refreshSyncStatus()
         }}
       />
 

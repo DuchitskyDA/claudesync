@@ -44,6 +44,9 @@ import { initRepo, scanLocalConfig, templatesDir } from './init-wizard'
 import { installCursorProjects } from './sync/cursor-install'
 import { refreshStatus, executePush, computePushPreview, computePullPreview, executePullApply, executeDiscard } from './sync/engine/engine'
 import { detectClaudeProjects } from './sync/engine/claude-projects-detect'
+import { gitDiagArgs, isGitDiagCmd } from './git-diag'
+import { cloneRepo, findExistingClones, parseRepoUrl } from './git-clone'
+import { isInstallNeeded } from './install-check'
 import { getSyncStatus } from './sync-status'
 import { getUpdateInfo } from './update-checker'
 import {
@@ -240,6 +243,52 @@ export function registerIpc(window: BrowserWindow): void {
   ipcMain.handle('suggest-repo-path', (_e, url: string) =>
     defaultManagedRepoPath(url, app.getPath('userData')),
   )
+
+  ipcMain.handle('clone-repo', async (_e, url: unknown, targetPath: unknown) => {
+    if (typeof url !== 'string' || typeof targetPath !== 'string') {
+      return { ok: false, error: { key: 'clone.error.failed' } }
+    }
+    const expanded = expandTilde(targetPath)
+    const v = validateLocalRepo(expanded)
+    if (!v.ok) return { ok: false, error: v.error }
+    const token = loadToken(userDataDir)
+    // Pre-flight for GitHub URLs: give a clear "not found / no access" error
+    // before attempting the clone. Network/rate-limit failures are swallowed —
+    // let the clone itself try and surface a real git error.
+    const ref = parseRepoUrl(url)
+    if (ref && token) {
+      try {
+        if (!(await repoExists(token, ref.owner, ref.name))) {
+          return {
+            ok: false,
+            error: { key: 'clone.error.notFound', params: { repo: `${ref.owner}/${ref.name}` }, fallback: `${ref.owner}/${ref.name} not found or no access` },
+          }
+        }
+      } catch { /* network/rate-limit — proceed to clone anyway */ }
+    }
+    const res = await cloneRepo({ url, targetPath: expanded, token, onLine: emit })
+    if (res.ok) writeConfig(configPath, { ...readConfig(configPath), repoPath: expanded })
+    return res
+  })
+
+  ipcMain.handle('find-existing-clones', async (_e, url: unknown) => {
+    if (typeof url !== 'string') return []
+    return findExistingClones(url, [
+      app.getPath('documents'),
+      app.getPath('home'),
+      join(userDataDir, 'repos'),
+    ])
+  })
+
+  ipcMain.handle('adopt-repo-path', (_e, p: unknown) => {
+    if (typeof p !== 'string') return { ok: false, error: { key: 'clone.error.failed' } }
+    const expanded = expandTilde(p)
+    if (!existsSync(join(expanded, '.git'))) {
+      return { ok: false, error: { key: 'clone.error.notGitRepo', fallback: 'Not a git repo' } }
+    }
+    writeConfig(configPath, { ...readConfig(configPath), repoPath: expanded })
+    return { ok: true }
+  })
 
   // Auth
   ipcMain.handle('get-auth-state', () => getAuthState(userDataDir))
@@ -497,6 +546,26 @@ export function registerIpc(window: BrowserWindow): void {
     await shell.openPath(join(cfg.repoPath, cleaned))
   })
 
+  ipcMain.handle('run-repo-git-diag', async (_e, cmd: unknown) => {
+    const cfg = readConfig(configPath)
+    // isGitDiagCmd gates the payload — only the four read-only commands run;
+    // the args themselves are fixed in gitDiagArgs, so nothing user-supplied
+    // reaches the spawn. These are local, instant reads — no timeout needed.
+    if (!cfg.repoPath || !isGitDiagCmd(cmd)) return
+    const args = gitDiagArgs(cmd)
+    emit({ time: nowHHMMSS(), text: `$ git ${args.join(' ')}`, level: 'info' })
+    try {
+      await runCommand('git', args, { cwd: cfg.repoPath, onLine: emit })
+    } catch (e) {
+      emit({ time: nowHHMMSS(), text: `git: ${(e as Error).message}`, level: 'error' })
+    }
+  })
+
+  ipcMain.handle('open-repo-folder', async () => {
+    const cfg = readConfig(configPath)
+    if (cfg.repoPath) await shell.openPath(cfg.repoPath)
+  })
+
   ipcMain.handle('list-repo-cursor-subdirs', (): string[] => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) return []
@@ -514,33 +583,16 @@ export function registerIpc(window: BrowserWindow): void {
 
   ipcMain.handle('check-install-needed', (): boolean => {
     const cfg = readConfig(configPath)
-    if (!cfg.repoPath) return false
-    // Claude target: any visible content in <repo>/claude/ besides .gitkeep
-    if (cfg.claude.enabled && cfg.claude.path) {
-      const claudeRepo = join(cfg.repoPath, 'claude')
-      if (existsSync(claudeRepo)) {
-        try {
-          const entries = readdirSync(claudeRepo).filter((n) => n !== '.gitkeep')
-          if (entries.length > 0) return true
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    // Cursor: any registered project that has content in repo
-    if (cfg.cursor.enabled) {
-      for (const p of cfg.cursor.projects) {
-        const projDir = join(cfg.repoPath, 'cursor', 'projects', p.name)
-        if (!existsSync(projDir)) continue
-        try {
-          const entries = readdirSync(projDir).filter((n) => n !== '.gitkeep')
-          if (entries.length > 0) return true
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    return false
+    // Target-aware: only prompt when the repo holds content the install
+    // targets are actually missing — so the button doesn't nag once a machine
+    // is set up (it used to fire on every launch if the repo was non-empty).
+    return isInstallNeeded({
+      repoPath: cfg.repoPath,
+      claudeEnabled: cfg.claude.enabled,
+      claudePath: cfg.claude.path,
+      cursorEnabled: cfg.cursor.enabled,
+      cursorProjects: cfg.cursor.projects,
+    })
   })
 
   ipcMain.handle('compute-pull-preview', async () => {
@@ -596,7 +648,7 @@ export function registerIpc(window: BrowserWindow): void {
     return { ok: false, exitCode: -1, error: { key: 'discard.error.failed', fallback: r.message } }
   })
 
-  ipcMain.handle('run-install', (_e, opts: InstallOptions): Promise<RunResult> => withExclusiveLock('install', async () => {
+  ipcMain.handle('run-install', (_e, opts: InstallOptions): Promise<RunResult> => withExclusiveLock('install', async (): Promise<RunResult> => {
     const cfg = readConfig(configPath)
     if (!cfg.repoPath) {
       return { ok: false, exitCode: -1, error: { key: 'config.error.localRepoRequired' } }

@@ -85,6 +85,14 @@ export type StepName = 'fetch' | 'install' | 'export' | 'pull' | 'commit' | 'pus
 export type StepStatus = 'idle' | 'running' | 'done' | 'failed'
 export type StepEvent = { step: StepName; status: StepStatus; message?: LocalizedMessage }
 
+/** Read-only git subcommands the source-of-truth popover can run against the
+ *  app-managed repo. The main process maps these to fixed arg arrays — no
+ *  arbitrary input crosses the IPC boundary. */
+export type GitDiagCmd = 'status' | 'log' | 'show' | 'remote'
+
+/** Result of cloning the configured repo into a local working copy. */
+export type CloneResult = { ok: true; repoPath: string } | { ok: false; error: LocalizedMessage }
+
 export interface AppApi {
   getConfig(): Promise<AppConfig>
   setConfig(c: AppConfig): Promise<SetConfigResult>
@@ -98,6 +106,18 @@ export interface AppApi {
   resizeWindowBy(delta: number): Promise<void>
   getSystemLocale(): Promise<string>
   openExternal(url: string): Promise<void>
+  /** Run a read-only git diagnostic against the managed repo; output streams
+   *  into the app log via the `log` channel. No-op if no repo is configured. */
+  runRepoGitDiag(cmd: GitDiagCmd): Promise<void>
+  /** Open the managed repo folder (source of truth) in the OS file manager. */
+  openRepoFolder(): Promise<void>
+  /** Clone the configured remote into `targetPath`; on success the config's
+   *  repoPath is updated. Output streams to the log channel. */
+  cloneRepo(url: string, targetPath: string): Promise<CloneResult>
+  /** Scan default locations for an existing local clone of `url`. */
+  findExistingClones(url: string): Promise<string[]>
+  /** Adopt an existing local clone at `path` as the repo (sets repoPath). */
+  adoptRepoPath(path: string): Promise<{ ok: boolean; error?: LocalizedMessage }>
   getPluginCatalog(force?: boolean): Promise<PluginCatalog>
   getInstalledPlugins(): Promise<InstalledPluginsState>
   applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }>
