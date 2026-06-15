@@ -40,6 +40,10 @@ export type ClaudeGlobalSyncFlags = {
   commands: boolean
   skills: boolean
   settings: boolean
+  /** Sync a small portable manifest of installed plugins (plugins.manifest.json)
+   *  — NOT the heavy machine-specific plugins/ dir. Off by default. The plugins
+   *  themselves are (re)installed per-machine via the `claude plugin` CLI. */
+  plugins?: boolean
 }
 
 export type ClaudeConfig = {
@@ -121,6 +125,9 @@ export interface AppApi {
   getPluginCatalog(force?: boolean): Promise<PluginCatalog>
   getInstalledPlugins(): Promise<InstalledPluginsState>
   applyPluginChanges(changes: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }>
+  /** Read the synced plugins manifest (if any) and report which of its plugins
+   *  are not yet installed locally. Drives the "Install from manifest" action. */
+  getPluginManifest(): Promise<PluginManifestState>
   validateClaudeTarget(): Promise<ClaudeTargetCheck>
   detectClaudePath(): Promise<string | null>
   suggestClaudePath(): Promise<string>
@@ -280,7 +287,13 @@ export type PluginCatalog = {
 }
 
 export type InstalledPluginsState = {
+  /** Plugins enabled via settings.json `enabledPlugins` (declarative flag). */
   enabledIds: string[]
+  /** Plugins ACTUALLY installed on disk, read from
+   *  ~/.claude/plugins/installed_plugins.json (each entry's installPath
+   *  verified to exist). This is the real install state — `enabledPlugins` in
+   *  settings is frequently null even when plugins are installed. */
+  installedIds: string[]
   envSet: string[]
   knownMarketplaces: string[]
   marketplaceSources: Record<string, { source: string; repo: string }>
@@ -289,6 +302,17 @@ export type InstalledPluginsState = {
 export type ClaudeTargetCheck =
   | { ok: true; settingsPath: string }
   | { ok: false; reason: string }
+
+/** Portable, machine-independent record of installed plugins. Synced as
+ *  plugins.manifest.json so another machine can replicate the set via the CLI. */
+export type PluginManifestEntry = { id: string; repo?: string }
+export type PluginManifest = { version: 1; plugins: PluginManifestEntry[] }
+export type PluginManifestState = {
+  /** null when no manifest is present (feature off, or never generated). */
+  manifest: PluginManifest | null
+  /** Manifest ids not currently installed on this machine. */
+  missingIds: string[]
+}
 
 export type ApplyPluginChanges = {
   enable: PluginEntry[]

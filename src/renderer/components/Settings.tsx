@@ -286,11 +286,11 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                     <p className="text-xs text-muted-foreground">{t('settings.claude.global.description')}</p>
                   </div>
                   <div className="space-y-1.5 text-sm">
-                    {(['claudeMd', 'commands', 'skills', 'settings'] as const).map((key) => (
+                    {(['claudeMd', 'commands', 'skills', 'settings', 'plugins'] as const).map((key) => (
                       <label key={key} className="flex cursor-pointer items-center gap-2">
                         <input
                           type="checkbox"
-                          checked={claudeSyncGlobal[key]}
+                          checked={!!claudeSyncGlobal[key]}
                           onChange={(e) =>
                             setClaudeSyncGlobal((cur) => ({ ...cur, [key]: e.target.checked }))
                           }
@@ -300,6 +300,11 @@ export function Settings({ open, initial, authState, updateInfo, platform, arch,
                         {key === 'settings' && (
                           <span className="text-xs text-muted-foreground">
                             {t('settings.claude.global.settingsHint')}
+                          </span>
+                        )}
+                        {key === 'plugins' && (
+                          <span className="text-xs text-muted-foreground">
+                            {t('settings.claude.global.pluginsHint')}
                           </span>
                         )}
                       </label>

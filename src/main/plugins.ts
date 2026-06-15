@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { join, isAbsolute } from 'node:path'
+import { join, isAbsolute, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import type {
   ApplyPluginChanges,
@@ -42,6 +42,29 @@ export function readClaudeSettings(settingsPath: string): ClaudeSettings {
   }
 }
 
+/** Real install state from ~/.claude/plugins/installed_plugins.json. Keys are
+ *  the canonical `<plugin>@<marketplace>` ids — identical to catalog ids. An id
+ *  counts as installed only if at least one of its records points to an
+ *  installPath that still exists on disk (guards stale registry entries). */
+export function readInstalledPluginIds(settingsPath: string): string[] {
+  const registry = join(dirname(settingsPath), 'plugins', 'installed_plugins.json')
+  if (!existsSync(registry)) return []
+  let parsed: unknown
+  try { parsed = JSON.parse(readFileSync(registry, 'utf8')) } catch { return [] }
+  const plugins = (parsed as { plugins?: unknown } | null)?.plugins
+  if (!plugins || typeof plugins !== 'object') return []
+  const out: string[] = []
+  for (const [id, entries] of Object.entries(plugins as Record<string, unknown>)) {
+    const arr = Array.isArray(entries) ? entries : []
+    const present = arr.some((e) => {
+      const p = (e as { installPath?: unknown } | null)?.installPath
+      return typeof p === 'string' && existsSync(p)
+    })
+    if (present) out.push(id)
+  }
+  return out
+}
+
 export function getInstalled(settingsPath: string): InstalledPluginsState {
   const s = readClaudeSettings(settingsPath)
   const marketplaceSources: Record<string, { source: string; repo: string }> = {}
@@ -52,6 +75,7 @@ export function getInstalled(settingsPath: string): InstalledPluginsState {
     enabledIds: Object.entries(s.enabledPlugins ?? {})
       .filter(([, v]) => v === true)
       .map(([k]) => k),
+    installedIds: readInstalledPluginIds(settingsPath),
     envSet: Object.keys(s.env ?? {}),
     knownMarketplaces: Object.keys(s.extraKnownMarketplaces ?? {}),
     marketplaceSources,

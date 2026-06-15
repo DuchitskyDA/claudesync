@@ -32,6 +32,8 @@ import {
 import { validateCursorProjects } from './sync/cursor-validation'
 import { fetchCatalog } from './catalog'
 import { getInstalled, applyChanges, settingsPathFor, validateClaudeTarget } from './plugins'
+import { findClaudeBin, runPluginInstalls } from './plugin-installer'
+import { generateManifest, writeManifest, readManifest, manifestMissing } from './plugins-manifest'
 import {
   startDeviceFlow,
   pollDeviceFlow,
@@ -142,6 +144,11 @@ export function registerIpc(window: BrowserWindow): void {
     }
 
     writeConfig(configPath, normalized)
+    // Keep the synced plugin manifest fresh when the feature is on (e.g. the
+    // user just enabled it) so the next push carries the current plugin set.
+    if (normalized.claude.path && normalized.claude.syncGlobal?.plugins === true) {
+      try { writeManifest(normalized.claude.path, generateManifest(normalized.claude.path)) } catch { /* best effort */ }
+    }
     return { ok: true }
   })
 
@@ -191,15 +198,41 @@ export function registerIpc(window: BrowserWindow): void {
     return getInstalled(settingsPathFor(cfg.claude.path))
   })
 
-  ipcMain.handle('apply-plugin-changes', (_e, changes: ApplyPluginChanges) => {
+  ipcMain.handle('apply-plugin-changes', async (_e, changes: ApplyPluginChanges) => {
     const cfg = readConfig(configPath)
     if (!cfg.claude.path) return { ok: false, error: { key: 'config.error.targetRequired' } as LocalizedMessage }
     const settingsPath = settingsPathFor(cfg.claude.path)
     try {
-      return applyChanges(settingsPath, changes, userDataDir)
+      // Real install/uninstall via the official `claude plugin` CLI — this is
+      // what actually populates plugins/installed_plugins.json (which getInstalled
+      // reads). settings.json (env + enabledPlugins mirror) is written after.
+      if (changes.enable.length > 0 || changes.disable.length > 0) {
+        const bin = findClaudeBin()
+        if (!bin) {
+          return { ok: false, error: { key: 'plugins.error.cliNotFound', fallback: 'Claude CLI not found — install the `claude` CLI to manage plugins.' } as LocalizedMessage }
+        }
+        const res = await runPluginInstalls(bin, changes.enable, changes.disable)
+        if (!res.ok) {
+          return { ok: false, error: { key: 'plugins.error.installFailed', params: { reason: res.errors.join('; ') }, fallback: res.errors.join('; ') } as LocalizedMessage }
+        }
+      }
+      const res = applyChanges(settingsPath, changes, userDataDir)
+      // The install set changed — refresh the synced manifest if the feature is on.
+      if (res.ok && cfg.claude.path && cfg.claude.syncGlobal?.plugins === true) {
+        try { writeManifest(cfg.claude.path, generateManifest(cfg.claude.path)) } catch { /* best effort */ }
+      }
+      return res
     } catch (e) {
       return { ok: false, error: { key: 'plugins.error.applyFailed', params: { reason: (e as Error).message }, fallback: (e as Error).message } as LocalizedMessage }
     }
+  })
+
+  ipcMain.handle('get-plugin-manifest', () => {
+    const cfg = readConfig(configPath)
+    if (!cfg.claude.path) return { manifest: null, missingIds: [] }
+    const manifest = readManifest(cfg.claude.path)
+    const installedIds = getInstalled(settingsPathFor(cfg.claude.path)).installedIds
+    return { manifest, missingIds: manifestMissing(manifest, installedIds) }
   })
 
   ipcMain.handle('validate-claude-target', () => {

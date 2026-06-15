@@ -235,7 +235,7 @@ describe('writeConfig', () => {
         enabled: true,
         path: '/home/user/.claude',
         projects: [],
-        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true, plugins: false },
       },
     })
     expect(existsSync(f)).toBe(true)
@@ -247,7 +247,7 @@ describe('writeConfig', () => {
         enabled: true,
         path: '/home/user/.claude',
         projects: [],
-        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true },
+        syncGlobal: { claudeMd: true, commands: true, skills: true, settings: true, plugins: false },
       },
       rulesTarget: '/home/user/.claude',
     })
@@ -489,7 +489,7 @@ describe('readConfig migration to flexible sync toggles', () => {
     )
     const cfg = readConfig(f)
     expect(cfg.claude.syncGlobal).toEqual({
-      claudeMd: true, commands: false, skills: true, settings: false,
+      claudeMd: true, commands: false, skills: true, settings: false, plugins: false,
     })
   })
 
@@ -520,7 +520,7 @@ describe('readConfig migration to flexible sync toggles', () => {
         enabled: true,
         path: '/x',
         projects: [{ name: 'a', path: '/p/a', syncMemory: false, syncDotClaude: true }],
-        syncGlobal: { claudeMd: false, commands: true, skills: true, settings: true },
+        syncGlobal: { claudeMd: false, commands: true, skills: true, settings: true, plugins: false },
       },
       rulesTarget: '/x',
     }

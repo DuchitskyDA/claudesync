@@ -85,6 +85,7 @@ function readSyncGlobal(raw: unknown): ClaudeConfig['syncGlobal'] {
     commands: r.commands === false ? false : true,
     skills: r.skills === false ? false : true,
     settings: r.settings === false ? false : true,
+    plugins: r.plugins === true, // opt-in; default off
   }
 }
 

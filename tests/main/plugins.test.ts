@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 
-import { validateClaudeTarget, settingsPathFor, getInstalled, applyChanges } from '../../src/main/plugins'
+import { validateClaudeTarget, settingsPathFor, getInstalled, applyChanges, readInstalledPluginIds } from '../../src/main/plugins'
 import type { ApplyPluginChanges, PluginEntry } from '../../src/shared/api'
 
 let tmpDir: string
@@ -65,14 +65,14 @@ describe('getInstalled', () => {
   it('returns empty state when settings file does not exist', () => {
     const sp = join(tmpDir, 'settings.json')
     const r = getInstalled(sp)
-    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
+    expect(r).toEqual({ enabledIds: [], installedIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
   })
 
   it('returns empty state when settings file is empty object', () => {
     const sp = join(tmpDir, 'settings.json')
     writeFileSync(sp, '{}', 'utf8')
     const r = getInstalled(sp)
-    expect(r).toEqual({ enabledIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
+    expect(r).toEqual({ enabledIds: [], installedIds: [], envSet: [], knownMarketplaces: [], marketplaceSources: {} })
   })
 
   it('returns only enabled=true plugin ids', () => {
@@ -107,6 +107,53 @@ describe('getInstalled', () => {
     }), 'utf8')
     const r = getInstalled(sp)
     expect(r.marketplaceSources['mkt-x']).toEqual({ source: 'github', repo: 'org/repo' })
+  })
+
+  it('installedIds reflects the real registry, independent of enabledPlugins', () => {
+    const sp = join(tmpDir, 'settings.json')
+    // settings.json has NO enabledPlugins (the common real-world case)
+    writeFileSync(sp, '{}', 'utf8')
+    // …yet plugins are actually installed on disk
+    const installPath = join(tmpDir, 'plugins', 'cache', 'sp', '5.0.7')
+    mkdirSync(installPath, { recursive: true })
+    writeFileSync(join(tmpDir, 'plugins', 'installed_plugins.json'), JSON.stringify({
+      version: 2,
+      plugins: { 'superpowers@claude-plugins-official': [{ installPath }] },
+    }), 'utf8')
+    const r = getInstalled(sp)
+    expect(r.enabledIds).toEqual([])          // settings says nothing
+    expect(r.installedIds).toEqual(['superpowers@claude-plugins-official']) // disk says installed
+  })
+})
+
+// ---------------------------------------------------------------------------
+// readInstalledPluginIds — real install detection from installed_plugins.json
+// ---------------------------------------------------------------------------
+describe('readInstalledPluginIds', () => {
+  it('returns [] when registry is missing', () => {
+    expect(readInstalledPluginIds(join(tmpDir, 'settings.json'))).toEqual([])
+  })
+
+  it('returns [] on malformed JSON', () => {
+    mkdirSync(join(tmpDir, 'plugins'), { recursive: true })
+    writeFileSync(join(tmpDir, 'plugins', 'installed_plugins.json'), '{ broken', 'utf8')
+    expect(readInstalledPluginIds(join(tmpDir, 'settings.json'))).toEqual([])
+  })
+
+  it('includes an id only when its installPath exists on disk', () => {
+    const sp = join(tmpDir, 'settings.json')
+    const live = join(tmpDir, 'plugins', 'cache', 'live')
+    mkdirSync(live, { recursive: true })
+    writeFileSync(join(tmpDir, 'plugins', 'installed_plugins.json'), JSON.stringify({
+      version: 2,
+      plugins: {
+        'live@mkt': [{ installPath: live }],
+        'stale@mkt': [{ installPath: join(tmpDir, 'plugins', 'cache', 'gone') }],
+      },
+    }), 'utf8')
+    const ids = readInstalledPluginIds(sp)
+    expect(ids).toContain('live@mkt')
+    expect(ids).not.toContain('stale@mkt')
   })
 })
 

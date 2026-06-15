@@ -15,6 +15,8 @@ const getInstalledMock = vi.hoisted(() => vi.fn())
 const applyChangesMock = vi.hoisted(() => vi.fn())
 const settingsPathForMock = vi.hoisted(() => vi.fn())
 const validateClaudeTargetMock = vi.hoisted(() => vi.fn())
+const findClaudeBinMock = vi.hoisted(() => vi.fn())
+const runPluginInstallsMock = vi.hoisted(() => vi.fn())
 
 // Capture ipcMain.handle registrations
 const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>())
@@ -56,6 +58,10 @@ vi.mock('../../src/main/plugins', () => ({
   applyChanges: applyChangesMock,
   settingsPathFor: settingsPathForMock,
   validateClaudeTarget: validateClaudeTargetMock,
+}))
+vi.mock('../../src/main/plugin-installer', () => ({
+  findClaudeBin: findClaudeBinMock,
+  runPluginInstalls: runPluginInstallsMock,
 }))
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
@@ -160,6 +166,11 @@ describe('registerIpc plugin handlers', () => {
     settingsPathForMock.mockReset()
     validateClaudeTargetMock.mockReset()
     readConfigMock.mockReset()
+    findClaudeBinMock.mockReset()
+    runPluginInstallsMock.mockReset()
+    // Defaults: CLI present and installs succeed unless a test overrides.
+    findClaudeBinMock.mockReturnValue('/usr/local/bin/claude')
+    runPluginInstallsMock.mockResolvedValue({ ok: true, errors: [] })
   })
 
   describe('get-plugin-catalog', () => {
@@ -220,23 +231,59 @@ describe('registerIpc plugin handlers', () => {
   })
 
   describe('apply-plugin-changes', () => {
-    it('returns error when rulesTarget is null', () => {
+    it('returns error when rulesTarget is null', async () => {
       readConfigMock.mockReturnValue(makeConfig({ repoPath: null, repoUrl: null, rulesTarget: null }))
       const handler = getHandler('apply-plugin-changes')
-      const result = handler({}, { enable: [], disable: [], envValues: {} })
+      const result = await handler({}, { enable: [], disable: [], envValues: {} })
       expect(result).toEqual({ ok: false, error: { key: 'config.error.targetRequired' } })
       expect(applyChangesMock).not.toHaveBeenCalled()
     })
 
-    it('calls applyChanges with correct settingsPath and changes', () => {
+    it('runs the CLI uninstall then writes settings for a disable', async () => {
       readConfigMock.mockReturnValue(fullConfig)
       settingsPathForMock.mockReturnValue('/home/user/.claude/settings.json')
       applyChangesMock.mockReturnValue({ ok: true })
       const changes = { enable: [], disable: ['old-plugin'], envValues: {} }
       const handler = getHandler('apply-plugin-changes')
-      const result = handler({}, changes)
+      const result = await handler({}, changes)
+      expect(runPluginInstallsMock).toHaveBeenCalledWith('/usr/local/bin/claude', [], ['old-plugin'])
       expect(applyChangesMock).toHaveBeenCalledWith('/home/user/.claude/settings.json', changes, '/tmp/userData')
       expect(result).toEqual({ ok: true })
+    })
+
+    it('writes settings only (no CLI) when there are no enable/disable ops', async () => {
+      readConfigMock.mockReturnValue(fullConfig)
+      settingsPathForMock.mockReturnValue('/home/user/.claude/settings.json')
+      applyChangesMock.mockReturnValue({ ok: true })
+      const changes = { enable: [], disable: [], envValues: { KEY: 'v' } }
+      const handler = getHandler('apply-plugin-changes')
+      const result = await handler({}, changes)
+      expect(runPluginInstallsMock).not.toHaveBeenCalled()
+      expect(applyChangesMock).toHaveBeenCalledWith('/home/user/.claude/settings.json', changes, '/tmp/userData')
+      expect(result).toEqual({ ok: true })
+    })
+
+    it('returns cliNotFound and skips settings when the claude binary is missing', async () => {
+      readConfigMock.mockReturnValue(fullConfig)
+      settingsPathForMock.mockReturnValue('/home/user/.claude/settings.json')
+      findClaudeBinMock.mockReturnValue(null)
+      const changes = { enable: [{ id: 'p@m', name: 'p', description: '' }], disable: [], envValues: {} }
+      const handler = getHandler('apply-plugin-changes')
+      const result = await handler({}, changes)
+      expect(result).toEqual({ ok: false, error: expect.objectContaining({ key: 'plugins.error.cliNotFound' }) })
+      expect(runPluginInstallsMock).not.toHaveBeenCalled()
+      expect(applyChangesMock).not.toHaveBeenCalled()
+    })
+
+    it('returns installFailed when the CLI reports an error', async () => {
+      readConfigMock.mockReturnValue(fullConfig)
+      settingsPathForMock.mockReturnValue('/home/user/.claude/settings.json')
+      runPluginInstallsMock.mockResolvedValue({ ok: false, errors: ['p@m: boom'] })
+      const changes = { enable: [{ id: 'p@m', name: 'p', description: '' }], disable: [], envValues: {} }
+      const handler = getHandler('apply-plugin-changes')
+      const result = await handler({}, changes)
+      expect(result).toEqual({ ok: false, error: expect.objectContaining({ key: 'plugins.error.installFailed' }) })
+      expect(applyChangesMock).not.toHaveBeenCalled()
     })
   })
 

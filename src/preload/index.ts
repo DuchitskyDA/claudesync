@@ -7,6 +7,7 @@ import type {
   SetConfigResult,
   PluginCatalog,
   InstalledPluginsState,
+  PluginManifestState,
   ApplyPluginChanges,
   ClaudeTargetCheck,
   GitHubAuthState,
@@ -55,6 +56,8 @@ const api: AppApi = {
     ipcRenderer.invoke('get-installed-plugins'),
   applyPluginChanges: (c: ApplyPluginChanges): Promise<{ ok: boolean; error?: LocalizedMessage }> =>
     ipcRenderer.invoke('apply-plugin-changes', c),
+  getPluginManifest: (): Promise<PluginManifestState> =>
+    ipcRenderer.invoke('get-plugin-manifest'),
   validateClaudeTarget: (): Promise<ClaudeTargetCheck> =>
     ipcRenderer.invoke('validate-claude-target'),
   detectClaudePath: (): Promise<string | null> =>

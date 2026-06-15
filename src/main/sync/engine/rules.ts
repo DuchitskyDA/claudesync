@@ -8,6 +8,7 @@ export const CLAUDE_TOP_LEVEL_SYNC = new Set([
   'settings.json',
   'commands',
   'skills',
+  'plugins.manifest.json', // gated by syncGlobal.plugins, see isClaudePathSynced
   'projects', // selectively — only <hash>/memory/, see isClaudePathSynced
 ])
 
@@ -26,10 +27,14 @@ const CLAUDE_IGNORE_TOP = new Set([
 /** Volatile/OS-junk patterns ignored anywhere. */
 const IGNORE_NAME = /\.backup\.\d|^\.DS_Store$|^Thumbs\.db$/i
 
-/** settings.json keys synced cross-machine. */
+/** settings.json keys synced cross-machine.
+ *  NOTE: `hooks` is intentionally NOT here. Hook commands reference machine-
+ *  specific absolute script paths (e.g. C:\Users\…\.claude\hooks\x.js) and the
+ *  scripts themselves live under ~/.claude/hooks/ which isn't synced — so a
+ *  synced `hooks` value is broken on every machine but the one that wrote it.
+ *  Hooks stay local per machine, like `env`. */
 export const SETTINGS_KEY_ALLOW_LIST: ReadonlySet<string> = new Set([
   'permissions',
-  'hooks',
   'mcpServers',
   'theme',
   'statusLine',
@@ -95,6 +100,7 @@ export function isClaudePathSynced(
   if (top === 'commands') return syncGlobal.commands
   if (top === 'skills') return syncGlobal.skills
   if (top === 'settings.json') return syncGlobal.settings
+  if (top === 'plugins.manifest.json') return syncGlobal.plugins === true
   return true
 }
 

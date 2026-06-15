@@ -18,6 +18,13 @@ describe('canonicalizeSettings', () => {
     const out = canonicalizeSettings(input)
     expect(out.toString('utf8')).toBe('{}')
   })
+  it('drops hooks — they are machine-specific (absolute script paths) and not synced', () => {
+    const input = Buffer.from('{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":[{"command":"node","args":["C:\\\\x.js"]}]}}', 'utf8')
+    const out = canonicalizeSettings(input)
+    const parsed = JSON.parse(out.toString('utf8'))
+    expect(parsed.hooks).toBeUndefined()
+    expect(parsed.permissions).toEqual({ allow: ['x'] })
+  })
   it('throws on invalid JSON', () => {
     expect(() => canonicalizeSettings(Buffer.from('not json', 'utf8'))).toThrow()
   })

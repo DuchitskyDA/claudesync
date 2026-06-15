@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import type {
   PluginCatalog,
   InstalledPluginsState,
+  PluginManifestState,
   ClaudeTargetCheck,
   PluginEntry,
   PresetEntry,
@@ -27,6 +28,7 @@ export function PluginsTab() {
   const t = useT()
   const [catalog, setCatalog] = useState<PluginCatalog | null>(null)
   const [installed, setInstalled] = useState<InstalledPluginsState | null>(null)
+  const [manifest, setManifest] = useState<PluginManifestState | null>(null)
   const [target, setTarget] = useState<ClaudeTargetCheck | null>(null)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [envModal, setEnvModal] = useState<EnvModalState | null>(null)
@@ -39,6 +41,7 @@ export function PluginsTab() {
       .then(setCatalog)
       .catch(() => setCatalog(null))
     void window.api.getInstalledPlugins().then(setInstalled)
+    void window.api.getPluginManifest().then(setManifest).catch(() => setManifest(null))
   }
 
   useEffect(() => {
@@ -48,6 +51,26 @@ export function PluginsTab() {
   const refreshInstalled = async () => {
     const fresh = await window.api.getInstalledPlugins()
     setInstalled(fresh)
+    setManifest(await window.api.getPluginManifest().catch(() => null))
+  }
+
+  /** Install the plugins listed in the synced manifest that aren't here yet.
+   *  Rebuilds PluginEntry shapes from the manifest (id + marketplace repo) and
+   *  reuses the normal install path (real `claude plugin install` via #2). */
+  const installFromManifest = async () => {
+    if (!manifest?.manifest) return
+    const byId = new Map(manifest.manifest.plugins.map((p) => [p.id, p]))
+    const enable: PluginEntry[] = manifest.missingIds.map((id) => {
+      const repo = byId.get(id)?.repo
+      const mkt = id.slice(id.lastIndexOf('@') + 1)
+      return {
+        id,
+        name: id,
+        description: '',
+        ...(repo ? { marketplace: { id: mkt, source: { source: 'github' as const, repo } } } : {}),
+      }
+    })
+    await runWithBusy('manifest', () => applyChanges(enable, [], {}))
   }
 
   const applyChanges = async (
@@ -195,14 +218,14 @@ export function PluginsTab() {
     const missing = preset.pluginIds
       .map((id) => catalog.plugins.find((p) => p.id === id))
       .filter((p): p is PluginEntry => !!p)
-      .filter((p) => !installed.enabledIds.includes(p.id))
+      .filter((p) => !installed.installedIds.includes(p.id))
     if (missing.length === 0) return
     startBatch(missing, [])
   }
 
   const removePreset = (preset: PresetEntry) => {
     if (!installed) return
-    const toRemove = preset.pluginIds.filter((id) => installed.enabledIds.includes(id))
+    const toRemove = preset.pluginIds.filter((id) => installed.installedIds.includes(id))
     void runWithBusy(`preset:${preset.id}`, () => applyChanges([], toRemove, {}))
   }
 
@@ -258,6 +281,22 @@ export function PluginsTab() {
         </div>
       )}
 
+      {manifest && manifest.missingIds.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <div>
+            <div className="font-semibold">{t('plugins.manifest.title')}</div>
+            <div className="text-xs">
+              {t('plugins.manifest.description', { count: manifest.missingIds.length })}
+            </div>
+          </div>
+          <Button size="sm" onClick={() => void installFromManifest()} disabled={busyIds.has('manifest')}>
+            {busyIds.has('manifest')
+              ? t('plugins.manifest.installing')
+              : t('plugins.manifest.install', { count: manifest.missingIds.length })}
+          </Button>
+        </div>
+      )}
+
       {conflicts.length > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
           <div className="flex items-center gap-2 font-semibold">
@@ -295,7 +334,7 @@ export function PluginsTab() {
           <div className="grid grid-cols-2 gap-3">
             {catalog.presets.map((preset) => {
               const installedCount = preset.pluginIds.filter((id) =>
-                installed.enabledIds.includes(id),
+                installed.installedIds.includes(id),
               ).length
               const total = preset.pluginIds.length
               const presetBusy = busyIds.has(`preset:${preset.id}`)
@@ -347,7 +386,7 @@ export function PluginsTab() {
         </h3>
         <ul className="space-y-2">
           {catalog.plugins.map((p) => {
-            const isInstalled = installed.enabledIds.includes(p.id)
+            const isInstalled = installed.installedIds.includes(p.id)
             const envOk =
               !p.requiresEnv ||
               p.requiresEnv.every((r) => r.optional || installed.envSet.includes(r.name))
