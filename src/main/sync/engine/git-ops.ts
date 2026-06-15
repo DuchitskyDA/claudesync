@@ -108,7 +108,11 @@ function runGit(
       settled = true
       reject(e)
     })
-    proc.on('exit', (code) => {
+    // Resolve on 'close', NOT 'exit': 'exit' fires when the process ends but
+    // stdout/stderr may still have buffered 'data' to deliver. 'close' fires
+    // only after all stdio streams are drained — otherwise a fast command
+    // (e.g. `rev-parse HEAD`) can resolve with a truncated/empty stdout.
+    proc.on('close', (code) => {
       clearTimeout(timer)
       if (settled) return
       settled = true

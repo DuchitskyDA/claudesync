@@ -83,6 +83,18 @@ describe('runGit timeout', () => {
     expect(r.exitCode).toBe(0)
     expect(r.stdout.toString('utf8').trim()).toMatch(/^[0-9a-f]{40}$/)
   })
+
+  // Regression: runGit must resolve on 'close' (all stdio drained), not 'exit'.
+  // A fast command can fire 'exit' before the final stdout 'data' chunk, which
+  // resolved with empty/truncated stdout — flaky in CI. Repeating tightens the
+  // odds of catching the race if it ever returns.
+  it('captures full stdout across many fast invocations (no exit/drain race)', async () => {
+    for (let i = 0; i < 30; i++) {
+      const r = await _internal.runGit(dir, ['rev-parse', 'HEAD'])
+      expect(r.exitCode).toBe(0)
+      expect(r.stdout.toString('utf8').trim()).toMatch(/^[0-9a-f]{40}$/)
+    }
+  })
 })
 
 describe('pushOrigin timeout', () => {
