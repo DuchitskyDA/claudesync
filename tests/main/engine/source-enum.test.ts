@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { enumClaudeSource, enumCursorProjectSource, enumClaudeProjectDotClaudeSource } from '../../../src/main/sync/engine/source-enum'
+import { encodeClaudeProjectSegment } from '../../../src/main/sync/engine/rules'
 
 const ALL_ON = { claudeMd: true, commands: true, skills: true, settings: true }
 
@@ -60,6 +61,21 @@ describe('enumClaudeSource', () => {
     const out = await enumClaudeSource(claude,
       [{ name: 'myproj', path: 'abc', syncMemory: true, syncDotClaude: true }], ALL_ON)
     expect(out.entries.map(e => e.repoPath)).toEqual(['claude/projects/myproj/memory/n.md'])
+  })
+
+  // The home dir registered as a project: its own .claude IS the global
+  // ~/.claude (join(path,'.claude') === claudePath). Its memory must NOT be
+  // synced — otherwise the whole global home context leaks under
+  // projects/<name>/memory/. Symmetric to the engine guard that skips such a
+  // project's .claude.
+  it('skips memory of a project whose .claude IS the global claudePath (home dir)', async () => {
+    const claude = join(dir, '.claude')
+    const encoded = encodeClaudeProjectSegment(dir) // project path === dir → .claude === claude
+    mkdirSync(join(claude, 'projects', encoded, 'memory'), { recursive: true })
+    writeFileSync(join(claude, 'projects', encoded, 'memory', 'MEMORY.md'), 'M')
+    const out = await enumClaudeSource(claude,
+      [{ name: 'home', path: dir, syncMemory: true, syncDotClaude: true }], ALL_ON)
+    expect(out.entries).toEqual([])
   })
 
   it('skips projects/<encoded> when no project is registered for that segment', async () => {

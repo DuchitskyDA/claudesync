@@ -9,6 +9,7 @@ import {
   isCursorPathSynced,
   isProjectDotClaudePathSynced,
   encodeClaudeProjectSegment,
+  projectDotClaudeIsGlobal,
 } from './rules'
 import { canonicalizeSettings } from './settings-canonical'
 
@@ -73,7 +74,13 @@ export async function enumClaudeSource(
   syncGlobal: ClaudeGlobalSyncFlags = { claudeMd: true, commands: true, skills: true, settings: true },
 ): Promise<EnumResult> {
   if (!existsSync(claudePath)) return { entries: [], unreadable: [], failed: [] }
-  const idx = projectIndex(claudeProjects)
+  // Exclude any project whose own .claude IS the global ~/.claude (e.g. the home
+  // dir registered as a project). Syncing its memory would leak the whole global
+  // home context under projects/<name>/memory/. Symmetric to the engine guard
+  // that skips such a project's .claude dir.
+  const idx = projectIndex(
+    claudeProjects.filter((p) => !projectDotClaudeIsGlobal(p.path, claudePath)),
+  )
   const out: FileEntry[] = []
   const unreadable: string[] = []
 
