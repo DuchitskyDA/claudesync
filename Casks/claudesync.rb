@@ -1,5 +1,5 @@
 cask "claudesync" do
-  version "0.12.0"
+  version "0.12.1"
 
   on_arm do
     sha256 "b161382bc98edff6ae53196766b52a055714e39a96c21b51de72e4fc9a92a3f8"
