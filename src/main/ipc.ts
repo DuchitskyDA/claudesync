@@ -13,8 +13,18 @@ import type {
   PushOptions,
   InitWizardOptions,
   LocalizedMessage,
+  McpInstallRequest,
+  McpResult,
 } from '@shared/api'
+import { MCP_SERVERS, pkgName } from '@shared/mcp-registry'
 import { runCommand } from './runner'
+import {
+  listMcpProjects,
+  getMcpServer,
+  setMcpServer,
+  removeMcpServer,
+} from './mcp/claude-json'
+import { ensureUv, resolveUvx, prewarm, cleanCache } from './mcp/runtime'
 import { withExclusiveLock, isLocked } from './sync/engine/op-lock'
 import {
   readConfig,
@@ -769,4 +779,52 @@ export function registerIpc(window: BrowserWindow): void {
     }
     return next
   })
+
+  // ─── MCP servers (per-project, ~/.claude.json, not synced) ──────────────────
+  ipcMain.handle('list-mcp-projects', (): string[] => listMcpProjects())
+
+  ipcMain.handle('pick-project-path', async (): Promise<string | null> => {
+    const r = await dialog.showOpenDialog(window, { properties: ['openDirectory'] })
+    if (r.canceled || r.filePaths.length === 0) return null
+    return r.filePaths[0] ?? null
+  })
+
+  ipcMain.handle('get-mcp-server', (_e, projectPath: string, serverId: string) =>
+    getMcpServer(projectPath, serverId),
+  )
+
+  ipcMain.handle('install-mcp-server', async (_e, req: McpInstallRequest): Promise<McpResult> => {
+    const def = MCP_SERVERS.find((s) => s.id === req.serverId)
+    if (!def) return { ok: false, error: { key: 'mcp.error.unknownServer' } }
+    try {
+      const uvx = await ensureUv(emit)
+      if (!uvx) return { ok: false, error: { key: 'mcp.error.uvMissing' } }
+      await prewarm(uvx, def.packageSpec, emit)
+      setMcpServer(req.projectPath, req.serverId, {
+        command: uvx,
+        args: [def.packageSpec],
+        env: req.env,
+      })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: { key: 'mcp.error.install', fallback: (e as Error).message } }
+    }
+  })
+
+  ipcMain.handle(
+    'uninstall-mcp-server',
+    async (_e, projectPath: string, serverId: string): Promise<McpResult> => {
+      const def = MCP_SERVERS.find((s) => s.id === serverId)
+      try {
+        removeMcpServer(projectPath, serverId)
+        if (def) {
+          const uvx = await resolveUvx(emit)
+          if (uvx) await cleanCache(uvx, pkgName(def.packageSpec), emit)
+        }
+        return { ok: true }
+      } catch (e) {
+        return { ok: false, error: { key: 'mcp.error.uninstall', fallback: (e as Error).message } }
+      }
+    },
+  )
 }
