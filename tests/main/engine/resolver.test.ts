@@ -70,7 +70,7 @@ describe('Resolver', () => {
     expect(loadResolverState(userDataDir)).toBeNull()
   })
 
-  it('apply with choice=mine writes mine to source and pushes 2-parent commit', async () => {
+  it('apply with choice=mine writes mine to source and commits 2-parent merge locally without pushing', async () => {
     const state = await computeResolverState({
       repoPath, claudePath, claudeProjects: [], cursorProjects: [], token: null, userDataDir,
     })
@@ -81,9 +81,16 @@ describe('Resolver', () => {
     })
     expect(r.kind).toBe('ok')
     expect(readFileSync(join(claudePath, 'CLAUDE.md'), 'utf8')).toBe('mine\n')
-    // verify remote got a 2-parent commit on main
-    const log = spawnSync('git', ['--git-dir', remotePath, 'log', '--pretty=%P', '-n', '1', 'main'], { encoding: 'utf8' })
-    expect(log.stdout.trim().split(' ')).toHaveLength(2)
+    // LOCAL main has the 2-parent merge commit
+    const localParents = spawnSync('git', ['log', '--pretty=%P', '-n', '1', 'main'], { cwd: repoPath, encoding: 'utf8' })
+    expect(localParents.stdout.trim().split(' ')).toHaveLength(2)
+    // REMOTE main was NOT advanced — resolve must not push; it stays the
+    // single-parent 'theirs' commit, leaving the user to push manually.
+    const remoteParents = spawnSync('git', ['--git-dir', remotePath, 'log', '--pretty=%P', '-n', '1', 'main'], { encoding: 'utf8' })
+    expect(remoteParents.stdout.trim().split(' ')).toHaveLength(1)
+    // Local is exactly one commit ahead of origin/main (ready for manual Push)
+    const ahead = spawnSync('git', ['rev-list', '--count', 'origin/main..main'], { cwd: repoPath, encoding: 'utf8' })
+    expect(ahead.stdout.trim()).toBe('1')
   })
 
   it('manual choice without editedContent returns validation error and does not modify source', async () => {

@@ -384,6 +384,9 @@ export function App() {
         onContinued={() => {
           setConflictOpen(false)
           setConflictInProgress(false)
+          // Resolve commits locally without pushing — refresh so the repo's
+          // new "ahead" state surfaces the Push button right away.
+          void refreshSyncStatus()
         }}
       />
 

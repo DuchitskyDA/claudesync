@@ -5,7 +5,7 @@ import type { ResolverFile, ResolverState, SourceRef } from '@shared/sync-types'
 import type { ClaudeProject, CursorProject } from '@shared/api'
 import { encodeClaudeProjectSegment } from './rules'
 import { refreshStatus } from './engine'
-import { catFileBlob, mergeBase, revParse, readTreeMergeAggressive, updateIndexAdd, updateIndexRemove, writeTree, commitTree, updateRef, syncWtToHead, pushOrigin, hashObjectWrite, classifyRemoteError, lsTree } from './git-ops'
+import { catFileBlob, mergeBase, revParse, readTreeMergeAggressive, updateIndexAdd, updateIndexRemove, writeTree, commitTree, updateRef, syncWtToHead, hashObjectWrite, lsTree } from './git-ops'
 import { applyToSource, readSourceIfExists } from './pull-apply'
 import { canonicalizeSettings } from './settings-canonical'
 import { beginSnapshot } from './safety-snapshot'
@@ -260,11 +260,10 @@ export async function executeResolve(args: ResolveExecuteArgs): Promise<{ kind: 
     await updateRef(repoPath, 'refs/heads/main', commit)
     await syncWtToHead(repoPath)
 
-    const push = await pushOrigin(repoPath, 'main', args.token)
-    if (!push.ok) {
-      const kind = classifyRemoteError(push.stderr)
-      return { kind: 'error', message: `push failed (${kind}): ${push.stderr}` }
-    }
+    // Intentionally do NOT push here. Resolving creates the merge commit
+    // locally, leaving the repo one commit ahead of origin/main. The user
+    // pushes it themselves via the normal Push button — a conflict resolution
+    // shouldn't silently publish to the shared remote.
     session.commit()
     clearResolverState(args.userDataDir)
     return { kind: 'ok' }
