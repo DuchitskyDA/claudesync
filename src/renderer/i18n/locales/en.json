@@ -426,6 +426,7 @@
   "mcp.card.editTokens": "Edit tokens",
   "mcp.card.remove": "Remove",
   "mcp.card.installing": "Installing…",
+  "mcp.card.removing": "Removing…",
   "mcp.card.reveal": "Show",
   "mcp.card.hide": "Hide",
   "mcp.card.docs": "Documentation",

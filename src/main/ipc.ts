@@ -807,7 +807,7 @@ export function registerIpc(window: BrowserWindow): void {
       })
       return { ok: true }
     } catch (e) {
-      return { ok: false, error: { key: 'mcp.error.install', fallback: (e as Error).message } }
+      return { ok: false, error: { key: 'mcp.error.install', params: { reason: (e as Error).message } } }
     }
   })
 
@@ -823,7 +823,7 @@ export function registerIpc(window: BrowserWindow): void {
         }
         return { ok: true }
       } catch (e) {
-        return { ok: false, error: { key: 'mcp.error.uninstall', fallback: (e as Error).message } }
+        return { ok: false, error: { key: 'mcp.error.uninstall', params: { reason: (e as Error).message } } }
       }
     },
   )

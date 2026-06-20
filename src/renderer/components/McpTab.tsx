@@ -37,22 +37,27 @@ export function McpTab() {
 
   useEffect(() => {
     if (!selected) return
+    let cancelled = false
     setEditing({})
     setForm({})
     const fetchStatuses = async () => {
       const results: Record<string, McpServerStatus> = {}
       for (const def of MCP_SERVERS) {
+        if (cancelled) return
         results[def.id] = await window.api.getMcpServer(selected, def.id)
       }
-      setStatuses(results)
+      if (!cancelled) setStatuses(results)
     }
     void fetchStatuses()
+    return () => {
+      cancelled = true
+    }
   }, [selected])
 
   const handleAddFolder = async () => {
     const path = await window.api.pickProjectPath()
-    if (path && !projects.includes(path)) {
-      setProjects((prev) => [...prev, path])
+    if (path) {
+      setProjects((prev) => (prev.includes(path) ? prev : [...prev, path]))
       setSelected(path)
     }
   }
@@ -254,7 +259,7 @@ export function McpTab() {
                       disabled={isBusy}
                       className="border-red-500/40 text-red-700 hover:bg-red-500/10 hover:text-red-800 dark:text-red-400 dark:hover:bg-red-500/15 dark:hover:text-red-300"
                     >
-                      {isBusy ? t('mcp.card.installing') : t('mcp.card.remove')}
+                      {isBusy ? t('mcp.card.removing') : t('mcp.card.remove')}
                     </Button>
                   </>
                 )}
