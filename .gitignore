@@ -16,3 +16,9 @@ src/**/*.js
 # Claude Code local worktrees and runtime locks
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
