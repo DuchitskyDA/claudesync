@@ -417,6 +417,8 @@
   "conflict.discard": "Discard merge state",
   "conflict.apply": "Apply",
   "conflict.commitDefault": "Merge resolved via claudesync",
+  "conflict.filesToResolve": { "one": "{{count}} file to resolve", "other": "{{count}} files to resolve" },
+  "conflict.noFiles": "No conflicting files found.",
   "tabs.mcp": "MCP",
   "mcp.project.label": "Project",
   "mcp.project.add": "Add folder…",

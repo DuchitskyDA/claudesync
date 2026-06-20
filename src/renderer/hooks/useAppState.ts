@@ -10,6 +10,7 @@ import type {
   UpdateInfo,
   UpdateProgressEvent,
 } from '@shared/api'
+import { hasResolvableConflicts } from '../lib/conflict'
 
 export type UpdaterKind = 'auto' | 'brew' | 'none' | 'unknown'
 export type UpdaterFlowState =
@@ -208,7 +209,7 @@ export function useAppState() {
     void window.api.getArch().then((a) => dispatch({ type: 'set-arch', arch: a }))
     void window.api.getAuthState().then((a) => dispatch({ type: 'set-auth', auth: a }))
     void window.api.resolverGetState().then((s) => {
-      dispatch({ type: 'set-conflict', inProgress: s !== null && s.files.length > 0 })
+      dispatch({ type: 'set-conflict', inProgress: hasResolvableConflicts(s) })
     })
     void window.api.getConfig().then((c) => {
       dispatch({
@@ -313,7 +314,11 @@ export function useAppState() {
     try {
       const r = await window.api.runPush({ commitMessage, includeSecrets, approvedDeletions })
       if (r.kind === 'conflict') {
-        dispatch({ type: 'set-conflict', inProgress: true })
+        // Only raise the conflict banner if the resolver actually has files to
+        // resolve — a bare "conflict" signal can resolve to zero files, which
+        // would otherwise surface an empty, un-actionable modal.
+        const rs = await window.api.resolverGetState()
+        dispatch({ type: 'set-conflict', inProgress: hasResolvableConflicts(rs) })
       }
       if (!r.ok && r.error) {
         const errText = r.error.fallback ?? r.error.key

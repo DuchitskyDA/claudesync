@@ -18,6 +18,7 @@ import { Settings } from './components/Settings'
 import { Header } from './components/Header'
 import { Tabs } from './components/Tabs'
 import { PluginsTab } from './components/PluginsTab'
+import { hasResolvableConflicts } from './lib/conflict'
 import { McpTab } from './components/McpTab'
 import { Button } from './components/ui/button'
 import { useT } from './i18n'
@@ -85,7 +86,16 @@ export function App() {
   const handlePull = async () => {
     const preview = await window.api.computePullPreview()
     if (preview.kind === 'diverged') {
-      setConflictInProgress(true)
+      // "diverged" can still compute to zero resolvable files (e.g. the local
+      // and remote changes don't actually overlap on disk). Only raise the
+      // conflict banner when there's something to resolve, otherwise the modal
+      // opens empty. Fall through to a status refresh in the benign case.
+      const rs = await window.api.resolverGetState()
+      if (hasResolvableConflicts(rs)) {
+        setConflictInProgress(true)
+      } else {
+        await refreshSyncStatus()
+      }
       return
     }
     if (preview.kind === 'offline') {

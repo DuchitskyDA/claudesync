@@ -431,6 +431,8 @@
   "conflict.discard": "Отменить разруливание",
   "conflict.apply": "Применить",
   "conflict.commitDefault": "Merge через claudesync",
+  "conflict.filesToResolve": { "one": "{{count}} файл к разрешению", "few": "{{count}} файла к разрешению", "many": "{{count}} файлов к разрешению", "other": "{{count}} файлов к разрешению" },
+  "conflict.noFiles": "Конфликтующих файлов не найдено.",
   "tabs.mcp": "MCP",
   "mcp.project.label": "Проект",
   "mcp.project.add": "Добавить папку…",

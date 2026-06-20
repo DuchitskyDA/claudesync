@@ -166,8 +166,30 @@ export async function computeResolverState(args: ResolverArgs): Promise<Resolver
   }
 
   const state: ResolverState = { files, baseSha, headSha, theirsSha }
-  persistResolverState(args.userDataDir, state)
+  // Only persist an *actionable* state. Persisting an empty result would leave
+  // a stale file on disk that loadResolverState later short-circuits to —
+  // making the conflict modal show "nothing to resolve" even after the repo
+  // diverges again. Clear instead so the next read recomputes.
+  if (files.length > 0) {
+    persistResolverState(args.userDataDir, state)
+  } else {
+    clearResolverState(args.userDataDir)
+  }
   return state
+}
+
+/**
+ * Whether a persisted resolver state still matches the repo's current HEAD and
+ * origin/main. A stale state (computed against older commits) must be
+ * recomputed — otherwise the modal shows resolutions for the wrong revisions,
+ * or an empty list while the repo is actually diverged.
+ */
+export function isResolverStateFresh(
+  state: ResolverState,
+  currentHeadSha: string,
+  currentTheirsSha: string,
+): boolean {
+  return state.headSha === currentHeadSha && state.theirsSha === currentTheirsSha
 }
 
 export type ResolveExecuteArgs = ResolverArgs & {

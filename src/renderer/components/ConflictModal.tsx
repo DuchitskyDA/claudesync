@@ -127,13 +127,13 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
       <DialogContent
         className="flex max-h-[85vh] w-[min(860px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
-        <DialogHeader className="flex-row items-start justify-between border-b px-5 py-3">
+        <DialogHeader className="flex-row items-start justify-between border-b py-3 pl-5 pr-12">
           <div className="min-w-0 flex-1 pr-4">
             <DialogTitle>{t('conflict.title')}</DialogTitle>
             <DialogDescription className="mt-0.5 text-xs">
               {loading
                 ? t('sync.status.checking')
-                : `${files.length} file${files.length === 1 ? '' : 's'} to resolve`}
+                : t('conflict.filesToResolve', { count: files.length })}
             </DialogDescription>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -175,7 +175,7 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
           )}
           {!loading && files.length === 0 && (
             <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-              No conflicting files found.
+              {t('conflict.noFiles')}
             </div>
           )}
           {!loading &&
