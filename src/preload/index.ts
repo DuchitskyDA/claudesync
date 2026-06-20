@@ -25,6 +25,9 @@ import type {
   UpdateInfo,
   UpdateProgressEvent,
   PullPreviewResult,
+  McpServerStatus,
+  McpInstallRequest,
+  McpResult,
 } from '@shared/api'
 import type { ResolverState } from '@shared/sync-types'
 
@@ -173,6 +176,18 @@ const api: AppApi = {
 
   rescanClaudeProjects: (): Promise<import('@shared/api').ClaudeProject[]> =>
     ipcRenderer.invoke('rescan-claude-projects'),
+
+  // MCP Servers
+  listMcpProjects: (): Promise<string[]> =>
+    ipcRenderer.invoke('list-mcp-projects'),
+  pickProjectPath: (): Promise<string | null> =>
+    ipcRenderer.invoke('pick-project-path'),
+  getMcpServer: (projectPath: string, serverId: string): Promise<McpServerStatus> =>
+    ipcRenderer.invoke('get-mcp-server', projectPath, serverId),
+  installMcpServer: (req: McpInstallRequest): Promise<McpResult> =>
+    ipcRenderer.invoke('install-mcp-server', req),
+  uninstallMcpServer: (projectPath: string, serverId: string): Promise<McpResult> =>
+    ipcRenderer.invoke('uninstall-mcp-server', projectPath, serverId),
 }
 
 contextBridge.exposeInMainWorld('api', api)

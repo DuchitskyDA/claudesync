@@ -238,6 +238,13 @@ export interface AppApi {
    *  them to the registry. Returns the merged list. Existing entries are
    *  preserved. */
   rescanClaudeProjects(): Promise<ClaudeProject[]>
+
+  // MCP Servers
+  listMcpProjects(): Promise<string[]>
+  pickProjectPath(): Promise<string | null>
+  getMcpServer(projectPath: string, serverId: string): Promise<McpServerStatus>
+  installMcpServer(req: McpInstallRequest): Promise<McpResult>
+  uninstallMcpServer(projectPath: string, serverId: string): Promise<McpResult>
 }
 
 declare global {
@@ -319,6 +326,27 @@ export type ApplyPluginChanges = {
   disable: string[]
   envValues: Record<string, string>
 }
+
+// MCP Server types
+export type McpEnvField = { name: string; label: string; secret: boolean; placeholder?: string }
+export type McpServerDef = {
+  id: string
+  name: string
+  description: string
+  docsUrl?: string
+  runtime: 'uv'
+  command: string
+  packageSpec: string
+  env: McpEnvField[]
+}
+export type McpServerStatus = {
+  installed: boolean
+  command: string | null
+  args: string[]
+  env: Record<string, string>
+}
+export type McpInstallRequest = { projectPath: string; serverId: string; env: Record<string, string> }
+export type McpResult = { ok: true } | { ok: false; error: LocalizedMessage }
 
 // v0.4 bidirectional sync types
 
