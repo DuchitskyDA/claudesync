@@ -6,6 +6,7 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Badge } from './ui/badge'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/card'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select'
 import { useT, tMessage } from '../i18n'
 
 function mask(v: string): string {
@@ -136,17 +137,18 @@ export function McpTab() {
 
       <div className="flex items-center gap-2">
         <Label className="shrink-0 text-xs">{t('mcp.project.label')}</Label>
-        <select
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          value={selected ?? ''}
-          onChange={(e) => setSelected(e.target.value)}
-        >
-          {projects.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+        <Select value={selected ?? undefined} onValueChange={setSelected}>
+          <SelectTrigger className="min-w-0 flex-1 font-mono text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {projects.map((p) => (
+              <SelectItem key={p} value={p} className="font-mono text-xs">
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button size="sm" variant="outline" onClick={() => void handleAddFolder()} className="shrink-0">
           {t('mcp.project.add')}
         </Button>
