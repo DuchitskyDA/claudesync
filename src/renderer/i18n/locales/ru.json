@@ -430,5 +430,22 @@
   "conflict.takeTheirs": "Взять удалённое",
   "conflict.discard": "Отменить разруливание",
   "conflict.apply": "Применить",
-  "conflict.commitDefault": "Merge через claudesync"
+  "conflict.commitDefault": "Merge через claudesync",
+  "tabs.mcp": "MCP",
+  "mcp.project.label": "Проект",
+  "mcp.project.add": "Добавить папку…",
+  "mcp.project.none": "В ~/.claude.json пока нет проектов. Добавьте папку, чтобы настроить для неё MCP-сервер.",
+  "mcp.card.connected": "Подключено",
+  "mcp.card.connect": "Подключить",
+  "mcp.card.editTokens": "Изменить токены",
+  "mcp.card.remove": "Удалить",
+  "mcp.card.installing": "Устанавливаю…",
+  "mcp.card.reveal": "Показать",
+  "mcp.card.hide": "Скрыть",
+  "mcp.card.docs": "Документация",
+  "mcp.restart": "Сервер настроен. Перезапустите Claude Code, чтобы изменения вступили в силу.",
+  "mcp.error.unknownServer": "Неизвестный MCP-сервер.",
+  "mcp.error.uvMissing": "Не удалось найти или установить uv (uvx). Установите вручную с https://astral.sh/uv и повторите.",
+  "mcp.error.install": "Ошибка установки: {{reason}}",
+  "mcp.error.uninstall": "Ошибка удаления: {{reason}}"
 }

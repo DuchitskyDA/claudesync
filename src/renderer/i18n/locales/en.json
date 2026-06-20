@@ -416,5 +416,22 @@
   "conflict.takeTheirs": "Take theirs",
   "conflict.discard": "Discard merge state",
   "conflict.apply": "Apply",
-  "conflict.commitDefault": "Merge resolved via claudesync"
+  "conflict.commitDefault": "Merge resolved via claudesync",
+  "tabs.mcp": "MCP",
+  "mcp.project.label": "Project",
+  "mcp.project.add": "Add folder…",
+  "mcp.project.none": "No projects found in ~/.claude.json yet. Add a folder to configure an MCP server for it.",
+  "mcp.card.connected": "Connected",
+  "mcp.card.connect": "Connect",
+  "mcp.card.editTokens": "Edit tokens",
+  "mcp.card.remove": "Remove",
+  "mcp.card.installing": "Installing…",
+  "mcp.card.reveal": "Show",
+  "mcp.card.hide": "Hide",
+  "mcp.card.docs": "Documentation",
+  "mcp.restart": "Server configured. Restart Claude Code for changes to take effect.",
+  "mcp.error.unknownServer": "Unknown MCP server.",
+  "mcp.error.uvMissing": "Could not find or install uv (uvx). Install it manually from https://astral.sh/uv and try again.",
+  "mcp.error.install": "Install failed: {{reason}}",
+  "mcp.error.uninstall": "Remove failed: {{reason}}"
 }

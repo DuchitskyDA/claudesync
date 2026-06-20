@@ -18,10 +18,11 @@ import { Settings } from './components/Settings'
 import { Header } from './components/Header'
 import { Tabs } from './components/Tabs'
 import { PluginsTab } from './components/PluginsTab'
+import { McpTab } from './components/McpTab'
 import { Button } from './components/ui/button'
 import { useT } from './i18n'
 
-type Tab = 'sync' | 'plugins'
+type Tab = 'sync' | 'plugins' | 'mcp'
 
 /** Pixels added to / removed from the OS window when the user toggles the log
  *  footer, so step list / buttons aren't compressed. Matches the visual height
@@ -147,6 +148,7 @@ export function App() {
         tabs={[
           { id: 'sync', label: t('tabs.sync') },
           { id: 'plugins', label: t('tabs.plugins') },
+          { id: 'mcp', label: t('tabs.mcp') },
         ]}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -219,9 +221,13 @@ export function App() {
               </>
             )}
           </>
-        ) : (
+        ) : tab === 'plugins' ? (
           <div className="flex-1 overflow-auto">
             <PluginsTab />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <McpTab />
           </div>
         )}
       </div>
