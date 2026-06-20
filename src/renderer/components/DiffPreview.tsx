@@ -3,9 +3,10 @@ import { lineDiff, isProbablyBinary } from '../lib/diff'
 import { useT } from '../i18n'
 import { cn } from '@/lib/utils'
 
-/** Max combined bytes of both sides before we skip rendering a diff. Mirrors
- *  ThreeWayDiff's cap so a huge file can't freeze the renderer. */
-const MAX_DIFF_BYTES = 500 * 1024
+/** Max combined length (UTF-16 code units, a cheap proxy for size) of both
+ *  sides before we skip the O(n·m) diff so a huge file can't freeze the
+ *  renderer. Mirrors ThreeWayDiff's cap. */
+const MAX_DIFF_CHARS = 500 * 1024
 
 type Props = {
   /** Local ("mine") version — the diff's new side (green `+`). */
@@ -26,9 +27,9 @@ export function DiffPreview({ mine, theirs }: Props) {
     return <Notice>{t('conflict.diff.binary')}</Notice>
   }
 
-  const totalBytes = mine.length + theirs.length
-  if (totalBytes > MAX_DIFF_BYTES) {
-    return <Notice>{t('conflict.diff.tooLarge', { size: Math.round(totalBytes / 1024) })}</Notice>
+  const totalChars = mine.length + theirs.length
+  if (totalChars > MAX_DIFF_CHARS) {
+    return <Notice>{t('conflict.diff.tooLarge', { size: Math.round(totalChars / 1024) })}</Notice>
   }
 
   const rows = lineDiff(theirs, mine)

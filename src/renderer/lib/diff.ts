@@ -9,8 +9,8 @@ function splitLines(text: string): string[] {
 /**
  * Line-level unified diff between `oldText` and `newText` using the classic
  * longest-common-subsequence DP. Unchanged lines are `context`, lines only in
- * `oldText` are `del`, lines only in `newText` are `add`. At a divergence,
- * deletions are emitted before additions.
+ * `oldText` are `del`, lines only in `newText` are `add`. Ties between an
+ * equally-optimal deletion and addition favour the deletion first.
  *
  * O(n·m) time and memory — callers must cap input size before calling.
  */

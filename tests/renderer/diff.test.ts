@@ -59,6 +59,32 @@ describe('lineDiff', () => {
   it('returns nothing for two empty inputs', () => {
     expect(lineDiff('', '')).toEqual([])
   })
+
+  it('treats a trailing newline difference as a trailing empty line', () => {
+    expect(lineDiff('a\nb\n', 'a\nb')).toEqual([
+      { type: 'context', text: 'a' },
+      { type: 'context', text: 'b' },
+      { type: 'del', text: '' },
+    ])
+  })
+
+  it('reconstructs both sides for tricky inputs (repeats, inserts, deletes)', () => {
+    const split = (s: string): string[] => (s === '' ? [] : s.split('\n'))
+    const cases: [string, string][] = [
+      ['a\na\nb', 'a\nb\na'],
+      ['x\ny\nz', 'y'],
+      ['', 'a\nb\nc'],
+      ['a\nb\nc', ''],
+      ['a\nb\n', 'a\nb'],
+      ['one\ntwo\nthree', 'one\ntwo\nthree'],
+    ]
+    for (const [oldText, newText] of cases) {
+      const rows = lineDiff(oldText, newText)
+      // context+del, in order, must rebuild the old side; context+add the new.
+      expect(rows.filter((r) => r.type !== 'add').map((r) => r.text)).toEqual(split(oldText))
+      expect(rows.filter((r) => r.type !== 'del').map((r) => r.text)).toEqual(split(newText))
+    }
+  })
 })
 
 describe('isProbablyBinary', () => {
