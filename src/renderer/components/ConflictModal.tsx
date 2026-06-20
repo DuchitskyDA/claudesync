@@ -8,6 +8,7 @@ import {
   DialogDescription,
 } from './ui/dialog'
 import { Button } from './ui/button'
+import { DiffPreview } from './DiffPreview'
 import { useT } from '../i18n'
 
 type Props = {
@@ -58,6 +59,8 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
 
   // choices: path -> 'mine' | 'theirs'
   const [choices, setChoices] = useState<Record<string, 'mine' | 'theirs'>>({})
+  // per-file expanded diff preview
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const loadState = async () => {
     setLoading(true)
@@ -78,6 +81,7 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
     } else {
       setState(null)
       setChoices({})
+      setExpanded({})
       setError(null)
       setCommitMessage(t('conflict.commitDefault'))
     }
@@ -201,7 +205,22 @@ export function ConflictModal({ open, onClose, onContinued }: Props) {
                     >
                       {t('conflict.takeTheirs')}
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto"
+                      onClick={() =>
+                        setExpanded((e) => ({ ...e, [f.repoPath]: !e[f.repoPath] }))
+                      }
+                    >
+                      {expanded[f.repoPath] ? t('conflict.diff.hide') : t('conflict.diff.show')}
+                    </Button>
                   </div>
+                  {expanded[f.repoPath] && (
+                    <div className="mt-2">
+                      <DiffPreview mine={mine} theirs={theirs} />
+                    </div>
+                  )}
                   {choice && (
                     <div className="mt-2 max-h-40 overflow-auto rounded border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground whitespace-pre-wrap">
                       {(choice === 'mine' ? mine : theirs) || '(empty)'}
